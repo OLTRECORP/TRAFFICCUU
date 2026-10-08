@@ -1,0 +1,1601 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>Tráfico Chihuahua · Neón</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root{ --bg:#1E1E24; --ink:#EDEDF5; --mute:#8B8BA3; --cian:#00F0FF; --mag:#FF2BD6; --amb:#FFB800; --red:#FF2240; }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%;background:var(--bg);color:var(--ink);font-family:'Space Grotesk',system-ui,-apple-system,'Segoe UI',sans-serif;overflow:hidden;user-select:none;-webkit-user-select:none}
+  canvas#c{position:fixed;inset:0;width:100vw;height:100vh;display:block;touch-action:none;cursor:crosshair}
+  canvas#c.pan{cursor:grab}
+  .hidden{display:none!important}
+
+  /* ---------- HUD (texto minimalista, sin bordes) ---------- */
+  #tl{position:fixed;top:18px;left:22px;pointer-events:none}
+  #cityLbl{font-size:11px;letter-spacing:.34em;color:var(--mute);text-transform:uppercase}
+  #waveLbl{font-size:22px;font-weight:600;letter-spacing:.08em;margin-top:2px}
+  #waveLbl small{font-size:12px;font-weight:400;color:var(--mute);letter-spacing:.1em;margin-left:8px}
+  #waveBar{width:160px;height:2px;background:rgba(255,255,255,.1);margin-top:8px;border-radius:2px;overflow:hidden}
+  #waveBar i{display:block;height:100%;width:0;background:linear-gradient(90deg,var(--cian),var(--mag));box-shadow:0 0 8px var(--cian)}
+  #weatherLbl{font-size:11px;letter-spacing:.2em;color:var(--amb);margin-top:8px;text-transform:uppercase;min-height:14px}
+  #tr{position:fixed;top:6px;right:26px;text-align:right;pointer-events:none}
+  #scoreNum{font-size:84px;font-weight:300;line-height:1;letter-spacing:-.02em;text-shadow:0 0 22px rgba(0,240,255,.45),0 0 2px rgba(255,255,255,.6);font-variant-numeric:tabular-nums;transition:transform .14s ease-out;transform-origin:right center}
+  #scoreNum.bump{transform:scale(1.09)}
+  .lbl{font-size:10px;letter-spacing:.36em;color:var(--mute);text-transform:uppercase}
+  #bestLbl{margin-top:4px;font-size:10px;letter-spacing:.24em;color:rgba(255,255,255,.35)}
+
+  #dock{position:fixed;bottom:16px;left:50%;transform:translateX(-50%);display:flex;gap:2px;align-items:center;background:rgba(18,18,24,.55);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);padding:6px;border-radius:16px;max-width:calc(100vw - 16px);overflow-x:auto;z-index:3}
+  .db{background:transparent;border:0;color:var(--ink);font:inherit;font-size:12px;padding:8px 11px;border-radius:11px;cursor:pointer;display:flex;align-items:center;gap:7px;letter-spacing:.04em;opacity:.72;white-space:nowrap;transition:opacity .15s,background .15s}
+  .db:hover{opacity:1;background:rgba(255,255,255,.06)}
+  .db.on{opacity:1;background:rgba(0,240,255,.12);box-shadow:inset 0 0 0 1px rgba(0,240,255,.35)}
+  .db b{font-weight:600;font-variant-numeric:tabular-nums;color:var(--cian)}
+  .db.info{cursor:default}
+  .db.info:hover{background:transparent;opacity:.72}
+  .db kbd{font:inherit;font-size:9px;color:var(--mute);opacity:.8}
+  .sep{width:1px;height:22px;background:rgba(255,255,255,.1);margin:0 4px;flex:none}
+  #hint{position:fixed;bottom:74px;left:50%;transform:translateX(-50%);font-size:11px;color:var(--mute);pointer-events:none;transition:opacity 1.2s;white-space:nowrap;letter-spacing:.04em}
+  #toast{position:fixed;top:24px;left:50%;transform:translate(-50%,-10px);opacity:0;transition:.25s;font-size:13px;letter-spacing:.05em;padding:9px 20px;border-radius:22px;background:rgba(18,18,26,.72);backdrop-filter:blur(6px);pointer-events:none;text-align:center;max-width:min(640px,80vw);z-index:8}
+  #toast.show{opacity:1;transform:translate(-50%,0)}
+  #toast.warn{color:#ffd0d6;box-shadow:0 0 0 1px rgba(255,34,64,.5),0 0 24px rgba(255,34,64,.25)}
+
+  /* ---------- Popup del vehículo ---------- */
+  #popup{position:fixed;width:262px;background:rgba(16,16,24,.9);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);border-radius:14px;padding:12px 14px 12px;font-size:12px;box-shadow:0 12px 40px rgba(0,0,0,.55),0 0 0 1px rgba(255,255,255,.06),0 0 26px var(--glow,rgba(0,240,255,.15));z-index:5}
+  #popup .hd{display:flex;align-items:center;gap:8px;font-size:14px;font-weight:600;margin-bottom:6px}
+  #popup .hd small{font-weight:400;color:var(--mute);font-size:11px;margin-left:auto}
+  .sw{width:10px;height:10px;border-radius:3px;display:inline-block;flex:none;box-shadow:0 0 8px currentColor}
+  #popup .row{display:flex;justify-content:space-between;gap:10px;padding:2.5px 0;color:var(--mute)}
+  #popup .row b{color:var(--ink);font-weight:500;text-align:right}
+  #popup .btns{display:flex;gap:6px;margin-top:10px}
+  .pbtn{flex:1;border:0;border-radius:9px;padding:8px 6px;font:inherit;font-size:11.5px;cursor:pointer;background:rgba(255,255,255,.08);color:var(--ink)}
+  .pbtn:hover{background:rgba(255,255,255,.14)}
+  .pbtn.main{background:var(--c,#00F0FF);color:#0a0a10;font-weight:600}
+  .pbtn.x{flex:0 0 34px}
+
+  /* ---------- Panel de estadísticas ---------- */
+  #stats{position:fixed;top:0;right:0;height:100%;width:400px;max-width:100vw;background:rgba(14,14,20,.94);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);transform:translateX(105%);transition:transform .3s ease;z-index:6;padding:22px 22px 90px;overflow-y:auto;font-size:12px}
+  #stats.open{transform:none}
+  #stats h2{font-size:12px;letter-spacing:.32em;text-transform:uppercase;color:var(--mute);font-weight:500;margin:22px 0 10px}
+  #stats h2:first-of-type{margin-top:4px}
+  #stats .close{position:absolute;top:14px;right:14px;background:transparent;border:0;color:var(--mute);font-size:18px;cursor:pointer}
+  .kpis{display:grid;grid-template-columns:repeat(3,1fr);gap:12px 8px}
+  .kpi b{display:block;font-size:22px;font-weight:500;font-variant-numeric:tabular-nums}
+  .kpi span{font-size:10px;letter-spacing:.12em;color:var(--mute);text-transform:uppercase}
+  table.t{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums}
+  table.t th{font-weight:400;font-size:10px;letter-spacing:.1em;color:var(--mute);text-align:right;padding:4px 4px;text-transform:uppercase}
+  table.t th:first-child,table.t td:first-child{text-align:left}
+  table.t td{padding:5px 4px;text-align:right;border-top:1px solid rgba(255,255,255,.05)}
+  .chart{width:100%;height:130px;display:block}
+  .legend{display:flex;gap:14px;font-size:10.5px;color:var(--mute);margin-top:4px}
+  .legend i{display:inline-block;width:12px;height:2px;vertical-align:middle;margin-right:5px}
+
+  /* ---------- Pantallas ---------- */
+  .screen{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;flex-direction:column;background:radial-gradient(ellipse at center,rgba(30,30,40,.55),rgba(8,8,12,.93));z-index:10;text-align:center;padding:24px;gap:16px;overflow-y:auto}
+  h1.title{font-size:clamp(40px,8vw,96px);font-weight:700;margin:0;letter-spacing:.02em;line-height:.92;background:linear-gradient(90deg,var(--cian),var(--mag) 55%,var(--amb));-webkit-background-clip:text;background-clip:text;color:transparent;filter:drop-shadow(0 0 24px rgba(255,43,214,.35))}
+  .sub{letter-spacing:.55em;font-size:12px;color:var(--mute);text-transform:uppercase;margin-top:-4px}
+  .cities{display:flex;gap:10px;flex-wrap:wrap;justify-content:center}
+  .city-b{background:rgba(255,255,255,.04);border:0;color:var(--ink);font:inherit;padding:12px 22px;border-radius:14px;cursor:pointer;text-align:left;box-shadow:inset 0 0 0 1px rgba(255,255,255,.08);transition:.15s}
+  .city-b.on{box-shadow:inset 0 0 0 1.5px var(--cian),0 0 24px rgba(0,240,255,.2)}
+  .city-b b{display:block;font-size:16px;font-weight:600}
+  .city-b small{color:var(--mute);font-size:11px}
+  .play{border:0;font:inherit;font-weight:600;font-size:17px;letter-spacing:.32em;padding:16px 56px;border-radius:40px;cursor:pointer;color:#0a0a10;background:linear-gradient(90deg,var(--cian),var(--mag));box-shadow:0 0 30px rgba(0,240,255,.35),0 0 60px rgba(255,43,214,.25);transition:transform .15s;text-transform:uppercase}
+  .play:hover{transform:scale(1.05)}
+  .ghost{border:0;font:inherit;font-size:13px;letter-spacing:.2em;padding:12px 26px;border-radius:40px;cursor:pointer;color:var(--ink);background:rgba(255,255,255,.07);text-transform:uppercase}
+  .ghost:hover{background:rgba(255,255,255,.12)}
+  .how{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px 24px;max-width:860px;text-align:left;font-size:12.5px;color:#b5b5c9;line-height:1.5}
+  .how b{color:var(--ink);font-weight:600}
+  .credit{font-size:10px;letter-spacing:.3em;color:rgba(255,255,255,.3);text-transform:uppercase}
+  #overScreen{background:radial-gradient(ellipse at center,rgba(20,8,14,.86),rgba(8,8,12,.95))}
+  #overScore{font-size:clamp(64px,12vw,120px);font-weight:300;line-height:1;text-shadow:0 0 30px rgba(255,34,64,.45)}
+  #overWhy{color:#ffb3bf;letter-spacing:.06em}
+  .ogrid{display:grid;grid-template-columns:repeat(3,minmax(110px,1fr));gap:14px 26px;max-width:560px}
+  .ogrid div b{display:block;font-size:20px;font-weight:500}
+  .ogrid div span{font-size:10px;letter-spacing:.14em;color:var(--mute);text-transform:uppercase}
+  .row-btns{display:flex;gap:10px;flex-wrap:wrap;justify-content:center}
+
+  #pauseScreen{position:fixed;top:78px;left:50%;transform:translateX(-50%);display:flex;align-items:center;gap:12px;padding:10px 12px 10px 18px;border-radius:16px;background:rgba(16,16,24,.85);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);box-shadow:0 0 0 1px rgba(0,240,255,.35),0 0 30px rgba(0,240,255,.18);z-index:7;max-width:calc(100vw - 24px)}
+  #pauseScreen b{display:block;font-size:15px;letter-spacing:.3em;background:linear-gradient(90deg,var(--cian),var(--mag));-webkit-background-clip:text;background-clip:text;color:transparent}
+  #pauseScreen span{font-size:11.5px;color:var(--mute)}
+  #pauseScreen .pbtn{flex:none;padding:9px 14px;--c:#00F0FF}
+  body.paused canvas#c{box-shadow:inset 0 0 0 2px rgba(0,240,255,.35)}
+  /* ---------- Vista primera persona ---------- */
+  #fpvUi{position:fixed;bottom:18px;left:50%;transform:translateX(-50%);display:flex;gap:8px;z-index:4}
+  #fpvUi .pbtn{flex:none;padding:10px 16px;background:rgba(18,18,26,.75);backdrop-filter:blur(6px)}
+
+  @media (max-width:640px){
+    #scoreNum{font-size:56px}
+    #tl{top:12px;left:14px}
+    #waveLbl{font-size:18px}
+    .db{padding:8px 8px;font-size:11px}
+    .db kbd{display:none}
+    #hint{display:none}
+    .ogrid{grid-template-columns:repeat(2,1fr)}
+  }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+
+<div id="tl" class="hidden">
+  <div id="cityLbl">Chihuahua</div>
+  <div id="waveLbl">OLA 1<small id="timeLbl">0:00</small></div>
+  <div id="waveBar"><i></i></div>
+  <div id="weatherLbl"></div>
+</div>
+<div id="tr" class="hidden">
+  <div id="scoreNum">0</div>
+  <div class="lbl">Entregas</div>
+  <div id="bestLbl">Récord 0</div>
+</div>
+
+<div id="dock" class="hidden">
+  <button class="db on" data-tool="road" title="Dibuja carreteras (1)">Carretera <b id="invRoad">0</b><kbd>1</kbd></button>
+  <button class="db info" title="Se usan automáticamente al cruzar el río">Puentes <b id="invBridge">0</b></button>
+  <button class="db" data-tool="glorieta" title="Colócala en un cruce de 3 o más vías (2)">Glorieta <b id="invRound">0</b><kbd>2</kbd></button>
+  <button class="db" data-tool="erase" title="Borra tramos arrastrando (3)">Borrar<kbd>3</kbd></button>
+  <span class="sep"></span>
+  <button class="db" id="btnPause" title="Pausa (P)">⏸</button>
+  <button class="db on" id="btnNormal" title="Velocidad normal (tecla ,)">▶ Normal</button>
+  <button class="db" id="btnFast" title="Acelerar el tiempo: 2x, 3x, 4x (tecla .)">⏩ Rápido <b id="fastLbl">2x</b></button>
+  <button class="db" id="btnStats" title="Estadísticas (T)">📊 Stats</button>
+  <button class="db" id="btnSound" title="Sonido">🔊</button>
+  <button class="db" id="btnFit" title="Ver todo (F)">⤢</button>
+</div>
+<div id="hint" class="hidden">Arrastra para trazar · clic derecho o doble clic borra · rueda = zoom · espacio + arrastrar = mover · clic en un auto para ver detalles</div>
+<div id="toast"></div>
+
+<div id="popup" class="hidden">
+  <div class="hd"><span class="sw" id="pSw"></span><span id="pTitle">Sedán</span><small id="pId">#1</small></div>
+  <div class="row"><span>Origen</span><b id="pFrom">—</b></div>
+  <div class="row"><span>Destino</span><b id="pTo">—</b></div>
+  <div class="row"><span>Estado</span><b id="pState">—</b></div>
+  <div class="row"><span>Velocidad</span><b id="pSpeed">—</b></div>
+  <div class="row"><span>Tiempo de viaje</span><b id="pTrip">—</b></div>
+  <div class="row"><span>Llegada estimada</span><b id="pEta">—</b></div>
+  <div class="row"><span>Promedio de su color</span><b id="pAvg">—</b></div>
+  <div class="row"><span>Tiempo detenido</span><b id="pWait">—</b></div>
+  <div class="btns">
+    <button class="pbtn main" data-act="fpv">👁 Primera persona</button>
+    <button class="pbtn" data-act="follow" id="pFollow">🎥 Seguir</button>
+    <button class="pbtn x" data-act="close">✕</button>
+  </div>
+</div>
+
+<div id="stats">
+  <button class="close" id="statsClose">✕</button>
+  <h2>Tráfico en vivo</h2>
+  <div class="kpis" id="kpis"></div>
+  <h2>Congestión</h2>
+  <canvas class="chart" id="chartLine"></canvas>
+  <div class="legend"><span><i style="background:#FF2BD6"></i>Congestión %</span><span><i style="background:#00F0FF"></i>Autos en circulación</span></div>
+  <h2>Tiempo medio de llegada por color</h2>
+  <canvas class="chart" id="chartBars"></canvas>
+  <h2>Por color</h2>
+  <table class="t" id="tColor"></table>
+  <h2>Por categoría de vehículo</h2>
+  <table class="t" id="tCat"></table>
+</div>
+
+<div id="fpvUi" class="hidden">
+  <button class="pbtn" id="fpvPrev">⟲ Anterior</button>
+  <button class="pbtn" id="fpvExit">✕ Salir de primera persona <span style="opacity:.6">(Esc)</span></button>
+  <button class="pbtn" id="fpvSpeed">▶ 1x</button>
+  <button class="pbtn" id="fpvNext">Siguiente ⟳ <span style="opacity:.6">(Tab)</span></button>
+</div>
+
+<!-- Pantalla de inicio -->
+<div class="screen" id="startScreen">
+  <div class="sub">control vial · neón</div>
+  <h1 class="title">TRÁFICO<br>CHIHUAHUA</h1>
+  <div class="cities">
+    <button class="city-b on" data-city="chihuahua"><b>Chihuahua</b><small>Normal · tormentas · Río Chuvíscar</small></button>
+    <button class="city-b" data-city="juarez"><b>Ciudad Juárez</b><small>Difícil · tolvaneras · Río Bravo</small></button>
+  </div>
+  <div class="how">
+    <div><b>Traza carreteras</b> arrastrando sobre la cuadrícula. Cada tramo gasta 1 de tu inventario. Cruzar el río consume un <b>puente</b>.</div>
+    <div><b>Colonias</b> (círculos) mandan autos a los <b>destinos</b> (cuadrados) de su mismo color.</div>
+    <div>Cada destino tiene un <b>anillo de estrés</b>. Si se llena, parpadea en rojo y tienes unos segundos antes del <b>colapso vial</b>.</div>
+    <div>Cada <b>30 s</b> llega una nueva ola: más demanda, nuevas colonias y destinos. Clic en un auto para seguirlo o verlo en <b>primera persona</b>. Usa <b>⏩ Rápido</b> para acelerar el tiempo.</div>
+  </div>
+  <button class="play" id="playBtn">Jugar</button>
+  <div class="credit" id="startBest">Récord 0</div>
+  <div class="credit">Tráfico Chihuahua · by MAFT</div>
+</div>
+
+<!-- Pausa -->
+<!-- Pausa: barra no bloqueante, se puede seguir construyendo y borrando -->
+<div class="hidden" id="pauseScreen">
+  <div><b>PAUSA</b><span>El tráfico está detenido. Construye, borra y reordena tus calles sin prisa.</span></div>
+  <button class="pbtn main" id="resumeBtn">▶ Continuar</button>
+  <button class="pbtn" id="pauseMenuBtn">Menú</button>
+</div>
+
+<!-- Game Over -->
+<div class="screen hidden" id="overScreen">
+  <div class="sub">colapso vial</div>
+  <div id="overScore">0</div>
+  <div class="lbl">entregas</div>
+  <div id="overWhy"></div>
+  <div class="ogrid" id="overGrid"></div>
+  <div class="row-btns">
+    <button class="play" id="restartBtn">Reiniciar</button>
+    <button class="ghost" id="menuBtn">Cambiar ciudad</button>
+  </div>
+</div>
+
+<script>
+(()=>{
+"use strict";
+
+/* =====================================================================
+   CONFIGURACIÓN
+   ===================================================================== */
+const $=id=>document.getElementById(id);
+const cv=$('c'), ctx=cv.getContext('2d');
+let W=0,H=0,DPR=1;
+function resize(){ DPR=Math.min(2,window.devicePixelRatio||1); W=innerWidth; H=innerHeight; cv.width=Math.round(W*DPR); cv.height=Math.round(H*DPR); }
+addEventListener('resize',resize); resize();
+
+const CELL=32, COLS=64, ROWS=40, WW=COLS*CELL, WH=ROWS*CELL;
+const T_RIVER=1, T_HILL=2, TAU=Math.PI*2;
+const BASE_V=58;          // px/s velocidad base de un auto
+const LANE=4.6;           // desplazamiento de carril (doble sentido, se circula por la derecha)
+const NEAR=1.2;           // plano cercano de la vista 1ª persona
+const M_PER_PX=0.222;     // escala para mostrar metros / km/h
+const WAVE_SEC=30, CRIT_GRACE=8, MAX_PENDING=9, HOUSE_CARS=2;
+
+const PALETTE=[
+  {k:'cian',name:'Cian',hex:'#00F0FF'},
+  {k:'magenta',name:'Magenta',hex:'#FF2BD6'},
+  {k:'ambar',name:'Ámbar',hex:'#FFB800'},
+  {k:'lima',name:'Lima',hex:'#7CFF4F'},
+  {k:'violeta',name:'Violeta',hex:'#9D7BFF'},
+  {k:'naranja',name:'Naranja',hex:'#FF7A1A'},
+];
+// Categorías de vehículo: cada una con su velocidad y tamaño
+const CATS=[
+  {k:'sedan', name:'Sedán',  mul:1.00,w:.50,len:11,wid:6},
+  {k:'pickup',name:'Pickup', mul:0.93,w:.25,len:12.5,wid:6.4},
+  {k:'camion',name:'Camión', mul:0.78,w:.13,len:16,wid:7},
+  {k:'moto',  name:'Moto',   mul:1.16,w:.12,len:7,wid:3.4},
+];
+const CITIES={
+  chihuahua:{name:'Chihuahua',weather:'tormenta',demand:1,stress:1,river:'Río Chuvíscar',
+    hills:['Cerro Grande','Cerro Coronel','Cerro El Pilar','Cerro Santa Rosa','Sierra Nombre de Dios'],
+    dests:[{n:'Catedral',t:'iglesia'},{n:'Plaza de Toros',t:'toros'},{n:'Quinta Gameros',t:'museo'},{n:'UACH',t:'universidad'},{n:'Plaza de las Américas',t:'mall'},{n:'Hospital General',t:'hospital'},{n:'Mercado Juárez',t:'mercado'},{n:'Central de Autobuses',t:'bus'},{n:'Aeropuerto R. Fierro',t:'aeropuerto'},{n:'Museo Casa Chihuahua',t:'museo'},{n:'Parque El Palomar',t:'parque'},{n:'Sendero Chihuahua',t:'mall'}],
+    cols:['Santo Niño','Campestre','Santa Rita','San Felipe','Centro Sur','Panamericana','Nombre de Dios','Obrera','Cerro de la Cruz','Villa Juárez','Pacífico','Tierra Nueva','Junta de los Ríos','Riberas','Dale','Infonavit Nacional','Las Granjas','Quintas del Sol','Cumbres','Mármol','Rosario','Los Pinos','Altavista','San Rafael']},
+  juarez:{name:'Ciudad Juárez',weather:'tolvanera',demand:1.15,stress:1.12,river:'Río Bravo',
+    hills:['Cerro Bola','Sierra de Juárez','Cerro del Indio','Cerro Chino','Cerro de la Biblia'],
+    dests:[{n:'Catedral de Juárez',t:'iglesia'},{n:'Estadio Olímpico',t:'estadio'},{n:'Museo de la Revolución',t:'museo'},{n:'UACJ',t:'universidad'},{n:'Las Misiones',t:'mall'},{n:'Hospital General',t:'hospital'},{n:'Mercado Cuauhtémoc',t:'mercado'},{n:'Central Camionera',t:'bus'},{n:'Aeropuerto A. González',t:'aeropuerto'},{n:'Monumento a Juárez',t:'monumento'},{n:'Parque Central',t:'parque'},{n:'Plaza Sendero',t:'mall'}],
+    cols:['Chaveña','Campos Elíseos','Bella Vista','Salvárcar','Satélite','Melchor Ocampo','Zaragoza','Progreso','Anapra','Los Alcaldes','Altavista','Partido Romero','Senderos','Independencia','Riberas del Bravo','Juárez Nuevo','Galeana','El Mezquital','Aztecas','Infonavit Casas Grandes','Praderas','Valle del Sol']},
+};
+
+/* =====================================================================
+   UTILIDADES
+   ===================================================================== */
+const rnd=(a,b)=>a+Math.random()*(b-a), rint=(a,b)=>Math.floor(rnd(a,b+1));
+const clamp=(v,a,b)=>v<a?a:v>b?b:v;
+const col=id=>id%COLS, row=id=>(id/COLS)|0, cid=(c,r)=>r*COLS+c, inGrid=(c,r)=>c>=0&&r>=0&&c<COLS&&r<ROWS;
+const ccx=id=>(id%COLS+.5)*CELL, ccy=id=>(((id/COLS)|0)+.5)*CELL;
+function shuffle(a){ a=a.slice(); for(let i=a.length-1;i>0;i--){ const j=Math.floor(Math.random()*(i+1)); [a[i],a[j]]=[a[j],a[i]]; } return a; }
+function angDiff(a,b){ let d=b-a; while(d>Math.PI) d-=TAU; while(d<-Math.PI) d+=TAU; return d; }
+const rgbCache={};
+function hexRgb(h){ if(rgbCache[h]) return rgbCache[h]; const n=parseInt(h.slice(1),16); return rgbCache[h]=[(n>>16)&255,(n>>8)&255,n&255]; }
+function rgba(h,a){ const c=hexRgb(h); return `rgba(${c[0]},${c[1]},${c[2]},${a})`; }
+function mixHex(h1,h2,t){ const a=hexRgb(h1), b=hexRgb(h2); return `rgb(${Math.round(a[0]+(b[0]-a[0])*t)},${Math.round(a[1]+(b[1]-a[1])*t)},${Math.round(a[2]+(b[2]-a[2])*t)})`; }
+function fmtT(s){ return isFinite(s)&&s>0 ? s.toFixed(1)+' s' : '—'; }
+function fmtClock(s){ const m=Math.floor(s/60), x=Math.floor(s%60); return m+':'+String(x).padStart(2,'0'); }
+function rrect(c,x,y,w,h,r){ c.beginPath(); c.moveTo(x+r,y); c.arcTo(x+w,y,x+w,y+h,r); c.arcTo(x+w,y+h,x,y+h,r); c.arcTo(x,y+h,x,y,r); c.arcTo(x,y,x+w,y,r); c.closePath(); }
+function segDist(px,py,ax,ay,bx,by){ const dx=bx-ax, dy=by-ay, l=dx*dx+dy*dy; let t=l?((px-ax)*dx+(py-ay)*dy)/l:0; t=clamp(t,0,1); return Math.hypot(px-ax-dx*t,py-ay-dy*t); }
+function lsGet(k,d){ try{ const v=localStorage.getItem(k); return v==null?d:+v; }catch(e){ return d; } }
+function lsSet(k,v){ try{ localStorage.setItem(k,String(v)); }catch(e){} }
+
+// Sprites de resplandor pre-renderizados (mucho más baratos que shadowBlur)
+const glowCache={};
+function glowSprite(hex){
+  if(glowCache[hex]) return glowCache[hex];
+  const s=128, c=document.createElement('canvas'); c.width=c.height=s; const g=c.getContext('2d');
+  const gr=g.createRadialGradient(s/2,s/2,0,s/2,s/2,s/2);
+  gr.addColorStop(0,rgba(hex,.55)); gr.addColorStop(.3,rgba(hex,.2)); gr.addColorStop(1,rgba(hex,0));
+  g.fillStyle=gr; g.fillRect(0,0,s,s); return glowCache[hex]=c;
+}
+function glow(hex,x,y,r,a){ ctx.globalAlpha=a; ctx.drawImage(glowSprite(hex),x-r,y-r,r*2,r*2); ctx.globalAlpha=1; }
+
+/* =====================================================================
+   SONIDO (WebAudio, sin archivos externos)
+   ===================================================================== */
+const Sound=(()=>{
+  let ac=null, master=null, muted=false, musicT=null, chord=0;
+  function init(){ try{ if(!ac){ ac=new (window.AudioContext||window.webkitAudioContext)(); master=ac.createGain(); master.gain.value=muted?0:.7; master.connect(ac.destination); music(); } if(ac.state==='suspended') ac.resume(); }catch(e){ ac=null; } }
+  function tone(f,d,type,v,delay){ if(!ac||muted) return; try{ const t=ac.currentTime+(delay||0), o=ac.createOscillator(), g=ac.createGain(); o.type=type||'sine'; o.frequency.setValueAtTime(f,t); g.gain.setValueAtTime(.0001,t); g.gain.linearRampToValueAtTime(v,t+.012); g.gain.exponentialRampToValueAtTime(.0001,t+d); o.connect(g); g.connect(master); o.start(t); o.stop(t+d+.05); }catch(e){} }
+  const PENTA=[523.3,587.3,659.3,784,880,1046.5];
+  function music(){ if(musicT) return; const CH=[[110,164.8,220],[98,146.8,196],[87.3,130.8,174.6],[98,146.8,207.7]]; musicT=setInterval(()=>{ if(!ac||muted) return; CH[chord++%CH.length].forEach((f,i)=>tone(f,3.4,'sine',.018,i*.03)); },3300); }
+  return {
+    init,
+    deliver(i){ tone(PENTA[i%PENTA.length],.16,'triangle',.07); tone(PENTA[i%PENTA.length]*2,.1,'sine',.025,.04); },
+    build(){ tone(240,.05,'square',.025); },
+    erase(){ tone(150,.09,'sawtooth',.04); },
+    wave(){ [392,523.3,659.3,784].forEach((f,i)=>tone(f,.32,'triangle',.07,i*.08)); },
+    alarm(){ tone(880,.1,'square',.06); tone(660,.12,'square',.05,.12); },
+    over(){ [440,349,262,196].forEach((f,i)=>tone(f,.5,'sawtooth',.06,i*.16)); },
+    click(){ tone(1200,.04,'sine',.04); },
+    setMuted(m){ muted=m; if(master) master.gain.setTargetAtTime(m?0:.7,ac.currentTime,.05); },
+    get muted(){ return muted; }
+  };
+})();
+
+/* =====================================================================
+   ESTADO DEL JUEGO
+   ===================================================================== */
+let G=null;              // estado de la partida
+let state='menu';        // 'menu' | 'play'   (+ G.over para Game Over)
+let paused=false, cityKey='chihuahua', timeScale=1;
+const cam={x:WW/2,y:WH/2,z:.6}, camT={x:WW/2,y:WH/2,z:.6};
+let autoCam=true, follow=false, sel=null;     // sel = auto seleccionado
+let tool='road', preview=[], hoverCell=-1, spaceDown=false;
+
+function newGame(key){
+  cityKey=key; const city=CITIES[key];
+  G={ key, city, terrain:new Uint8Array(COLS*ROWS), bldg:new Map(), roads:new Map(), adj:new Map(), ver:1, strokeSeq:1,
+      glorietas:new Set(), bridges:[], bridgeCells:new Set(), occ:new Map(), pathCache:new Map(),
+      houses:[], dests:[], cars:[], fx:[], rings:[], floaters:[],
+      tramos:45, puentes:2, glorInv:1, score:0, time:0, wave:0, waveT:0, demandMul:1, colorCount:0,
+      bounds:{c0:19,r0:12,c1:44,r1:27}, weather:{on:false,t:rnd(40,60),dur:0,flash:0,ft:0},
+      destNames:shuffle(city.dests), houseNames:shuffle(city.cols), hills:[], riverPts:[],
+      stats:{byColor:{}, byCat:{}, hist:[], hT:0, log:[], waitSum:0},
+      carSeq:1, over:false, overT:0, overDest:null, alarmT:0, sndT:0, hintT:0 };
+  CATS.forEach(c=>G.stats.byCat[c.k]={trips:0,sum:0,dist:0});
+  genTerrain();
+  addColor(); addColor();
+  rebuildGraphics(); updateHouseConn();
+  sel=null; follow=false; autoCam=true; fitTarget(); Object.assign(cam,camT);
+  updateDock();
+}
+
+/* ---------- Terreno: río sinuoso + cerros ---------- */
+function genTerrain(){
+  const x0=COLS/2+rnd(-5,5), ph=rnd(0,TAU);
+  for(let r=0;r<ROWS;r++){
+    const c=Math.round(x0+Math.sin(r*.17+ph)*4.2);
+    for(let k=0;k<2;k++) if(inGrid(c+k,r)) G.terrain[cid(c+k,r)]=T_RIVER;
+    G.riverPts.push({x:(c+1)*CELL,y:(r+.5)*CELL});
+  }
+  const names=shuffle(G.city.hills), n=rint(4,5);
+  for(let i=0;i<n;i++){
+    let c0,r0,t=0;
+    do{ c0=rint(3,COLS-4); r0=rint(3,ROWS-4); t++; }while((G.terrain[cid(c0,r0)]||Math.abs(c0-32)<5&&Math.abs(r0-20)<4)&&t<50);
+    const cells=[cid(c0,r0)], size=rint(5,13);
+    for(let g=0;g<200&&cells.length<size;g++){
+      const b=cells[rint(0,cells.length-1)], d=[[1,0],[-1,0],[0,1],[0,-1]][rint(0,3)], c=col(b)+d[0], r=row(b)+d[1];
+      if(!inGrid(c,r)||c<1||r<1||c>COLS-2||r>ROWS-2) continue; const id=cid(c,r);
+      if(G.terrain[id]||cells.includes(id)) continue; cells.push(id);
+    }
+    cells.forEach(id=>G.terrain[id]=T_HILL);
+    G.hills.push({name:names[i%names.length],x:cells.reduce((s,id)=>s+ccx(id),0)/cells.length,y:cells.reduce((s,id)=>s+ccy(id),0)/cells.length});
+  }
+}
+
+/* ---------- Colocación de colonias y destinos ---------- */
+const isFree=id=>!G.terrain[id]&&!G.bldg.has(id)&&!(G.adj.get(id)&&G.adj.get(id).size);
+function areaClear(c0,r0,c1,r1){ for(let r=r0;r<=r1;r++) for(let c=c0;c<=c1;c++){ if(inGrid(c,r)&&G.bldg.has(cid(c,r))) return false; } return true; }
+function placeDest(pc){
+  const b=G.bounds;
+  for(let t=0;t<500;t++){
+    const c=rint(b.c0+1,b.c1-2), r=rint(b.r0+1,b.r1-2);
+    const cells=[cid(c,r),cid(c+1,r),cid(c,r+1),cid(c+1,r+1)];
+    if(!cells.every(isFree)||!areaClear(c-2,r-2,c+3,r+3)) continue;
+    const x=(c+1)*CELL, y=(r+1)*CELL;
+    if(t<400&&G.dests.some(d=>Math.hypot(d.x-x,d.y-y)<CELL*7)) continue;
+    const d={id:'d'+G.dests.length, pc, color:pc.hex, k:pc.k, cells, cellSet:new Set(cells), x, y,
+      name:G.destNames[G.dests.length%G.destNames.length].n, type:G.destNames[G.dests.length%G.destNames.length].t, pending:0, claimed:0, stress:0, crit:false, critT:0,
+      demandT:rnd(6,9), pop:0, deliv:0, isDest:true};
+    cells.forEach(id=>G.bldg.set(id,d)); G.dests.push(d); return d;
+  }
+  return null;
+}
+function placeHouse(pc,near){
+  const b=G.bounds;
+  for(let t=0;t<500;t++){
+    let c,r;
+    if(near&&t<350){ const a=rnd(0,TAU), dd=rnd(4,11); c=Math.round(near.x/CELL-.5+Math.cos(a)*dd); r=Math.round(near.y/CELL-.5+Math.sin(a)*dd); }
+    else { c=rint(b.c0,b.c1); r=rint(b.r0,b.r1); }
+    if(c<b.c0||c>b.c1||r<b.r0||r>b.r1) continue;
+    const id=cid(c,r); if(!isFree(id)||!areaClear(c-1,r-1,c+1,r+1)) continue;
+    const h={id:'h'+G.houses.length, pc, color:pc.hex, k:pc.k, cell:id, x:ccx(id), y:ccy(id),
+      name:'Col. '+G.houseNames[G.houses.length%G.houseNames.length], carsOut:0, cd:rnd(.3,1.2), connected:false, flash:0, born:G.time};
+    G.bldg.set(id,h); G.houses.push(h); return h;
+  }
+  return null;
+}
+function addColor(){
+  if(G.colorCount>=PALETTE.length) return null;
+  const pc=PALETTE[G.colorCount++];
+  const d=placeDest(pc); if(!d) return null;
+  G.stats.byColor[pc.k]={deliv:0,sum:0,best:Infinity,last:0};
+  placeHouse(pc,d); placeHouse(pc,d);
+  return d;
+}
+
+/* =====================================================================
+   CARRETERAS (grafo sobre la cuadrícula)
+   Nodos = celdas; aristas = tramos entre celdas vecinas (8 direcciones).
+   ===================================================================== */
+const ek=(a,b)=>a<b?a+'_'+b:b+'_'+a;
+const hasRoad=(a,b)=>G.roads.has(ek(a,b));
+function linked(a,b){ if(hasRoad(a,b)) return true; const A=G.bldg.get(a); return !!(A&&A.isDest&&A===G.bldg.get(b)); }
+function deg(id){ const s=G.adj.get(id); return s?s.size:0; }
+const isJunction=id=>deg(id)>=3&&!G.bldg.has(id);
+const capOf=id=>G.glorietas.has(id)?3:1;
+function addRoad(a,b,s){ G.roads.set(ek(a,b),{a,b,s}); if(!G.adj.has(a)) G.adj.set(a,new Set()); if(!G.adj.has(b)) G.adj.set(b,new Set()); G.adj.get(a).add(b); G.adj.get(b).add(a); }
+function delRoad(key){ const e=G.roads.get(key); if(!e) return false; G.roads.delete(key); G.adj.get(e.a)&&G.adj.get(e.a).delete(e.b); G.adj.get(e.b)&&G.adj.get(e.b).delete(e.a); G.tramos++; return true; }
+
+function roadsChanged(){
+  for(const g of [...G.glorietas]) if(deg(g)<3){ G.glorietas.delete(g); G.glorInv++; }
+  G.bridges=G.bridges.filter(br=>{ if([...br.cells].every(c=>deg(c)===0)){ br.cells.forEach(c=>G.bridgeCells.delete(c)); G.puentes++; return false; } return true; });
+  G.ver++; G.pathCache.clear(); rebuildGraphics(); updateHouseConn(); updateDock();
+  if(paused){ for(const c of G.cars) if(!c.dead) revalidate(c); G.cars=G.cars.filter(c=>!c.dead); if(sel&&sel.dead) onSelectedGone(); }   // en pausa, reacomodar autos de inmediato
+}
+
+/* Construye Path2D en coordenadas de mundo para las carreteras.
+   Cada celda dibuja medio tramo hacia cada vecino; si tiene exactamente 2 vecinos
+   usa una curva cuadrática → esquinas redondeadas. */
+function rebuildGraphics(){
+  const p=new Path2D(), br=new Path2D();
+  for(const [id,set] of G.adj){
+    if(!set.size) continue;
+    const x=ccx(id), y=ccy(id), nb=[...set];
+    if(nb.length===2&&!G.bldg.has(id)){
+      p.moveTo((x+ccx(nb[0]))/2,(y+ccy(nb[0]))/2); p.quadraticCurveTo(x,y,(x+ccx(nb[1]))/2,(y+ccy(nb[1]))/2);
+    } else for(const n of nb){ p.moveTo(x,y); p.lineTo((x+ccx(n))/2,(y+ccy(n))/2); }
+    if(G.terrain[id]===T_RIVER) for(const n of nb){ br.moveTo(x,y); br.lineTo((x+ccx(n))/2,(y+ccy(n))/2); }
+  }
+  G.roadPath=p; G.bridgePath=br;
+  if(!G.terrainPaths){
+    const river=new Path2D(), hill=new Path2D(), cont=new Path2D(), grid=new Path2D();
+    for(let r=0;r<ROWS;r++) for(let c=0;c<COLS;c++){
+      const id=cid(c,r), t=G.terrain[id], x=c*CELL, y=r*CELL;
+      if(t===T_RIVER) river.rect(x-.5,y-.5,CELL+1,CELL+1);
+      if(t===T_HILL){
+        hill.rect(x+1,y+1,CELL-2,CELL-2);
+        const nh=(dc,dr)=>inGrid(c+dc,r+dr)&&G.terrain[cid(c+dc,r+dr)]===T_HILL;
+        if(!nh(0,-1)){ cont.moveTo(x,y); cont.lineTo(x+CELL,y); }
+        if(!nh(0,1)){ cont.moveTo(x,y+CELL); cont.lineTo(x+CELL,y+CELL); }
+        if(!nh(-1,0)){ cont.moveTo(x,y); cont.lineTo(x,y+CELL); }
+        if(!nh(1,0)){ cont.moveTo(x+CELL,y); cont.lineTo(x+CELL,y+CELL); }
+      }
+    }
+    for(let c=0;c<=COLS;c++){ grid.moveTo(c*CELL,0); grid.lineTo(c*CELL,WH); }
+    for(let r=0;r<=ROWS;r++){ grid.moveTo(0,r*CELL); grid.lineTo(WW,r*CELL); }
+    const rl=new Path2D(); G.riverPts.forEach((p,i)=>i?rl.lineTo(p.x,p.y):rl.moveTo(p.x,p.y));
+    G.terrainPaths={river,hill,cont,grid,riverLine:rl};
+  }
+}
+
+/* =====================================================================
+   PATHFINDING — A* sobre el grafo de carreteras
+   - Coste = longitud del tramo (1 o √2) + penalización en cruces
+     (los cruces sin glorieta cuestan más, así los autos prefieren vías limpias).
+   - Los edificios son terminales: un auto no puede "atravesar" una colonia
+     ni un destino, sólo salir de su origen o llegar a su meta.
+   - Resultados cacheados por (inicio→meta) e invalidados con G.ver
+     cada vez que la red cambia.
+   ===================================================================== */
+class Heap{ constructor(){ this.k=[]; this.v=[]; }
+  get size(){ return this.k.length; }
+  push(v,p){ const k=this.k, a=this.v; k.push(p); a.push(v); let i=k.length-1; while(i>0){ const j=(i-1)>>1; if(k[j]<=k[i]) break; [k[i],k[j]]=[k[j],k[i]]; [a[i],a[j]]=[a[j],a[i]]; i=j; } }
+  pop(){ const k=this.k, a=this.v, top=a[0], lk=k.pop(), lv=a.pop(); if(k.length){ k[0]=lk; a[0]=lv; let i=0; for(;;){ const l=2*i+1, r=l+1; let m=i; if(l<k.length&&k[l]<k[m]) m=l; if(r<k.length&&k[r]<k[m]) m=r; if(m===i) break; [k[i],k[m]]=[k[m],k[i]]; [a[i],a[m]]=[a[m],a[i]]; i=m; } } return top; }
+}
+function findPath(start,goalSet,gx,gy){
+  const startB=G.bldg.get(start), open=new Heap(), g=new Map([[start,0]]), from=new Map();
+  const h=id=>Math.hypot(ccx(id)-gx,ccy(id)-gy)/CELL;
+  open.push(start,h(start));
+  while(open.size){
+    const cur=open.pop();
+    if(goalSet.has(cur)){ const path=[cur]; let x=cur; while(from.has(x)){ x=from.get(x); path.push(x); } path.reverse(); return {path,cost:g.get(cur)}; }
+    const b=G.bldg.get(cur);
+    if(b&&cur!==start&&b!==startB) continue;            // edificio ajeno: no se atraviesa
+    const gc=g.get(cur), nbs=G.adj.get(cur)?[...G.adj.get(cur)]:[];
+    if(b&&b.isDest) for(const o of b.cells) if(o!==cur) nbs.push(o);   // movimiento interno del destino
+    for(const n of nbs){
+      const diag=col(n)!==col(cur)&&row(n)!==row(cur);
+      let cost=gc+(diag?1.414:1);
+      if(isJunction(n)) cost+=G.glorietas.has(n)?.15:.45;
+      if(cost<(g.has(n)?g.get(n):Infinity)){ g.set(n,cost); from.set(n,cur); open.push(n,cost+h(n)); }
+    }
+  }
+  return null;
+}
+function pathTo(start,target){
+  const key=start+'>'+target.id;
+  if(G.pathCache.has(key)) return G.pathCache.get(key);
+  const res=target.isDest?findPath(start,target.cellSet,target.x,target.y):findPath(start,new Set([target.cell]),target.x,target.y);
+  G.pathCache.set(key,res); return res;
+}
+function updateHouseConn(){ for(const h of G.houses) h.connected=G.dests.some(d=>d.k===h.k&&pathTo(h.cell,d)); }
+
+/* =====================================================================
+   RUTAS: convierte una lista de celdas en una polilínea suave con carril
+   - En cada celda intermedia se traza una curva cuadrática entre los puntos
+     medios de sus tramos → giros suaves.
+   - lim[] guarda el factor de velocidad permitido (más lento en curvas cerradas).
+   - junc[] guarda los tramos de la ruta que cruzan intersecciones (para reservarlas).
+   ===================================================================== */
+function buildRoute(path){
+  const pts=[], n=path.length;
+  pts.push({x:ccx(path[0]),y:ccy(path[0]),pi:0,lim:1});
+  for(let i=1;i<n-1;i++){
+    const a=path[i-1], c=path[i], b=path[i+1];
+    const Ax=ccx(a),Ay=ccy(a),Cx=ccx(c),Cy=ccy(c),Bx=ccx(b),By=ccy(b);
+    const m1x=(Ax+Cx)/2, m1y=(Ay+Cy)/2, m2x=(Cx+Bx)/2, m2y=(Cy+By)/2;
+    const th=Math.abs(angDiff(Math.atan2(Cy-Ay,Cx-Ax),Math.atan2(By-Cy,Bx-Cx)));
+    let lim=Math.max(.42,1-.3*th/(Math.PI/2)); if(G.glorietas.has(c)) lim=Math.min(lim,.82);
+    const steps=th<.01?1:6;
+    for(let k=(i===1?0:1);k<=steps;k++){ const t=k/steps, u=1-t; pts.push({x:u*u*m1x+2*u*t*Cx+t*t*m2x, y:u*u*m1y+2*u*t*Cy+t*t*m2y, pi:i, lim}); }
+  }
+  if(n>1) pts.push({x:ccx(path[n-1]),y:ccy(path[n-1]),pi:n-1,lim:1});
+  const m=pts.length, xs=new Float32Array(m), ys=new Float32Array(m), cum=new Float32Array(m), lim=new Float32Array(m), pi=new Int16Array(m);
+  for(let i=0;i<m;i++){
+    const p=pts[i], pa=pts[Math.max(0,i-1)], pb=pts[Math.min(m-1,i+1)];
+    let tx=pb.x-pa.x, ty=pb.y-pa.y; const L=Math.hypot(tx,ty)||1; tx/=L; ty/=L;
+    xs[i]=p.x-ty*LANE; ys[i]=p.y+tx*LANE; lim[i]=p.lim; pi[i]=p.pi;   // carril derecho
+    if(i) cum[i]=cum[i-1]+Math.hypot(xs[i]-xs[i-1],ys[i]-ys[i-1]);
+  }
+  const junc=[];
+  for(let i=1;i<n-1;i++){
+    if(!isJunction(path[i])) continue;
+    let f=-1,l=-1; for(let k=0;k<m;k++) if(pi[k]===i){ if(f<0) f=k; l=k; }
+    if(f>=0) junc.push({cell:path[i],dEnter:cum[Math.max(0,f-1)],dExit:cum[l]});
+  }
+  return {path,xs,ys,cum,lim,pi,n:m,len:cum[m-1],junc};
+}
+
+/* =====================================================================
+   VEHÍCULOS
+   ===================================================================== */
+function pickCat(){ let r=Math.random(), a=0; for(const c of CATS){ a+=c.w; if(r<=a) return c; } return CATS[0]; }
+function spawnCar(h,d,path){
+  const cat=pickCat();
+  const c={id:G.carSeq++, home:h, dest:d, pc:h.pc, color:h.color, cat, state:'ida', vmax:BASE_V*cat.mul*rnd(.94,1.06),
+    speed:0, s:0, k:0, jIdx:0, res:new Set(), trail:[], t0:G.time, wait:0, stuck:0, ghost:0, lost:false, lostT:0, retry:1,
+    ver:G.ver, x:h.x, y:h.y, ang:0, dang:null, tripLen:0};
+  setRoute(c,path,0); c.dang=c.ang; c.tripLen=c.route.len;
+  d.claimed++; h.carsOut++; G.cars.push(c); return c;
+}
+function setRoute(c,path,s){
+  c.route=buildRoute(path); c.s=Math.min(s,c.route.len); c.k=0; c.jIdx=0;
+  const R=c.route;
+  while(c.jIdx<R.junc.length&&R.junc[c.jIdx].dExit<c.s) c.jIdx++;
+  const inside=R.junc.find(J=>c.s>=J.dEnter-4&&c.s<=J.dExit);
+  for(const cell of [...c.res]) if(!inside||inside.cell!==cell) release(c,cell);
+  placeCar(c,0);
+}
+function occSet(cell){ let o=G.occ.get(cell); if(!o){ o=new Set(); G.occ.set(cell,o); } return o; }
+function release(c,cell){ const o=G.occ.get(cell); if(o) o.delete(c.id); c.res.delete(cell); }
+function releaseAll(c){ for(const cell of [...c.res]) release(c,cell); }
+function placeCar(c,dt){
+  const R=c.route;
+  if(R.n<2){ c.x=R.xs[0]; c.y=R.ys[0]; return; }
+  let k=c.k; while(k<R.n-2&&R.cum[k+1]<=c.s) k++; c.k=k;
+  const L=R.cum[k+1]-R.cum[k], t=L>1e-6?clamp((c.s-R.cum[k])/L,0,1):0;
+  c.x=R.xs[k]+(R.xs[k+1]-R.xs[k])*t; c.y=R.ys[k]+(R.ys[k+1]-R.ys[k])*t;
+  if(L>1e-6) c.ang=Math.atan2(R.ys[k+1]-R.ys[k],R.xs[k+1]-R.xs[k]);
+  if(c.dang==null) c.dang=c.ang; else c.dang+=angDiff(c.dang,c.ang)*Math.min(1,dt*14);
+}
+function limAhead(c){ const R=c.route; let m=1; for(let i=c.k;i<R.n&&R.cum[i]<=c.s+16;i++) m=Math.min(m,R.lim[i]); return m; }
+
+function removeCar(c,puff){
+  if(c.dead) return; c.dead=true; releaseAll(c);
+  if(c.state==='ida') c.dest.claimed=Math.max(0,c.dest.claimed-1);
+  c.home.carsOut=Math.max(0,c.home.carsOut-1);
+  if(puff) burst(c.x,c.y,'#9aa0b5',8,40);
+}
+
+/* Cuando la red cambia: si el tramo bajo el auto se borró, el auto desaparece;
+   si no, se recalcula su ruta desde la siguiente celda conservando su posición. */
+function revalidate(c){
+  c.ver=G.ver;
+  const R=c.route, P=R.path, pi=R.pi[Math.min(c.k,R.n-1)];
+  if((pi>0&&!linked(P[pi-1],P[pi]))||(pi<P.length-1&&!linked(P[pi],P[pi+1]))){ removeCar(c,true); return; }
+  rerouteFrom(c,Math.min(pi+1,P.length-1));
+}
+function rerouteFrom(c,j){
+  const P=c.route.path, start=P[j];
+  let res=null;
+  if(c.state==='ida'){
+    res=pathTo(start,c.dest);
+    if(!res){ let alt=null; for(const d of G.dests){ if(d!==c.dest&&d.k===c.pc.k&&d.pending-d.claimed>0){ const r=pathTo(start,d); if(r&&(!res||r.cost<res.cost)){ res=r; alt=d; } } }
+      if(alt){ c.dest.claimed=Math.max(0,c.dest.claimed-1); alt.claimed++; c.dest=alt; } }
+  } else res=pathTo(start,c.home);
+  if(res){ c.lost=false; c.lostT=0; setRoute(c,P.slice(0,j).concat(res.path),c.s); }
+  else { c.lost=true; c.retry=1; setRoute(c,P.slice(0,j+1),c.s); }
+}
+
+function updateCars(dt){
+  const wm=G.weather.on?.68:1;
+  for(const c of G.cars) if(!c.dead&&c.ver!==G.ver) revalidate(c);
+  for(const c of G.cars){ if(!c.dead) stepCar(c,dt,wm); }
+  if(G.cars.some(c=>c.dead)){ G.cars=G.cars.filter(c=>!c.dead); if(sel&&sel.dead) onSelectedGone(); }
+}
+function stepCar(c,dt,wm){
+  const R=c.route;
+  if(c.ghost>0) c.ghost-=dt;
+  if(c.lost){ c.lostT+=dt; c.retry-=dt;
+    if(c.retry<=0){ c.retry=1; rerouteFrom(c,c.route.path.length-1);
+      if(c.lost&&c.state==='ida'&&c.lostT>6){ c.dest.claimed=Math.max(0,c.dest.claimed-1); c.state='regreso'; c.lostT=0; }
+      else if(c.lost&&c.state==='regreso'&&c.lostT>20){ removeCar(c,true); return; } } }
+  const Rr=c.route;
+  // liberar intersecciones ya cruzadas
+  while(c.jIdx<Rr.junc.length&&c.s>Rr.junc[c.jIdx].dExit){ release(c,Rr.junc[c.jIdx].cell); c.jIdx++; }
+
+  let vt=c.vmax*wm*limAhead(c);           // más lento en curvas (lim < 1)
+  let stopAt=Rr.len;
+  // Reserva de intersecciones: 1 auto a la vez en cruces simples, 3 en glorietas
+  for(let q=c.jIdx;q<Rr.junc.length;q++){
+    const J=Rr.junc[q]; if(J.dEnter-c.s>26) break;
+    if(c.res.has(J.cell)) continue;
+    const o=occSet(J.cell);
+    if(o.size<capOf(J.cell)||c.ghost>0||c.s>J.dEnter-4){ o.add(c.id); c.res.add(J.cell); }
+    else { stopAt=Math.min(stopAt,J.dEnter-4); break; }
+  }
+  // Seguimiento: mantener distancia con el auto de enfrente (mismo carril / cruzando)
+  if(c.ghost<=0){
+    const fx=Math.cos(c.ang), fy=Math.sin(c.ang);
+    for(const o of G.cars){
+      if(o===c||o.dead) continue;
+      const dx=o.x-c.x, dy=o.y-c.y; if(dx>32||dx<-32||dy>32||dy<-32) continue;
+      const al=dx*fx+dy*fy; if(al<=0||al>32) continue;
+      if(Math.abs(-dx*fy+dy*fx)>5) continue;
+      if(Math.cos(o.ang)*fx+Math.sin(o.ang)*fy<-.3) continue;   // sentido contrario
+      const gap=al-(c.cat.len+o.cat.len)/2-3;
+      vt=Math.min(vt,Math.max(0,gap)*3.2);
+    }
+  }
+  vt=Math.min(vt,Math.max(0,stopAt-c.s)*3.5);
+  const dv=vt-c.speed; c.speed+=dv>0?Math.min(dv,70*dt):Math.max(dv,-280*dt); if(c.speed<0) c.speed=0;
+  let ns=c.s+c.speed*dt; if(stopAt>=c.s&&ns>stopAt) ns=stopAt; c.s=Math.min(ns,Rr.len);
+  if(c.speed<2){ c.stuck+=dt; c.wait+=dt; G.stats.waitSum+=dt; if(c.stuck>6){ c.ghost=1.5; c.stuck=0; } } else c.stuck=0;
+  placeCar(c,dt);
+  // estela
+  const tl=c.trail[c.trail.length-1];
+  if(!tl||Math.abs(tl.x-c.x)+Math.abs(tl.y-c.y)>2.5){ c.trail.push({x:c.x,y:c.y}); if(c.trail.length>13) c.trail.shift(); }
+  else if(c.trail.length>1&&Math.random()<.25) c.trail.shift();
+  if(c.s>=Rr.len-.01&&!c.lost) arrive(c);
+}
+function arrive(c){
+  releaseAll(c);
+  if(c.state==='ida'){
+    deliver(c);
+    const last=c.route.path[c.route.path.length-1], p=pathTo(last,c.home);
+    if(p){ c.state='regreso'; c.t1=G.time; setRoute(c,p.path,0); c.trail=[]; }
+    else { c.state='done'; removeCar(c,false); }
+  } else { c.home.carsOut=Math.max(0,c.home.carsOut-1); c.home.flash=1; c.dead=true; }
+}
+function deliver(c){
+  const d=c.dest, trip=G.time-c.t0;
+  d.pending=Math.max(0,d.pending-1); d.claimed=Math.max(0,d.claimed-1);
+  d.stress=Math.max(0,d.stress-.11); if(d.crit&&d.stress<.985){ d.crit=false; d.critT=0; }
+  d.pop=1; d.deliv++; G.score++;
+  const sc=G.stats.byColor[d.k]; if(sc){ sc.deliv++; sc.sum+=trip; sc.best=Math.min(sc.best,trip); sc.last=trip; }
+  const ct=G.stats.byCat[c.cat.k]; ct.trips++; ct.sum+=trip; ct.dist+=c.tripLen;
+  G.stats.log.push(G.time);
+  burst(d.x,d.y,d.color,16,120); G.rings.push({x:d.x,y:d.y,r:20,life:1,color:d.color});
+  G.floaters.push({x:d.x,y:d.y-30,life:1,text:'+1',color:d.color});
+  if(G.time-G.sndT>.1){ G.sndT=G.time; Sound.deliver(G.score); }
+  bumpScore();
+}
+
+/* =====================================================================
+   DEMANDA, ESTRÉS Y ESCALADA DE DIFICULTAD
+   ===================================================================== */
+function demandInterval(){ return Math.max(2.3,8.2/(G.demandMul*G.city.demand)); }
+function updateDemand(dt){
+  let anyCrit=false;
+  for(const d of G.dests){
+    d.demandT-=dt;
+    if(d.demandT<=0){ d.pending=Math.min(MAX_PENDING,d.pending+1); d.demandT=demandInterval()*rnd(.75,1.25); }
+    // El anillo de estrés se llena más rápido mientras más autos pendientes tenga el destino
+    if(d.pending>0) d.stress+=dt*(.0028+.0062*d.pending)*G.city.stress; else d.stress-=dt*.012;
+    d.stress=clamp(d.stress,0,1); d.pop=Math.max(0,d.pop-dt*3);
+    if(d.stress>=1){
+      if(!d.crit){ d.crit=true; Sound.alarm(); toast('⚠ '+d.name+' está colapsando. ¡Llévale autos '+d.pc.name.toLowerCase()+'!',true); }
+      d.critT+=dt; anyCrit=true;
+      if(d.critT>=CRIT_GRACE){ gameOver(d); return; }
+    } else if(d.crit&&d.stress<.985){ d.crit=false; d.critT=0; }
+  }
+  if(anyCrit){ G.alarmT-=dt; if(G.alarmT<=0){ G.alarmT=.9; Sound.alarm(); } }
+}
+function updateHouses(dt){
+  for(const h of G.houses){
+    h.cd-=dt; h.flash=Math.max(0,h.flash-dt*2);
+    if(h.carsOut>=HOUSE_CARS||h.cd>0) continue;
+    let best=null;
+    for(const d of G.dests){
+      if(d.k!==h.k||d.pending-d.claimed<=0) continue;
+      const p=pathTo(h.cell,d); if(p&&(!best||p.cost<best.p.cost)) best={d,p};
+    }
+    if(!best){ h.cd=.4; continue; }
+    if(G.cars.some(c=>Math.abs(c.x-h.x)<12&&Math.abs(c.y-h.y)<12)){ h.cd=.25; continue; }
+    spawnCar(h,best.d,best.p.path); h.cd=rnd(.8,1.3);
+  }
+}
+// Cada 30 s: sube la demanda y aparecen colonias / destinos nuevos en el mapa
+function nextWave(){
+  G.wave++; const w=G.wave;
+  G.demandMul*=1.08;
+  const gain=16+w*2; G.tramos+=gain; const rew=['+'+gain+' tramos'];
+  if(w%2===1){ G.puentes++; rew.push('+1 puente'); }
+  if(w%3===0){ G.glorInv++; rew.push('+1 glorieta'); }
+  const b=G.bounds; b.c0=Math.max(1,b.c0-2); b.c1=Math.min(COLS-2,b.c1+2); b.r0=Math.max(1,b.r0-1); b.r1=Math.min(ROWS-2,b.r1+1);
+  let ev='';
+  if(w%3===1&&G.colorCount<PALETTE.length){ const d=addColor(); if(d){ ev='Nuevo destino '+d.pc.name+': '+d.name; flashAt(d); } }
+  else if(w%5===0){ const pc=PALETTE[rint(0,G.colorCount-1)]; const d=placeDest(pc); if(d){ placeHouse(pc,d); ev='Otro destino '+pc.name+': '+d.name; flashAt(d); } }
+  if(!ev){
+    const n=w>4?2:1, names=[];
+    for(let i=0;i<n;i++){
+      // la colonia nueva sale del color con más demanda pendiente
+      const ds=G.dests.slice().sort((a,b)=>(b.pending-b.claimed)-(a.pending-a.claimed));
+      const d=Math.random()<.65?ds[0]:ds[rint(0,ds.length-1)];
+      const h=placeHouse(d.pc,d); if(h){ names.push(h.name); flashAt(h); }
+    }
+    ev=names.length?'Nueva colonia: '+names.join(', '):'La demanda sube';
+  }
+  updateHouseConn(); updateDock(); Sound.wave();
+  toast('OLA '+(w+1)+' · '+ev+' · '+rew.join(' · '));
+}
+function flashAt(o){ G.rings.push({x:o.x,y:o.y,r:10,life:1.6,color:o.color||o.pc.hex,big:true}); }
+
+function updateWeather(dt){
+  const wt=G.weather; if(G.wave<2) return;
+  if(wt.on){
+    wt.dur-=dt;
+    if(G.city.weather==='tormenta'){ wt.ft-=dt; if(wt.ft<=0){ wt.flash=1; wt.ft=rnd(1.5,4); Sound.erase(); } }
+    wt.flash=Math.max(0,wt.flash-dt*2.5);
+    if(wt.dur<=0){ wt.on=false; wt.t=rnd(45,70); toast(G.city.weather==='tormenta'?'🌤 Pasó la tormenta':'🌤 Pasó la tolvanera'); }
+  } else { wt.t-=dt; if(wt.t<=0){ wt.on=true; wt.dur=rnd(9,13); wt.ft=.4; toast(G.city.weather==='tormenta'?'🌧 Tormenta: el tráfico va más lento':'🌪 Tolvanera: baja la visibilidad y la velocidad',true); } }
+}
+
+/* =====================================================================
+   EFECTOS (partículas, anillos, textos flotantes)
+   ===================================================================== */
+function burst(x,y,color,n,sp){ for(let i=0;i<n;i++){ const a=rnd(0,TAU), v=rnd(sp*.3,sp); G.fx.push({x,y,vx:Math.cos(a)*v,vy:Math.sin(a)*v,life:rnd(.5,.9),max:.9,color,r:rnd(1.2,2.6)}); } }
+function updateFx(dt){
+  for(const p of G.fx){ p.x+=p.vx*dt; p.y+=p.vy*dt; p.vx*=.93; p.vy*=.93; p.life-=dt; }
+  G.fx=G.fx.filter(p=>p.life>0);
+  for(const r of G.rings){ r.r+=dt*(r.big?60:90); r.life-=dt*(r.big?.8:1.6); }
+  G.rings=G.rings.filter(r=>r.life>0);
+  for(const f of G.floaters){ f.y-=dt*26; f.life-=dt*1.1; }
+  G.floaters=G.floaters.filter(f=>f.life>0);
+}
+
+/* =====================================================================
+   ESTADÍSTICAS
+   ===================================================================== */
+function sampleStats(dt){
+  const st=G.stats; st.hT+=dt;
+  if(st.hT>=2){ st.hT=0; const n=G.cars.length, slow=G.cars.filter(c=>c.speed<c.vmax*.25).length;
+    st.hist.push({t:G.time,cong:n?slow/n:0,n}); if(st.hist.length>120) st.hist.shift(); }
+  while(st.log.length&&st.log[0]<G.time-60) st.log.shift();
+}
+
+/* =====================================================================
+   CICLO PRINCIPAL
+   ===================================================================== */
+function update(dt){
+  G.time+=dt; G.waveT+=dt;
+  if(G.waveT>=WAVE_SEC){ G.waveT-=WAVE_SEC; nextWave(); }
+  updateWeather(dt); updateDemand(dt); if(G.over) return;
+  updateHouses(dt); updateCars(dt); updateFx(dt); sampleStats(dt);
+}
+function gameOver(d){
+  if(G.over) return; G.over=true; G.overDest=d; G.overT=0;
+  exitFpv(); closePopup(); Sound.over();
+  autoCam=false; follow=false; camT.x=d.x; camT.y=d.y; camT.z=Math.max(cam.z,1.4);
+  const best=lsGet('tcuu_best_'+cityKey,0); if(G.score>best) lsSet('tcuu_best_'+cityKey,G.score);
+}
+function showOver(){
+  const d=G.overDest, st=G.stats; let tot=0,n=0;
+  Object.values(st.byColor).forEach(s=>{ tot+=s.sum; n+=s.deliv; });
+  const avgCong=st.hist.length?st.hist.reduce((a,h)=>a+h.cong,0)/st.hist.length:0;
+  let bestC=null; for(const pc of PALETTE.slice(0,G.colorCount)){ const s=st.byColor[pc.k]; if(s&&s.deliv&&(!bestC||s.sum/s.deliv<bestC.v)) bestC={pc,v:s.sum/s.deliv}; }
+  $('overScore').textContent=G.score;
+  $('overWhy').innerHTML='<span class="sw" style="background:'+d.color+';color:'+d.color+'"></span>&nbsp; '+d.name+' se saturó';
+  const best=lsGet('tcuu_best_'+cityKey,0);
+  $('overGrid').innerHTML=[
+    [fmtClock(G.time),'tiempo'],[G.wave+1,'ola alcanzada'],[best,'récord '+G.city.name],
+    [n?fmtT(tot/n):'—','llegada media'],[bestC?bestC.pc.name+' '+fmtT(bestC.v):'—','color más rápido'],[Math.round(avgCong*100)+'%','congestión media'],
+  ].map(x=>'<div><b>'+x[0]+'</b><span>'+x[1]+'</span></div>').join('');
+  show('overScreen'); hideHud();
+}
+
+let last=performance.now();
+function loop(now){
+  const dt=Math.min(.05,(now-last)/1000); last=now;
+  if(G){
+    if(state==='play'&&paused&&!G.over) updateFx(dt);   // efectos al construir/borrar en pausa
+    if(state==='play'&&!paused&&!G.over){ for(let i=0;i<timeScale&&!G.over;i++) update(dt); }   // tiempo acelerado = varios pasos por cuadro
+    if(G.over){ G.overT+=dt; updateFx(dt); if(G.overT>1.8&&$('overScreen').classList.contains('hidden')&&state==='play'){ state='over'; showOver(); } }
+    updateCamera(dt);
+    if(fpvCar) renderFPV(dt); else render(dt);
+    if(state==='play') updateHud(dt);
+  }
+  requestAnimationFrame(loop);
+}
+
+/* =====================================================================
+   CÁMARA 2D
+   ===================================================================== */
+function fitTarget(){
+  const b=G.bounds, x0=b.c0*CELL, x1=(b.c1+1)*CELL, y0=b.r0*CELL, y1=(b.r1+1)*CELL;
+  const z=clamp(Math.min((W-60)/(x1-x0),(H-170)/(y1-y0)),.25,2.2);
+  camT.x=(x0+x1)/2; camT.y=(y0+y1)/2+18/z; camT.z=z;
+}
+function updateCamera(dt){
+  if(follow&&sel&&!sel.dead){ camT.x=sel.x; camT.y=sel.y; }
+  else if(autoCam&&!G.over) fitTarget();
+  const k=Math.min(1,dt*3.2);
+  cam.x+=(camT.x-cam.x)*k; cam.y+=(camT.y-cam.y)*k; cam.z+=(camT.z-cam.z)*k;
+}
+const s2w=(sx,sy)=>({x:(sx-W/2)/cam.z+cam.x, y:(sy-H/2)/cam.z+cam.y});
+const w2s=(x,y)=>({x:(x-cam.x)*cam.z+W/2, y:(y-cam.y)*cam.z+H/2});
+function cellAtW(w){ const c=Math.floor(w.x/CELL), r=Math.floor(w.y/CELL); return inGrid(c,r)?cid(c,r):-1; }
+function inBounds(id){ const b=G.bounds, c=col(id), r=row(id); return c>=b.c0&&c<=b.c1&&r>=b.r0&&r<=b.r1; }
+
+/* =====================================================================
+   RENDER 2D — capas: fondo+cuadrícula → terreno → carreteras (glow) →
+   previsualización → estelas → edificios → autos → efectos → overlays
+   ===================================================================== */
+function render(dt){
+  const t=performance.now()/1000, z=cam.z;
+  ctx.setTransform(DPR,0,0,DPR,0,0);
+  ctx.fillStyle='#1E1E24'; ctx.fillRect(0,0,W,H);
+  ctx.setTransform(DPR*z,0,0,DPR*z,DPR*(W/2-cam.x*z),DPR*(H/2-cam.y*z));
+  const TP=G.terrainPaths;
+  // cuadrícula sutil
+  ctx.lineWidth=1/z; ctx.strokeStyle='rgba(255,255,255,0.045)'; ctx.stroke(TP.grid);
+  // río
+  ctx.fillStyle='#0B2134'; ctx.fill(TP.river);
+  ctx.lineCap='round'; ctx.lineJoin='round';
+  ctx.strokeStyle='rgba(60,160,255,0.16)'; ctx.lineWidth=40; ctx.stroke(TP.riverLine);
+  ctx.setLineDash([10,18]); ctx.lineDashOffset=-t*14; ctx.strokeStyle='rgba(120,200,255,0.28)'; ctx.lineWidth=1.5; ctx.stroke(TP.riverLine); ctx.setLineDash([]);
+  // cerros
+  ctx.fillStyle='#282532'; ctx.fill(TP.hill);
+  ctx.strokeStyle='rgba(190,150,255,0.32)'; ctx.lineWidth=1.6; ctx.stroke(TP.cont);
+  // nombres de terreno
+  ctx.font='500 11px "Space Grotesk",system-ui'; ctx.textAlign='center'; ctx.fillStyle='rgba(190,150,255,0.35)';
+  G.hills.forEach(h=>ctx.fillText(h.name.toUpperCase(),h.x,h.y+4));
+  ctx.fillStyle='rgba(120,190,255,0.4)'; const rp=G.riverPts[Math.floor(ROWS*.3)]; ctx.save(); ctx.translate(rp.x,rp.y); ctx.rotate(Math.PI/2); ctx.fillText(G.city.river.toUpperCase(),0,4); ctx.restore();
+
+  // zona fuera del área activa, atenuada
+  const b=G.bounds; ctx.beginPath(); ctx.rect(-WW,-WH,WW*3,WH*3); ctx.rect(b.c0*CELL,b.r0*CELL,(b.c1-b.c0+1)*CELL,(b.r1-b.r0+1)*CELL);
+  ctx.fillStyle='rgba(12,12,16,0.62)'; ctx.fill('evenodd');
+  ctx.strokeStyle='rgba(255,255,255,0.08)'; ctx.lineWidth=1.5/z; ctx.setLineDash([6/z,8/z]); ctx.strokeRect(b.c0*CELL,b.r0*CELL,(b.c1-b.c0+1)*CELL,(b.r1-b.r0+1)*CELL); ctx.setLineDash([]);
+
+  // puentes
+  ctx.strokeStyle='rgba(200,215,255,0.35)'; ctx.lineWidth=24; ctx.stroke(G.bridgePath);
+  ctx.strokeStyle='#15151d'; ctx.lineWidth=21; ctx.stroke(G.bridgePath);
+  // carreteras con resplandor: glow → contorno neón → cuerpo → línea central
+  ctx.strokeStyle='rgba(110,170,255,0.06)'; ctx.lineWidth=30; ctx.stroke(G.roadPath);
+  ctx.strokeStyle='rgba(110,170,255,0.10)'; ctx.lineWidth=21; ctx.stroke(G.roadPath);
+  ctx.strokeStyle='rgba(175,210,255,0.6)'; ctx.lineWidth=15.5; ctx.stroke(G.roadPath);
+  ctx.strokeStyle='#25252F'; ctx.lineWidth=13; ctx.stroke(G.roadPath);
+  ctx.setLineDash([3,7]); ctx.strokeStyle='rgba(255,255,255,0.13)'; ctx.lineWidth=1; ctx.stroke(G.roadPath); ctx.setLineDash([]);
+  // glorietas
+  for(const g of G.glorietas){ const x=ccx(g), y=ccy(g);
+    ctx.beginPath(); ctx.arc(x,y,13,0,TAU); ctx.strokeStyle='rgba(175,210,255,0.7)'; ctx.lineWidth=2; ctx.stroke();
+    ctx.beginPath(); ctx.arc(x,y,5,0,TAU); ctx.fillStyle='#1E1E24'; ctx.fill(); ctx.strokeStyle='rgba(0,240,255,0.8)'; ctx.lineWidth=1.5; ctx.stroke();
+    ctx.setLineDash([3,5]); ctx.lineDashOffset=-t*10; ctx.beginPath(); ctx.arc(x,y,9,0,TAU); ctx.strokeStyle='rgba(0,240,255,0.35)'; ctx.stroke(); ctx.setLineDash([]); }
+
+  // previsualización del trazo (semitransparente; rojo = no alcanza)
+  if(ptr.mode==='draw'&&preview.length>1){
+    const ev=evalPreview();
+    for(const ok of [true,false]){
+      ctx.beginPath(); let any=false;
+      for(const s of ev){ if(s.ok!==ok) continue; ctx.moveTo(ccx(s.a),ccy(s.a)); ctx.lineTo(ccx(s.b),ccy(s.b)); any=true; }
+      if(any){ ctx.strokeStyle=ok?'rgba(255,255,255,0.3)':'rgba(255,40,80,0.5)'; ctx.lineWidth=13; ctx.stroke(); }
+    }
+  }
+  // celda bajo el cursor
+  if(hoverCell>=0&&state==='play'&&!G.over&&ptr.mode!=='pan'){
+    const ok=inBounds(hoverCell)&&G.terrain[hoverCell]!==T_HILL;
+    ctx.strokeStyle=tool==='erase'?'rgba(255,40,80,0.5)':ok?'rgba(255,255,255,0.18)':'rgba(255,40,80,0.35)'; ctx.lineWidth=1.2/z;
+    rrect(ctx,col(hoverCell)*CELL+2,row(hoverCell)*CELL+2,CELL-4,CELL-4,5); ctx.stroke();
+  }
+
+  // ruta del auto seleccionado
+  if(sel&&!sel.dead) drawRouteLine(sel,t);
+
+  // estelas (blend aditivo)
+  ctx.globalCompositeOperation='lighter'; ctx.lineCap='round';
+  for(const c of G.cars){ const tr=c.trail, L=tr.length; if(L<2) continue; const rgb=hexRgb(c.color), base=c.state==='regreso'?.16:.32;
+    for(let i=1;i<L;i++){ ctx.strokeStyle=`rgba(${rgb[0]},${rgb[1]},${rgb[2]},${base*i/L})`; ctx.lineWidth=1+2.2*i/L; ctx.beginPath(); ctx.moveTo(tr[i-1].x,tr[i-1].y); ctx.lineTo(tr[i].x,tr[i].y); ctx.stroke(); } }
+  ctx.globalCompositeOperation='source-over';
+
+  drawHouses(t); drawDests(t); drawCars2D(t);
+
+  // efectos
+  ctx.globalCompositeOperation='lighter';
+  for(const p of G.fx){ ctx.globalAlpha=clamp(p.life/p.max,0,1); ctx.fillStyle=p.color; ctx.beginPath(); ctx.arc(p.x,p.y,p.r,0,TAU); ctx.fill(); }
+  for(const r of G.rings){ ctx.globalAlpha=clamp(r.life,0,1)*.8; ctx.strokeStyle=r.color; ctx.lineWidth=r.big?3:2; ctx.beginPath(); ctx.arc(r.x,r.y,r.r,0,TAU); ctx.stroke(); }
+  ctx.globalAlpha=1; ctx.globalCompositeOperation='source-over';
+  ctx.font='600 14px "Space Grotesk",system-ui'; ctx.textAlign='center';
+  for(const f of G.floaters){ ctx.globalAlpha=clamp(f.life,0,1); ctx.fillStyle=f.color; ctx.fillText(f.text,f.x,f.y); } ctx.globalAlpha=1;
+
+  // ----- espacio de pantalla -----
+  ctx.setTransform(DPR,0,0,DPR,0,0);
+  drawWeather(t);
+  drawOffscreen(t);
+  if(G.over){ ctx.fillStyle=`rgba(255,34,64,${.12+.08*Math.sin(t*10)})`; ctx.fillRect(0,0,W,H); }
+}
+function drawRouteLine(c,t){
+  const R=c.route; ctx.beginPath(); ctx.moveTo(c.x,c.y);
+  for(let i=c.k+1;i<R.n;i++) ctx.lineTo(R.xs[i],R.ys[i]);
+  ctx.strokeStyle=rgba(c.color,.25); ctx.lineWidth=6; ctx.stroke();
+  ctx.setLineDash([6,6]); ctx.lineDashOffset=-t*30; ctx.strokeStyle=rgba(c.color,.9); ctx.lineWidth=1.8; ctx.stroke(); ctx.setLineDash([]);
+  const tgt=c.state==='ida'?c.dest:c.home;
+  ctx.beginPath(); ctx.arc(tgt.x,tgt.y,(tgt.isDest?44:18)+Math.sin(t*5)*3,0,TAU); ctx.strokeStyle=rgba(c.color,.6); ctx.lineWidth=1.5; ctx.stroke();
+}
+function drawHouses(t){
+  for(const h of G.houses){
+    const born=clamp((G.time-h.born)/.6,0,1), s=born<1?1+Math.sin(born*Math.PI)*.6:1;
+    glow(h.color,h.x,h.y,32,.45+h.flash*.4);
+    ctx.beginPath(); ctx.arc(h.x,h.y,9.5*s,0,TAU); ctx.fillStyle='#15151B'; ctx.fill(); ctx.lineWidth=3; ctx.strokeStyle=h.color; ctx.stroke();
+    // casita dentro del círculo
+    ctx.beginPath(); ctx.moveTo(h.x-4.6,h.y+.2); ctx.lineTo(h.x,h.y-4.4); ctx.lineTo(h.x+4.6,h.y+.2); ctx.moveTo(h.x-3.2,h.y-.8); ctx.lineTo(h.x-3.2,h.y+4); ctx.lineTo(h.x+3.2,h.y+4); ctx.lineTo(h.x+3.2,h.y-.8);
+    ctx.strokeStyle=h.color; ctx.lineWidth=1.4; ctx.lineJoin='round'; ctx.stroke();
+    const av=HOUSE_CARS-h.carsOut; ctx.fillStyle=h.color;   // autos disponibles en casa
+    for(let i=0;i<av;i++){ ctx.beginPath(); ctx.arc(h.x-2.6+i*5.2,h.y+14,1.7,0,TAU); ctx.fill(); }
+    if(!h.connected&&state==='play'){ ctx.setLineDash([3,4]); ctx.lineDashOffset=-t*8; ctx.beginPath(); ctx.arc(h.x,h.y,15+Math.sin(t*4)*1.5,0,TAU); ctx.strokeStyle=rgba(h.color,.6); ctx.lineWidth=1.3; ctx.stroke(); ctx.setLineDash([]); }
+  }
+}
+function drawDests(t){
+  ctx.textAlign='center';
+  for(const d of G.dests){
+    const s=(2*CELL-12)*(1+.13*d.pop), x=d.x, y=d.y;
+    const flash=d.crit&&Math.sin(t*16)>0;
+    glow(flash?'#FF2240':d.color,x,y,80,.32+d.stress*.25+(d.crit?.25:0));
+    rrect(ctx,x-s/2,y-s/2,s,s,9);
+    ctx.fillStyle=flash?'rgba(255,34,64,0.55)':rgba(d.color,.13); ctx.fill();
+    ctx.lineWidth=2.5; ctx.strokeStyle=d.crit?'#FF2240':d.color; ctx.stroke();
+    // autos pendientes (pedidos) como puntos
+    drawIcon2D(d.type,x,y-5,flash?'#fff':d.color);
+    for(let i=0;i<MAX_PENDING;i++){ const cx=x+(i-4)*5, cy=y+s/2-8;
+      ctx.beginPath(); ctx.arc(cx,cy,1.9,0,TAU); ctx.fillStyle=i<d.pending?(i<d.claimed?rgba(d.color,.55):d.color):'rgba(255,255,255,0.07)'; ctx.fill(); }
+    // temporizador circular de estrés
+    const R=s/2+12, st=d.stress, rc=d.crit?'#FF2240':st<.55?d.color:mixHex(d.color,'#FF2240',(st-.55)/.45);
+    ctx.beginPath(); ctx.arc(x,y,R,0,TAU); ctx.strokeStyle='rgba(255,255,255,0.07)'; ctx.lineWidth=4; ctx.stroke();
+    if(st>.002){ ctx.lineCap='round';
+      ctx.beginPath(); ctx.arc(x,y,R,-Math.PI/2,-Math.PI/2+st*TAU); ctx.strokeStyle=typeof rc==='string'&&rc[0]==='#'?rgba(rc,.22):rc.replace('rgb','rgba').replace(')',',0.22)'); ctx.lineWidth=11; ctx.stroke();
+      ctx.beginPath(); ctx.arc(x,y,R,-Math.PI/2,-Math.PI/2+st*TAU); ctx.strokeStyle=rc; ctx.lineWidth=d.crit?5+Math.sin(t*16)*1.5:4; ctx.stroke(); }
+    if(d.crit){ ctx.font='700 15px "Space Grotesk",system-ui'; ctx.fillStyle='#FF2240'; ctx.fillText(Math.max(0,CRIT_GRACE-d.critT).toFixed(1),x,y-R-10); }
+    ctx.font='500 10px "Space Grotesk",system-ui'; ctx.fillStyle='rgba(237,237,245,0.55)'; ctx.fillText(d.name,x,y+R+15);
+  }
+  ctx.font='400 9px "Space Grotesk",system-ui'; ctx.fillStyle='rgba(237,237,245,0.32)';
+  if(cam.z>.9) for(const h of G.houses) ctx.fillText(h.name,h.x,h.y+24);
+}
+// Ícono neón del destino según su tipo
+function drawIcon2D(type,x,y,col){
+  ctx.save(); ctx.translate(x,y); ctx.strokeStyle=col; ctx.fillStyle=col; ctx.lineWidth=1.6; ctx.lineCap='round'; ctx.lineJoin='round'; ctx.beginPath();
+  switch(type){
+    case 'iglesia': ctx.moveTo(-7,9); ctx.lineTo(-7,-1); ctx.lineTo(0,-7); ctx.lineTo(7,-1); ctx.lineTo(7,9); ctx.closePath(); ctx.moveTo(0,-7); ctx.lineTo(0,-13); ctx.moveTo(-3,-10.5); ctx.lineTo(3,-10.5); ctx.moveTo(-2,9); ctx.lineTo(-2,4); ctx.arc(0,4,2,Math.PI,0); ctx.lineTo(2,9); break;
+    case 'mall': ctx.moveTo(-7,-3); ctx.lineTo(7,-3); ctx.lineTo(8,9); ctx.lineTo(-8,9); ctx.closePath(); ctx.moveTo(-3,-3); ctx.arc(0,-3,3,Math.PI,0); break;
+    case 'hospital': ctx.lineWidth=3.2; ctx.moveTo(0,-8); ctx.lineTo(0,8); ctx.moveTo(-8,0); ctx.lineTo(8,0); break;
+    case 'universidad': ctx.moveTo(-10,-3); ctx.lineTo(0,-9); ctx.lineTo(10,-3); ctx.lineTo(0,3); ctx.closePath(); ctx.moveTo(-5,0); ctx.lineTo(-5,5); ctx.quadraticCurveTo(0,9,5,5); ctx.lineTo(5,0); ctx.moveTo(8,-2); ctx.lineTo(8,6); break;
+    case 'museo': ctx.moveTo(-9,-3); ctx.lineTo(0,-9); ctx.lineTo(9,-3); ctx.closePath(); for(const i of [-6,-2,2,6]){ ctx.moveTo(i,-1); ctx.lineTo(i,7); } ctx.moveTo(-9,9); ctx.lineTo(9,9); break;
+    case 'estadio': ctx.ellipse(0,0,10,6.5,0,0,TAU); ctx.moveTo(5,0); ctx.ellipse(0,0,5,3,0,0,TAU); break;
+    case 'toros': ctx.ellipse(0,2,10,6.5,0,0,TAU); ctx.moveTo(-4,-6); ctx.quadraticCurveTo(-8,-10,-7,-3); ctx.moveTo(4,-6); ctx.quadraticCurveTo(8,-10,7,-3); break;
+    case 'aeropuerto': ctx.moveTo(0,-10); ctx.lineTo(0,9); ctx.moveTo(-9,1); ctx.lineTo(0,-3); ctx.lineTo(9,1); ctx.moveTo(-4,9); ctx.lineTo(0,6); ctx.lineTo(4,9); break;
+    case 'bus': rrect(ctx,-8,-7,16,12,2); ctx.moveTo(-8,-1); ctx.lineTo(8,-1); ctx.moveTo(-4,8); ctx.arc(-4,7,1.4,0,TAU); ctx.moveTo(5.4,7); ctx.arc(4,7,1.4,0,TAU); break;
+    case 'mercado': ctx.rect(-8,0,16,8); ctx.moveTo(-9,0); ctx.lineTo(-6,-6); ctx.lineTo(6,-6); ctx.lineTo(9,0); ctx.moveTo(-3,-6); ctx.lineTo(-4,0); ctx.moveTo(3,-6); ctx.lineTo(4,0); break;
+    case 'parque': ctx.arc(0,-3,6,0,TAU); ctx.moveTo(0,3); ctx.lineTo(0,9); ctx.moveTo(-4,9); ctx.lineTo(4,9); break;
+    default: ctx.moveTo(-2,8); ctx.lineTo(-1.2,-6); ctx.lineTo(0,-10); ctx.lineTo(1.2,-6); ctx.lineTo(2,8); ctx.moveTo(-6,8); ctx.lineTo(6,8);
+  }
+  ctx.stroke(); ctx.restore();
+}
+function drawCarShape(c2,cat,color,dim){
+  const L=cat.len, Wd=cat.wid;
+  c2.fillStyle=color; rrect(c2,-L/2,-Wd/2,L,Wd,cat.k==='moto'?1.6:2.2); c2.fill();
+  c2.fillStyle='rgba(8,8,14,0.6)';
+  if(cat.k==='camion'){ c2.fillRect(L/2-4.6,-Wd/2+1,1.4,Wd-2); c2.fillStyle='rgba(255,255,255,0.25)'; c2.fillRect(-L/2+1,-Wd/2+1,L-7,Wd-2); }
+  else if(cat.k==='pickup'){ c2.fillRect(L*.05,-Wd/2+1,L*.22,Wd-2); c2.fillStyle='rgba(8,8,14,0.35)'; c2.fillRect(-L/2+1.2,-Wd/2+1.2,L*.4,Wd-2.4); }
+  else if(cat.k==='moto'){ c2.fillRect(-1,-Wd/2+.6,2,Wd-1.2); }
+  else c2.fillRect(L*.08,-Wd/2+1,L*.24,Wd-2);
+  c2.fillStyle=dim?'rgba(255,255,255,0.4)':'#fff'; c2.fillRect(L/2-1.2,-Wd/2+.6,1.2,1.2); c2.fillRect(L/2-1.2,Wd/2-1.8,1.2,1.2);
+}
+function drawCars2D(t){
+  for(const c of G.cars){
+    const dim=c.state!=='ida';
+    glow(c.color,c.x,c.y,14,dim?.18:.38);
+    ctx.save(); ctx.translate(c.x,c.y); ctx.rotate(c.dang); ctx.globalAlpha=dim?.6:1;
+    drawCarShape(ctx,c.cat,c.color,dim); ctx.restore(); ctx.globalAlpha=1;
+    if(c.lost&&Math.sin(t*8)>0){ ctx.fillStyle='#FF2240'; ctx.beginPath(); ctx.arc(c.x,c.y-9,2,0,TAU); ctx.fill(); }
+  }
+  if(sel&&!sel.dead){ ctx.setLineDash([4,4]); ctx.lineDashOffset=t*12; ctx.beginPath(); ctx.arc(sel.x,sel.y,14,0,TAU); ctx.strokeStyle='#fff'; ctx.lineWidth=1.5; ctx.stroke(); ctx.setLineDash([]); }
+}
+// indicadores de destinos estresados fuera de pantalla
+function drawOffscreen(t){
+  for(const d of G.dests){
+    if(d.stress<.6) continue; const p=w2s(d.x,d.y), m=34;
+    if(p.x>m&&p.x<W-m&&p.y>m&&p.y<H-m) continue;
+    const x=clamp(p.x,m,W-m), y=clamp(p.y,m+60,H-m-60), a=Math.atan2(p.y-y,p.x-x);
+    ctx.save(); ctx.translate(x,y); ctx.rotate(a); ctx.fillStyle=d.crit&&Math.sin(t*14)>0?'#FF2240':d.color;
+    ctx.beginPath(); ctx.moveTo(12,0); ctx.lineTo(-6,-8); ctx.lineTo(-6,8); ctx.closePath(); ctx.fill(); ctx.restore();
+  }
+}
+// clima: lluvia de tormenta (Chihuahua) o polvo de tolvanera (Juárez)
+function drawWeather(t){
+  const wt=G.weather; if(!wt.on) return;
+  const k=clamp(Math.min(wt.dur,1.5)/1.5,0,1);
+  if(G.city.weather==='tormenta'){
+    ctx.fillStyle=`rgba(20,30,60,${.22*k})`; ctx.fillRect(0,0,W,H);
+    ctx.strokeStyle=`rgba(150,190,255,${.28*k})`; ctx.lineWidth=1; ctx.beginPath();
+    for(let i=0;i<140;i++){ const x=((i*137.5)%W+t*40)%W, y=((i*91.3)%H+t*(520+(i%5)*60))%H; ctx.moveTo(x,y); ctx.lineTo(x-4,y+14); }
+    ctx.stroke();
+    if(wt.flash>0){ ctx.fillStyle=`rgba(220,230,255,${wt.flash*.22})`; ctx.fillRect(0,0,W,H); }
+  } else {
+    ctx.fillStyle=`rgba(150,100,45,${.26*k})`; ctx.fillRect(0,0,W,H);
+    ctx.fillStyle=`rgba(230,180,110,${.35*k})`;
+    for(let i=0;i<120;i++){ const x=((i*173.3)%W+t*(220+(i%7)*40))%W, y=(i*61.7)%H+Math.sin(t*2+i)*8; ctx.fillRect(x,y,2.4,1.2); }
+  }
+}
+
+/* =====================================================================
+   VISTA EN PRIMERA PERSONA
+   Proyección en perspectiva simple: cada punto del mundo (x,y,z) se lleva al
+   espacio de cámara (derecha, arriba, profundidad), se recorta contra el plano
+   cercano y se proyecta. Los objetos 3D se dibujan de lejos a cerca (pintor).
+   ===================================================================== */
+/* ---------- Geometría 3D para la vista en primera persona ----------
+   Cada modelo es una lista de caras (polígonos 3D con relleno y contorno neón). */
+const Fc=(p,fill,edge,lw)=>({p,fill,edge,lw});
+const Dc=(p,fill,edge)=>({p,fill,edge,decal:true});   // calcomanía sobre una fachada: se dibuja al final
+function circPts(cx,cy,r,n,a0){ const o=[]; for(let i=0;i<n;i++){ const a=(a0||0)+i/n*TAU; o.push([cx+Math.cos(a)*r,cy+Math.sin(a)*r]); } return o; }
+function prismF(c,z0,z1,fill,edge,top){ const out=[]; for(let i=0;i<c.length;i++){ const a=c[i], b=c[(i+1)%c.length]; out.push(Fc([[a[0],a[1],z0],[b[0],b[1],z0],[b[0],b[1],z1],[a[0],a[1],z1]],fill,edge)); } if(top!==false) out.push(Fc(c.map(p=>[p[0],p[1],z1]),top||fill,edge)); return out; }
+const boxF=(x0,y0,x1,y1,z0,z1,fill,edge,top)=>prismF([[x0,y0],[x1,y0],[x1,y1],[x0,y1]],z0,z1,fill,edge,top);
+const cylF=(cx,cy,r,z0,z1,n,fill,edge,top)=>prismF(circPts(cx,cy,r,n),z0,z1,fill,edge,top);
+function coneF(cx,cy,r,z0,z1,n,fill,edge){ const c=circPts(cx,cy,r,n), out=[]; for(let i=0;i<n;i++){ const a=c[i], b=c[(i+1)%n]; out.push(Fc([[a[0],a[1],z0],[b[0],b[1],z0],[cx,cy,z1]],fill,edge)); } return out; }
+function pyrF(x0,y0,x1,y1,z0,z1,fill,edge){ const c=[[x0,y0],[x1,y0],[x1,y1],[x0,y1]], mx=(x0+x1)/2, my=(y0+y1)/2, out=[]; for(let i=0;i<4;i++){ const a=c[i], b=c[(i+1)%4]; out.push(Fc([[a[0],a[1],z0],[b[0],b[1],z0],[mx,my,z1]],fill,edge)); } return out; }
+// tejado a dos aguas (alongX: la cumbrera corre en X)
+function gableF(x0,y0,x1,y1,z0,z1,fill,edge,alongX){
+  if(alongX){ const ym=(y0+y1)/2; return [Fc([[x0,y0,z0],[x1,y0,z0],[x1,ym,z1],[x0,ym,z1]],fill,edge),Fc([[x0,y1,z0],[x1,y1,z0],[x1,ym,z1],[x0,ym,z1]],fill,edge),Fc([[x0,y0,z0],[x0,y1,z0],[x0,ym,z1]],fill,edge),Fc([[x1,y0,z0],[x1,y1,z0],[x1,ym,z1]],fill,edge)]; }
+  const xm=(x0+x1)/2; return [Fc([[x0,y0,z0],[x0,y1,z0],[xm,y1,z1],[xm,y0,z1]],fill,edge),Fc([[x1,y0,z0],[x1,y1,z0],[xm,y1,z1],[xm,y0,z1]],fill,edge),Fc([[x0,y0,z0],[x1,y0,z0],[xm,y0,z1]],fill,edge),Fc([[x0,y1,z0],[x1,y1,z0],[xm,y1,z1]],fill,edge)];
+}
+const flatF=(c,z,fill,edge)=>Fc(c.map(p=>[p[0],p[1],z]),fill,edge);
+
+// Modelo 3D de cada destino según su tipo: iglesia, plaza comercial, hospital, etc.
+function destModel(d,col){
+  const x=d.x, y=d.y, f=mixHex(col,'#0d0d14',.8), a=mixHex(col,'#0d0d14',.45), e=col, Wt='#ffffff', out=[];
+  const add=arr=>{ for(const q of arr) out.push(q); };
+  switch(d.type){
+    case 'iglesia':
+      add(boxF(x-11,y-22,x+11,y+6,0,20,f,e)); add(gableF(x-11,y-22,x+11,y+6,20,30,a,e,false));
+      add(boxF(x-6,y+6,x+6,y+16,0,24,f,e)); add(gableF(x-6,y+6,x+6,y+16,24,29,a,e,false));
+      for(const sx of [-1,1]){ const cx=x+sx*11; add(boxF(cx-5,y+6,cx+5,y+18,0,36,f,e)); add(pyrF(cx-5,y+6,cx+5,y+18,36,48,a,e)); }
+      add(cylF(x,y-10,7,30,34,10,f,e)); add(coneF(x,y-10,7,34,43,10,a,e));
+      add(boxF(x-.9,y+15.2,x+.9,y+17,29,42,Wt,Wt)); add(boxF(x-4,y+15.2,x+4,y+17,37,38.8,Wt,Wt)); break;
+    case 'mall':
+      add(boxF(x-25,y-20,x+25,y+16,0,14,f,e,a)); add(boxF(x-17,y-16,x+9,y+8,14,24,f,e,a));
+      add(boxF(x-25,y+14,x+25,y+18,14,19,col,e));                       // anuncio luminoso
+      add(boxF(x-9,y+16,x+9,y+24,9,10.5,a,e)); add(cylF(x-8,y+23,.8,0,9,5,f,e)); add(cylF(x+8,y+23,.8,0,9,5,f,e)); break;
+    case 'hospital':
+      add(boxF(x-17,y-22,x+17,y+4,0,44,f,e,a)); add(boxF(x-25,y+4,x+25,y+18,0,18,f,e,a));
+      add(boxF(x-2.2,y-16,x+2.2,y-2,44,47,Wt,Wt)); add(boxF(x-7,y-11.2,x+7,y-6.8,44,47,Wt,Wt));   // cruz en la azotea
+      add(boxF(x-6,y+18,x+6,y+24,7,8.5,a,e));
+      out.push(Dc([[x-2,y+18.2,9],[x+2,y+18.2,9],[x+2,y+18.2,17],[x-2,y+18.2,17]],'#FF4060','#FF4060'), Dc([[x-5.5,y+18.2,11],[x+5.5,y+18.2,11],[x+5.5,y+18.2,15],[x-5.5,y+18.2,15]],'#FF4060','#FF4060')); break;
+    case 'universidad': case 'museo': {
+      const tall=d.type==='universidad';
+      add(boxF(x-22,y-20,x+22,y+2,0,tall?22:18,f,e,a));
+      add(boxF(x-19,y+2,x+19,y+15,0,1.5,a,e));                         // escalinata
+      for(let i=0;i<6;i++) add(cylF(x-15+i*6,y+9,1.6,1.5,16,6,f,e));     // columnas
+      add(boxF(x-18,y+3,x+18,y+14,16,19,f,e)); add(gableF(x-18,y+3,x+18,y+14,19,27,a,e,false));
+      if(tall){ add(boxF(x-5,y-16,x+5,y-6,22,38,f,e)); add(pyrF(x-5,y-16,x+5,y-6,38,47,a,e)); }
+      else { add(cylF(x,y-9,9,18,24,12,f,e)); add(coneF(x,y-9,9,24,35,12,a,e)); }
+      break; }
+    case 'estadio': case 'toros': {
+      const toros=d.type==='toros', R=toros?22:26;
+      out.push(flatF(circPts(x,y,R-7,18),.3,toros?'#3a2a1c':'#12301f',e));
+      add(prismF(circPts(x,y,R,18),0,toros?12:16,f,e,false));
+      add(prismF(circPts(x,y,R-7,18),.3,6,a,e,false));
+      if(!toros) for(const [sx,sy] of [[-1,-1],[1,-1],[1,1],[-1,1]]){ const cx=x+sx*R*.8, cy=y+sy*R*.8; add(boxF(cx-1,cy-1,cx+1,cy+1,0,40,f,e)); add(boxF(cx-3,cy-1.5,cx+3,cy+1.5,40,44,Wt,col)); }
+      else { add(boxF(x-4,y+R-2,x+4,y+R+2,0,17,a,e)); add(pyrF(x-4,y+R-2,x+4,y+R+2,17,23,col,e)); }
+      break; }
+    case 'aeropuerto':
+      out.push(flatF([[x-27,y-27],[x+27,y-27],[x+27,y-19],[x-27,y-19]],.2,'#26262f',e));
+      add(boxF(x-24,y-8,x+24,y+16,0,10,f,e)); add(gableF(x-24,y-8,x+24,y+16,10,15,a,e,true));
+      add(cylF(x+15,y-12,3,0,44,8,f,e)); add(cylF(x+15,y-12,7,44,52,10,a,e,col)); add(coneF(x+15,y-12,7,52,55,10,f,e)); add(boxF(x+14.6,y-12.4,x+15.4,y-11.6,55,63,Wt,Wt));
+      add(boxF(x-16,y-17,x+2,y-14,1,4,Wt,e)); add(boxF(x-9,y-22,x-5,y-9,2.4,3.1,Wt,e)); add(boxF(x-15,y-16.6,x-13,y-14.4,4,8,Wt,e)); break;
+    case 'bus':
+      add(boxF(x-24,y-18,x+24,y,0,12,f,e,a)); add(boxF(x-25,y,x+25,y+15,12,13.5,a,e));
+      for(const sx of [-22,-8,8,22]) add(cylF(x+sx,y+14,.9,0,12,5,f,e));
+      add(boxF(x-19,y+4,x-5,y+10,0,6,col,e)); add(boxF(x+3,y+4,x+17,y+10,0,6,col,e)); break;
+    case 'mercado':
+      add(boxF(x-21,y-18,x+21,y+8,0,12,f,e)); add(gableF(x-22,y-19,x+22,y+9,12,22,a,e,true));
+      for(let i=0;i<6;i++){ const x0=x-21+i*7; out.push(Fc([[x0,y+8,10],[x0+7,y+8,10],[x0+7,y+16,6],[x0,y+16,6]],i%2?col:Wt,col)); }   // toldos
+      break;
+    case 'parque':
+      out.push(flatF([[x-26,y-26],[x+26,y-26],[x+26,y+26],[x-26,y+26]],.2,'#10261a',e));
+      for(const [tx,ty] of [[-16,-14],[14,-16],[-15,15],[16,13],[0,-20],[-20,0]]){ add(boxF(x+tx-.8,y+ty-.8,x+tx+.8,y+ty+.8,0,6,'#2a1d14',e)); add(coneF(x+tx,y+ty,6,5,20,8,mixHex('#2fbf6a','#0d0d14',.55),col)); }
+      add(prismF(circPts(x,y,6,8),0,7,f,e,false)); add(coneF(x,y,8,7,13,8,a,e)); break;    // kiosco
+    default: {                                                          // monumento / obelisco
+      add(boxF(x-12,y-12,x+12,y+12,0,4,f,e)); add(boxF(x-7,y-7,x+7,y+7,4,9,f,e));
+      const sq=[[-1,-1],[1,-1],[1,1],[-1,1]], b=3.6, tp=2;
+      for(let i=0;i<4;i++){ const c0=sq[i], c1=sq[(i+1)%4]; out.push(Fc([[x+c0[0]*b,y+c0[1]*b,9],[x+c1[0]*b,y+c1[1]*b,9],[x+c1[0]*tp,y+c1[1]*tp,56],[x+c0[0]*tp,y+c0[1]*tp,56]],f,e)); }
+      add(pyrF(x-2,y-2,x+2,y+2,56,63,col,e)); }
+  }
+  return out;
+}
+const DEST_H={iglesia:48,mall:24,hospital:47,universidad:47,museo:35,estadio:44,toros:23,aeropuerto:63,bus:14,mercado:22,parque:20,monumento:63};
+// Casa (origen): muros, tejado a dos aguas, chimenea, puerta y ventana iluminada
+function houseModel(h){
+  const x=h.x, y=h.y, col=h.color, f=mixHex(col,'#0d0d14',.8), a=mixHex(col,'#0d0d14',.5), out=[];
+  for(const q of boxF(x-7,y-6,x+7,y+7,0,8,f,col)) out.push(q);
+  for(const q of gableF(x-8.5,y-7.5,x+8.5,y+8.5,8,14,a,col,true)) out.push(q);
+  for(const q of boxF(x+3,y-4,x+5.5,y-1.5,10,16,f,col)) out.push(q);
+  out.push(Dc([[x-1.6,y+7.05,0],[x+1.6,y+7.05,0],[x+1.6,y+7.05,4.5],[x-1.6,y+7.05,4.5]],col,col));
+  out.push(Dc([[x-6,y+7.05,4],[x-3,y+7.05,4],[x-3,y+7.05,6.5],[x-6,y+7.05,6.5]],'#FFE9A8',col));
+  out.push(Dc([[x+3,y+7.05,4],[x+6,y+7.05,4],[x+6,y+7.05,6.5],[x+3,y+7.05,6.5]],'#FFE9A8',col));
+  return out;
+}
+// Vehículo según su categoría (carrocería + cabina)
+function carModel(o){
+  const L=o.cat.len/2, Wd=o.cat.wid/2, ca=Math.cos(o.dang), sa=Math.sin(o.dang);
+  const pt=(u,v)=>[o.x+ca*u-sa*v,o.y+sa*u+ca*v];
+  const rb=(u0,v0,u1,v1,z0,z1,fill,edge)=>prismF([pt(u1,v1),pt(u0,v1),pt(u0,v0),pt(u1,v0)],z0,z1,fill,edge);
+  const col=o.color, f=mixHex(col,'#0d0d14',.3), gl='#0e1424', out=[], add=a=>{ for(const q of a) out.push(q); };
+  switch(o.cat.k){
+    case 'camion': add(rb(L*.45,-Wd,L,Wd,.6,5,f,col)); add(rb(-L,-Wd,L*.38,Wd,.6,7.5,'#d8dbe8',col)); break;
+    case 'pickup': add(rb(-L,-Wd,L,Wd,.6,2.6,f,col)); add(rb(-L*.05,-Wd*.85,L*.55,Wd*.85,2.6,4.4,gl,col)); break;
+    case 'moto': add(rb(-L,-Wd*.6,L,Wd*.6,.5,2,f,col)); add(rb(-L*.3,-Wd*.5,L*.15,Wd*.5,2,4.6,'#20202c',col)); break;
+    default: add(rb(-L,-Wd,L,Wd,.6,2.4,f,col)); add(rb(-L*.45,-Wd*.85,L*.4,Wd*.85,2.4,4,gl,col));
+  }
+  return {faces:out,pt,L,Wd};
+}
+
+let fpvCar=null, fpvAng=0;
+const STARS=Array.from({length:110},()=>({b:rnd(0,TAU),y:Math.pow(Math.random(),1.6),s:rnd(.5,1.6)}));
+function enterFpv(c){ if(!c||c.dead) return; fpvCar=c; fpvAng=c.dang; follow=false; closePopup(); $('fpvUi').classList.remove('hidden'); $('dock').classList.add('hidden'); $('hint').classList.add('hidden'); $('tl').classList.add('hidden'); }
+function exitFpv(){ if(!fpvCar) return; const c=fpvCar; fpvCar=null; $('fpvUi').classList.add('hidden'); if(state==='play'&&!G.over){ $('dock').classList.remove('hidden'); $('tl').classList.remove('hidden'); if(!c.dead){ selectCar(c); } } }
+function cycleFpv(dir){ if(!G.cars.length) return exitFpv(); const i=G.cars.indexOf(fpvCar); const n=G.cars[(i+dir+G.cars.length)%G.cars.length]; fpvCar=n; fpvAng=n.dang; }
+function clipNear(q){ const out=[]; for(let i=0;i<q.length;i++){ const a=q[i], b=q[(i+1)%q.length], ai=a[2]>=NEAR, bi=b[2]>=NEAR; if(ai) out.push(a); if(ai!==bi){ const t=(NEAR-a[2])/(b[2]-a[2]); out.push([a[0]+(b[0]-a[0])*t,a[1]+(b[1]-a[1])*t,NEAR]); } } return out; }
+
+function renderFPV(dt){
+  let c=fpvCar;
+  if(c.dead){ const nx=G.cars.find(o=>o.pc===c.pc&&o.state==='ida')||G.cars.find(o=>o.pc===c.pc); if(nx){ fpvCar=c=nx; fpvAng=c.dang; toast('El vehículo terminó su viaje; cambiando a otro '+c.pc.name.toLowerCase()); } else { exitFpv(); toast('El vehículo terminó su viaje'); render(dt); return; } }
+  const t=performance.now()/1000;
+  fpvAng+=angDiff(fpvAng,c.dang)*Math.min(1,dt*6);
+  const fx=Math.cos(fpvAng), fy=Math.sin(fpvAng), rx=-fy, ry=fx;
+  const ex=c.x+fx*2, ey=c.y+fy*2, eh=5.2;
+  const hor=H*.45, f=Math.min(W*.62,H*1.05), RANGE=24*CELL;
+  const T=(x,y,z)=>{ const dx=x-ex, dy=y-ey; return [dx*rx+dy*ry, z-eh, dx*fx+dy*fy]; };
+  const P=q=>[W/2+q[0]*f/q[2], hor-q[1]*f/q[2]];
+  const depth=(x,y)=>(x-ex)*fx+(y-ey)*fy;
+  function poly(world,fill,stroke,lw){ let q=clipNear(world.map(p=>T(p[0],p[1],p[2]))); if(q.length<3) return false; ctx.beginPath(); for(let i=0;i<q.length;i++){ const s=P(q[i]); i?ctx.lineTo(s[0],s[1]):ctx.moveTo(s[0],s[1]); } ctx.closePath(); if(fill){ ctx.fillStyle=fill; ctx.fill(); } if(stroke){ ctx.strokeStyle=stroke; ctx.lineWidth=lw||1; ctx.stroke(); } return true; }
+  function seg(a,b){ let A=T(a[0],a[1],a[2]), B=T(b[0],b[1],b[2]); if(A[2]<NEAR&&B[2]<NEAR) return null; if(A[2]<NEAR){ const k=(NEAR-A[2])/(B[2]-A[2]); A=[A[0]+(B[0]-A[0])*k,A[1]+(B[1]-A[1])*k,NEAR]; } else if(B[2]<NEAR){ const k=(NEAR-B[2])/(A[2]-B[2]); B=[B[0]+(A[0]-B[0])*k,B[1]+(A[1]-B[1])*k,NEAR]; } return [P(A),P(B)]; }
+  const near=(x,y,r)=>Math.abs(x-ex)<r&&Math.abs(y-ey)<r&&depth(x,y)>-60;
+
+  ctx.setTransform(DPR,0,0,DPR,0,0);
+  // cielo nocturno neón
+  let g=ctx.createLinearGradient(0,0,0,hor); g.addColorStop(0,'#05040c'); g.addColorStop(.7,'#140b26'); g.addColorStop(1,'#2a0f3c');
+  ctx.fillStyle=g; ctx.fillRect(0,0,W,hor+1);
+  ctx.fillStyle='#fff';
+  for(const s of STARS){ const d=angDiff(fpvAng,s.b); if(Math.abs(d)>1.2) continue; const x=W/2+Math.tan(d)*f; ctx.globalAlpha=.25+.5*s.s/1.6; ctx.fillRect(x,s.y*hor*.8,s.s,s.s); } ctx.globalAlpha=1;
+  glowAt(W/2,hor,W*.45,'#FF2BD6',.35);
+  // sierra en el horizonte (depende del rumbo → gira con la cámara)
+  ctx.beginPath(); ctx.moveTo(0,hor);
+  for(let x=0;x<=W+8;x+=8){ const b=fpvAng+Math.atan2(x-W/2,f); const hh=(26+16*Math.sin(b*3+1)+11*Math.sin(b*7+2)+6*Math.sin(b*13+.5))*H/800; ctx.lineTo(x,hor-Math.max(4,hh)); }
+  ctx.lineTo(W,hor); ctx.closePath(); ctx.fillStyle='#110b1d'; ctx.fill(); ctx.strokeStyle='rgba(255,43,214,0.45)'; ctx.lineWidth=1.2; ctx.stroke();
+  // suelo
+  g=ctx.createLinearGradient(0,hor,0,H); g.addColorStop(0,'#0c0b14'); g.addColorStop(1,'#1a1a24'); ctx.fillStyle=g; ctx.fillRect(0,hor,W,H-hor);
+
+  // río
+  const gc=Math.floor(ex/CELL), gr=Math.floor(ey/CELL), RG=22;
+  for(let r=gr-RG;r<=gr+RG;r++) for(let cc=gc-RG;cc<=gc+RG;cc++){ if(!inGrid(cc,r)) continue; const id=cid(cc,r); if(G.terrain[id]!==T_RIVER) continue; const x0=cc*CELL,y0=r*CELL; if(depth(x0+16,y0+16)<-40) continue;
+    poly([[x0,y0,0],[x0+CELL,y0,0],[x0+CELL,y0+CELL,0],[x0,y0+CELL,0]],'rgba(14,58,110,0.75)'); }
+  // cuadrícula del suelo
+  ctx.strokeStyle='rgba(120,130,255,0.09)'; ctx.lineWidth=1; ctx.beginPath();
+  for(let i=-RG;i<=RG;i++){ const x=(gc+i)*CELL, y=(gr+i)*CELL;
+    let s=seg([x,(gr-RG)*CELL,0],[x,(gr+RG)*CELL,0]); if(s){ ctx.moveTo(s[0][0],s[0][1]); ctx.lineTo(s[1][0],s[1][1]); }
+    s=seg([(gc-RG)*CELL,y,0],[(gc+RG)*CELL,y,0]); if(s){ ctx.moveTo(s[0][0],s[0][1]); ctx.lineTo(s[1][0],s[1][1]); } }
+  ctx.stroke();
+  // carreteras: primero contorno neón, luego cuerpo (tapa los contornos internos)
+  const RW=7.2, edgesNear=[];
+  for(const e of G.roads.values()){ const ax=ccx(e.a),ay=ccy(e.a),bx=ccx(e.b),by=ccy(e.b); if(!near((ax+bx)/2,(ay+by)/2,RANGE)) continue;
+    const L=Math.hypot(bx-ax,by-ay), nx=-(by-ay)/L*RW, ny=(bx-ax)/L*RW; { const q=[[ax+nx,ay+ny,0],[bx+nx,by+ny,0],[bx-nx,by-ny,0],[ax-nx,ay-ny,0]]; q.br=G.terrain[e.a]===T_RIVER||G.terrain[e.b]===T_RIVER; edgesNear.push(q); } }
+  for(const q of edgesNear) poly(q,null,'rgba(160,205,255,0.55)',2);
+  const oct=(x,y,r)=>{ const a=[]; for(let i=0;i<8;i++){ const an=i/8*TAU+Math.PI/8; a.push([x+Math.cos(an)*r,y+Math.sin(an)*r,0]); } return a; };
+  for(const q of edgesNear) poly(q,q.br?'#2e2e44':'#1f1f2b');
+  for(const [id,set] of G.adj){ if(!set.size) continue; const x=ccx(id), y=ccy(id); if(!near(x,y,RANGE)) continue; poly(oct(x,y,RW*1.04),'#1f1f2b'); if(G.glorietas.has(id)) poly(circPts(x,y,12,20).map(p=>[p[0],p[1],.05]),null,'rgba(0,240,255,0.7)',1.5); }
+  // líneas centrales
+  ctx.setLineDash([5,9]); ctx.strokeStyle='rgba(255,255,255,0.22)'; ctx.lineWidth=1; ctx.beginPath();
+  for(const e of G.roads.values()){ const ax=ccx(e.a),ay=ccy(e.a),bx=ccx(e.b),by=ccy(e.b); if(!near((ax+bx)/2,(ay+by)/2,RANGE*.6)) continue; const s=seg([ax,ay,.05],[bx,by,.05]); if(s){ ctx.moveTo(s[0][0],s[0][1]); ctx.lineTo(s[1][0],s[1][1]); } }
+  ctx.stroke(); ctx.setLineDash([]);
+
+  // trayecto del vehículo resaltado sobre el asfalto
+  const R=c.route;
+  const drawRoute=(lw,style)=>{ ctx.strokeStyle=style; ctx.lineWidth=lw; ctx.beginPath(); let px=c.x,py=c.y;
+    for(let i=c.k+1;i<R.n;i++){ const s=seg([px,py,.25],[R.xs[i],R.ys[i],.25]); if(s){ ctx.moveTo(s[0][0],s[0][1]); ctx.lineTo(s[1][0],s[1][1]); } px=R.xs[i]; py=R.ys[i]; if(R.cum[i]-c.s>RANGE*1.2) break; } ctx.stroke(); };
+  ctx.lineCap='round'; drawRoute(8,rgba(c.color,.22)); drawRoute(2.4,rgba(c.color,.95));
+  // chevrons animados sobre la ruta
+  for(let s0=26+(t*40)%28;s0<260;s0+=28){ const ss=c.s+s0+10; if(ss>R.len) break; let k=c.k; while(k<R.n-2&&R.cum[k+1]<ss) k++; const L=R.cum[k+1]-R.cum[k]||1, u=(ss-R.cum[k])/L; const x=R.xs[k]+(R.xs[k+1]-R.xs[k])*u, y=R.ys[k]+(R.ys[k+1]-R.ys[k])*u, a=Math.atan2(R.ys[k+1]-R.ys[k],R.xs[k+1]-R.xs[k]);
+    const ca=Math.cos(a), sa=Math.sin(a); poly([[x+ca*3,y+sa*3,.3],[x-ca*2-sa*3,y-sa*2+ca*3,.3],[x-ca*.5,y-sa*.5,.3],[x-ca*2+sa*3,y-sa*2-ca*3,.3]],rgba(c.color,.8*(1-s0/260))); }
+
+  // niebla en el horizonte
+  g=ctx.createLinearGradient(0,hor-8,0,hor+H*.1); g.addColorStop(0,'rgba(42,15,60,0.75)'); g.addColorStop(1,'rgba(42,15,60,0)'); ctx.fillStyle=g; ctx.fillRect(0,hor-8,W,H*.1+8);
+  // objetos 3D ordenados por profundidad
+  const objs=[];
+  // Dibuja un modelo: caras ordenadas de lejos a cerca (pintor dentro del objeto).
+  // Las caras planas a ras de suelo van primero; los techos por encima del ojo no se ven.
+  const drawFaces=(faces,alpha)=>{
+    const arr=[];
+    for(const fc of faces){ const p=fc.p, n=p.length; let sx=0,sy=0,sz=0,flat=true; for(const q of p){ sx+=q[0]; sy+=q[1]; sz+=q[2]; if(q[2]!==p[0][2]) flat=false; }
+      if(flat&&p[0][2]>eh) continue;
+      if(fc.decal&&ey<p[0][1]) continue;            // las calcomanías miran hacia +y
+      const dx=sx/n-ex, dy=sy/n-ey, dz=sz/n-eh; arr.push([fc.decal?-1:flat&&p[0][2]<1?1e12:dx*dx+dy*dy+dz*dz,fc]); }
+    arr.sort((a,b)=>b[0]-a[0]); ctx.globalAlpha=alpha;
+    for(const it of arr) poly(it[1].p,it[1].fill,it[1].edge,it[1].lw||1.2);
+    ctx.globalAlpha=1;
+  };
+  for(const d of G.dests){ if(!near(d.x,d.y,RANGE)) continue; const hgt=DEST_H[d.type]||44;
+    objs.push({z:depth(d.x,d.y),fn:a=>{ const col=d.crit&&Math.sin(t*16)>0?'#FF2240':d.color; drawFaces(destModel(d,col),a);
+      // rótulo flotante
+      const q=T(d.x,d.y,hgt+12); if(q[2]>NEAR&&q[2]<RANGE){ ctx.globalAlpha=a; const p=P(q), fs=clamp(1400/q[2],9,22); ctx.font=`600 ${fs}px "Space Grotesk",system-ui`; ctx.textAlign='center'; ctx.fillStyle=col; ctx.fillText(d.name,p[0],p[1]); ctx.font=`400 ${fs*.7}px "Space Grotesk",system-ui`; ctx.fillStyle='rgba(255,255,255,0.6)'; ctx.fillText('estrés '+Math.round(d.stress*100)+'%',p[0],p[1]+fs*.9); ctx.globalAlpha=1; }
+    }}); }
+  for(const h of G.houses){ if(!near(h.x,h.y,RANGE)) continue;
+    objs.push({z:depth(h.x,h.y),fn:a=>drawFaces(houseModel(h),a)}); }
+  for(let r=gr-RG;r<=gr+RG;r++) for(let cc=gc-RG;cc<=gc+RG;cc++){ if(!inGrid(cc,r)) continue; const id=cid(cc,r); if(G.terrain[id]!==T_HILL) continue; const x0=cc*CELL+1,y0=r*CELL+1,x1=x0+CELL-2,y1=y0+CELL-2; if(!near(x0+15,y0+15,RANGE)) continue;
+    const hh=20+((cc*7+r*13)%9)*2; objs.push({z:depth(x0+15,y0+15),fn:a=>drawFaces(boxF(x0,y0,x1,y1,0,hh,'#17141f','rgba(180,150,255,0.4)'),a)}); }
+  // glorietas: isla central con fuente
+  for(const gl of G.glorietas){ const x=ccx(gl), y=ccy(gl); if(!near(x,y,RANGE)) continue;
+    objs.push({z:depth(x,y),fn:a=>{ const fs=[]; for(const q of cylF(x,y,6,0,1.4,14,'#10261a','#00F0FF')) fs.push(q); for(const q of cylF(x,y,2.2,1.4,3.2,8,'#1a2a40','#00F0FF')) fs.push(q); for(const q of coneF(x,y,1.2,3.2,8,6,'#7fe9ff','#00F0FF')) fs.push(q); drawFaces(fs,a); }}); }
+  // puentes: barandales neón a ambos lados del tramo sobre el río
+  for(const e of G.roads.values()){ if(G.terrain[e.a]!==T_RIVER&&G.terrain[e.b]!==T_RIVER) continue;
+    const ax=ccx(e.a),ay=ccy(e.a),bx=ccx(e.b),by=ccy(e.b), mx=(ax+bx)/2, my=(ay+by)/2; if(!near(mx,my,RANGE)) continue;
+    const L=Math.hypot(bx-ax,by-ay), nx=-(by-ay)/L*(RW+.8), ny=(bx-ax)/L*(RW+.8);
+    for(const sgn of [1,-1]){ const p0=[ax+nx*sgn,ay+ny*sgn], p1=[bx+nx*sgn,by+ny*sgn];
+      objs.push({z:depth((p0[0]+p1[0])/2,(p0[1]+p1[1])/2),fn:a=>drawFaces([
+        Fc([[p0[0],p0[1],0],[p1[0],p1[1],0],[p1[0],p1[1],2.8],[p0[0],p0[1],2.8]],'rgba(24,28,48,0.6)','rgba(210,220,255,0.85)'),
+        Fc([[p0[0],p0[1],-6],[p0[0]+(p1[0]-p0[0])*.08,p0[1]+(p1[1]-p0[1])*.08,-6],[p0[0]+(p1[0]-p0[0])*.08,p0[1]+(p1[1]-p0[1])*.08,0],[p0[0],p0[1],0]],'#1c1c2a','rgba(210,220,255,0.5)')],a)}); } }
+  for(const o of G.cars){ if(o===c||!near(o.x,o.y,RANGE)) continue;
+    objs.push({z:depth(o.x,o.y),fn:a=>{ const m=carModel(o); drawFaces(m.faces,a*(o.state==='ida'?1:.7));
+      // luces: traseras rojas si va delante de nosotros, delanteras si viene de frente
+      const facing=Math.cos(o.dang)*fx+Math.sin(o.dang)*fy, back=facing>0, hh=o.cat.k==='camion'?3:1.8;
+      for(const v of (o.cat.k==='moto'?[0]:[-m.Wd*.7,m.Wd*.7])){ const p0=m.pt(back?-m.L:m.L,v), q=T(p0[0],p0[1],hh); if(q[2]>NEAR){ const s=P(q), rr=clamp(60/q[2],1,7); glowAt(s[0],s[1],rr*3.2,back?'#FF2240':'#FFF4C0',.9*a); } }
+    }}); }
+  objs.sort((a,b)=>b.z-a.z);
+  for(const o of objs) o.fn(clamp(1.15-o.z/RANGE,.12,1));
+  // haz de luz sobre el destino/casa del vehículo (orienta el trayecto)
+  const tgt=c.state==='ida'?c.dest:c.home, bs=seg([tgt.x,tgt.y,20],[tgt.x,tgt.y,900]);
+  if(bs&&depth(tgt.x,tgt.y)>0){ ctx.strokeStyle=rgba(tgt.color||c.color,.18); ctx.lineWidth=10; ctx.beginPath(); ctx.moveTo(bs[0][0],bs[0][1]); ctx.lineTo(bs[1][0],bs[1][1]); ctx.stroke(); ctx.strokeStyle=rgba(tgt.color||c.color,.7); ctx.lineWidth=1.5; ctx.stroke(); }
+
+  // cofre del vehículo
+  ctx.beginPath(); ctx.moveTo(W*.08,H); ctx.quadraticCurveTo(W*.5,H*.79,W*.92,H); ctx.closePath();
+  ctx.fillStyle='#0b0b12'; ctx.fill(); ctx.strokeStyle=c.color; ctx.lineWidth=2.5; ctx.shadowColor=c.color; ctx.shadowBlur=16; ctx.stroke(); ctx.shadowBlur=0;
+  drawWeather(t);
+  drawFpvHud(c,t);
+}
+function glowAt(x,y,r,hex,a){ glow(hex,x,y,r,a); }
+
+function routeInfo(c){
+  const R=c.route, P=R.path, pi=R.pi[Math.min(c.k,R.n-1)];
+  let turn=null;
+  for(let i=pi+1;i<P.length-1;i++){
+    const a=P[i-1], b=P[i], n=P[i+1];
+    const d=angDiff(Math.atan2(ccy(b)-ccy(a),ccx(b)-ccx(a)),Math.atan2(ccy(n)-ccy(b),ccx(n)-ccx(b)));
+    if(Math.abs(d)>.3){ let k=0; while(k<R.n-1&&R.pi[k]<i) k++; turn={dir:d>0?1:-1,dist:Math.max(0,R.cum[k]-c.s),sharp:Math.abs(d)>1.2}; break; }
+  }
+  const remain=Math.max(0,R.len-c.s), wm=G.weather.on?.68:1;
+  const eta=remain/Math.max(8,c.vmax*.72*wm);
+  return {turn,remain,eta};
+}
+function drawFpvHud(c,t){
+  const info=routeInfo(c), tgt=c.state==='ida'?c.dest:c.home;
+  ctx.textAlign='left';
+  // velocímetro
+  const kmh=Math.round(c.speed*M_PER_PX*3.6);
+  ctx.font='300 64px "Space Grotesk",system-ui'; ctx.fillStyle='#fff'; ctx.shadowColor=c.color; ctx.shadowBlur=14; ctx.fillText(kmh,32,H-78); ctx.shadowBlur=0;
+  ctx.font='500 11px "Space Grotesk",system-ui'; ctx.fillStyle='rgba(255,255,255,0.55)'; ctx.fillText('KM/H · '+c.cat.name.toUpperCase(),34,H-58);
+  // tarjeta de viaje
+  ctx.font='600 13px "Space Grotesk",system-ui'; ctx.fillStyle=c.color; ctx.fillText(c.pc.name.toUpperCase()+' · #'+c.id,28,36);
+  ctx.font='400 13px "Space Grotesk",system-ui'; ctx.fillStyle='rgba(255,255,255,0.85)';
+  ctx.fillText((c.state==='ida'?c.home.name+'  →  '+c.dest.name:c.dest.name+'  →  '+c.home.name),28,58);
+  ctx.fillStyle='rgba(255,255,255,0.55)';
+  const tt=G.time-(c.state==='ida'?c.t0:(c.t1||c.t0));
+  ctx.fillText((c.state==='ida'?'Rumbo al destino':'Regresando a casa')+' · viaje '+tt.toFixed(1)+' s · ETA '+info.eta.toFixed(1)+' s · '+Math.round(info.remain*M_PER_PX)+' m',28,78);
+  // siguiente maniobra
+  ctx.textAlign='center';
+  const cx=W/2, cy=64;
+  ctx.save(); ctx.translate(cx,cy-6);
+  ctx.strokeStyle=c.color; ctx.lineWidth=4; ctx.lineCap='round'; ctx.lineJoin='round'; ctx.shadowColor=c.color; ctx.shadowBlur=12; ctx.beginPath();
+  if(info.turn&&info.turn.dist<260){ const s=info.turn.dir; ctx.moveTo(0,16); ctx.lineTo(0,0); ctx.quadraticCurveTo(0,-10,s*12,-10); ctx.moveTo(s*6,-16); ctx.lineTo(s*12,-10); ctx.lineTo(s*6,-4); }
+  else { ctx.moveTo(0,16); ctx.lineTo(0,-14); ctx.moveTo(-7,-7); ctx.lineTo(0,-14); ctx.lineTo(7,-7); }
+  ctx.stroke(); ctx.restore(); ctx.shadowBlur=0;
+  ctx.font='500 14px "Space Grotesk",system-ui'; ctx.fillStyle='#fff';
+  const msg=info.turn&&info.turn.dist<260?'Gira a la '+(info.turn.dir>0?'derecha':'izquierda')+(info.turn.dist<14?' ahora':' en '+Math.round(info.turn.dist*M_PER_PX)+' m'):'Sigue recto · '+tgt.name+' a '+Math.round(info.remain*M_PER_PX)+' m';
+  ctx.fillText(msg,cx,cy+32);
+  // estado del sistema: destino más estresado
+  let worst=null; for(const d of G.dests) if(!worst||d.stress>worst.stress) worst=d;
+  if(worst&&worst.stress>.5){ ctx.font='600 12px "Space Grotesk",system-ui'; ctx.fillStyle=worst.crit&&Math.sin(t*14)>0?'#FF2240':'rgba(255,255,255,0.75)'; ctx.fillText('⚠ '+worst.name+' '+Math.round(worst.stress*100)+'%'+(worst.crit?' · COLAPSO EN '+Math.max(0,CRIT_GRACE-worst.critT).toFixed(1)+' s':''),cx,cy+54); }
+  // minimapa con la ruta, orientado según el rumbo
+  const mr=Math.min(86,W*.13), mx=W-mr-24, my=mr+150;
+  ctx.save(); ctx.beginPath(); ctx.arc(mx,my,mr,0,TAU); ctx.fillStyle='rgba(10,10,16,0.78)'; ctx.fill(); ctx.clip();
+  ctx.translate(mx,my); ctx.rotate(-fpvAng-Math.PI/2); ctx.scale(.42,.42); ctx.translate(-c.x,-c.y);
+  ctx.fillStyle='rgba(14,58,110,0.8)'; ctx.fill(G.terrainPaths.river); ctx.fillStyle='#2a2635'; ctx.fill(G.terrainPaths.hill);
+  ctx.lineCap='round'; ctx.lineJoin='round'; ctx.strokeStyle='rgba(170,205,255,0.35)'; ctx.lineWidth=12; ctx.stroke(G.roadPath);
+  const R=c.route; ctx.beginPath(); ctx.moveTo(c.x,c.y); for(let i=c.k+1;i<R.n;i++) ctx.lineTo(R.xs[i],R.ys[i]); ctx.strokeStyle=c.color; ctx.lineWidth=5; ctx.stroke();
+  for(const d of G.dests){ ctx.fillStyle=d.color; ctx.fillRect(d.x-20,d.y-20,40,40); }
+  for(const h of G.houses){ ctx.fillStyle=h.color; ctx.beginPath(); ctx.arc(h.x,h.y,9,0,TAU); ctx.fill(); }
+  for(const o of G.cars){ if(o===c) continue; ctx.fillStyle=o.color; ctx.fillRect(o.x-4,o.y-4,8,8); }
+  ctx.restore();
+  ctx.beginPath(); ctx.arc(mx,my,mr,0,TAU); ctx.strokeStyle=rgba(c.color,.6); ctx.lineWidth=1.5; ctx.stroke();
+  ctx.fillStyle='#fff'; ctx.beginPath(); ctx.moveTo(mx,my-9); ctx.lineTo(mx+6,my+7); ctx.lineTo(mx,my+3); ctx.lineTo(mx-6,my+7); ctx.closePath(); ctx.fill();
+  ctx.textAlign='left';
+}
+
+/* =====================================================================
+   ENTRADA: dibujar, borrar, glorietas, seleccionar autos, cámara
+   ===================================================================== */
+const ptr={down:false,mode:null,btn:-1,sx:0,sy:0,moved:false,cx:0,cy:0,lastCell:-1};
+function canStep(a,b){
+  if(b<0||!inBounds(b)||G.terrain[b]===T_HILL) return false;
+  const A=G.bldg.get(a), B=G.bldg.get(b);
+  if(A&&A===B) return false;                         // dentro del mismo edificio
+  if(A&&a!==preview[0]) return false;                // no se pasa a través de edificios
+  const dc=col(b)-col(a), dr=row(b)-row(a);
+  if(dc&&dr&&G.terrain[cid(col(a)+dc,row(a))]===T_HILL&&G.terrain[cid(col(a),row(a)+dr)]===T_HILL) return false;
+  return true;
+}
+function canStart(id){ return id>=0&&inBounds(id)&&G.terrain[id]!==T_HILL&&(G.terrain[id]!==T_RIVER||G.bridgeCells.has(id)||deg(id)>0||true); }
+// Extiende la previsualización celda por celda hacia el cursor (snap perfecto a la cuadrícula)
+function extendPreview(target){
+  if(target<0) return;
+  let lastC=preview[preview.length-1], guard=0;
+  while(lastC!==target&&guard++<200){
+    const lc=col(lastC), lr=row(lastC), tc=col(target), tr=row(target);
+    let sx=Math.sign(tc-lc), sy=Math.sign(tr-lr); const ax=Math.abs(tc-lc), ay=Math.abs(tr-lr);
+    if(ax>=2*ay) sy=0; else if(ay>=2*ax) sx=0;
+    const nx=cid(lc+sx,lr+sy);
+    if(preview.length>=2&&nx===preview[preview.length-2]){ preview.pop(); lastC=nx; continue; }
+    if(preview.includes(nx)||!canStep(lastC,nx)) break;
+    preview.push(nx); lastC=nx;
+    if(G.bldg.has(nx)) break;
+  }
+}
+// Evalúa costo del trazo: tramos nuevos y puentes necesarios para cruzar el río
+function evalPreview(){
+  const out=[]; let tr=G.tramos, pu=G.puentes, run=null, failed=false;
+  const bf=cell=>{ if(G.terrain[cell]!==T_RIVER) return 0; if(G.bridgeCells.has(cell)){ if(!run) run='old'; return 0; } if(!run){ run='new'; return 1; } return 0; };
+  for(let i=0;i<preview.length-1;i++){
+    const a=preview[i], b=preview[i+1], isNew=!hasRoad(a,b);
+    if(G.terrain[a]!==T_RIVER) run=null;
+    const need=(G.terrain[a]===T_RIVER?bf(a):0)+(G.terrain[b]===T_RIVER?bf(b):0);
+    if(failed||(isNew&&tr<1)||need>pu){ failed=true; out.push({a,b,ok:false,why:need>pu?'bridge':'road'}); continue; }
+    if(isNew) tr--; pu-=need; out.push({a,b,ok:true,isNew});
+  }
+  return out;
+}
+function commitPreview(){
+  if(preview.length<2){ preview=[]; return; }
+  const ev=evalPreview(), sid=G.strokeSeq++; let added=0, cur=null;
+  const bridgeOf=cell=>G.bridges.find(b=>b.cells.has(cell));
+  const bf=cell=>{ if(G.terrain[cell]!==T_RIVER) return; if(G.bridgeCells.has(cell)){ cur=bridgeOf(cell)||cur; return; } if(!cur){ cur={cells:new Set()}; G.bridges.push(cur); G.puentes--; } cur.cells.add(cell); G.bridgeCells.add(cell); };
+  for(const s of ev){
+    if(!s.ok){ toast(s.why==='bridge'?'🌉 Necesitas un puente para cruzar el río (ganas uno cada 2 olas)':'Sin tramos de carretera: espera la siguiente ola',true); break; }
+    if(G.terrain[s.a]!==T_RIVER) cur=null; else bf(s.a);
+    if(G.terrain[s.b]===T_RIVER) bf(s.b);
+    if(s.isNew){ addRoad(s.a,s.b,sid); G.tramos--; added++; }
+  }
+  preview=[];
+  if(added){ Sound.build(); roadsChanged(); }
+}
+function eraseCell(id){
+  if(id<0) return; let n=0;
+  const s=G.adj.get(id); if(s) for(const nb of [...s]) if(delRoad(ek(id,nb))) n++;
+  if(G.glorietas.has(id)){ G.glorietas.delete(id); G.glorInv++; n++; }
+  if(n){ Sound.erase(); burst(ccx(id),ccy(id),'#aab4ff',6,40); roadsChanged(); }
+}
+// Borra la carretera completa (el trazo) más cercana al punto
+function eraseStrokeAt(w){
+  let best=null, bd=14;
+  for(const e of G.roads.values()){ const d=segDist(w.x,w.y,ccx(e.a),ccy(e.a),ccx(e.b),ccy(e.b)); if(d<bd){ bd=d; best=e; } }
+  if(!best) return false;
+  const sid=best.s; let n=0;
+  for(const [k,e] of [...G.roads]) if(e.s===sid){ delRoad(k); burst((ccx(e.a)+ccx(e.b))/2,(ccy(e.a)+ccy(e.b))/2,'#aab4ff',2,30); n++; }
+  if(n){ Sound.erase(); roadsChanged(); }
+  return n>0;
+}
+function placeGlorieta(id){
+  if(id<0) return;
+  if(G.glorietas.has(id)){ G.glorietas.delete(id); G.glorInv++; roadsChanged(); return; }
+  if(!isJunction(id)){ toast('Coloca la glorieta en un cruce de 3 o más vías'); return; }
+  if(G.glorInv<1){ toast('No tienes glorietas: ganas una cada 3 olas',true); return; }
+  G.glorietas.add(id); G.glorInv--; Sound.build(); burst(ccx(id),ccy(id),'#00F0FF',12,70); roadsChanged();
+}
+function pickCar(w){ let best=null, bd=10+8/cam.z; for(const c of G.cars){ const d=Math.hypot(c.x-w.x,c.y-w.y); if(d<bd){ bd=d; best=c; } } return best; }
+
+cv.addEventListener('contextmenu',e=>e.preventDefault());
+cv.addEventListener('pointerdown',e=>{
+  Sound.init();
+  if(state!=='play'||!G||G.over||fpvCar) return;      // en pausa también se puede construir y borrar
+  try{ cv.setPointerCapture(e.pointerId); }catch(_){}
+  const w=s2w(e.clientX,e.clientY);
+  Object.assign(ptr,{down:true,btn:e.button,sx:e.clientX,sy:e.clientY,moved:false,mode:null,lastCell:cellAtW(w)});
+  if(e.button===1||(e.button===0&&spaceDown)){ ptr.mode='pan'; ptr.cx=cam.x; ptr.cy=cam.y; autoCam=false; follow=false; cv.classList.add('pan'); return; }
+  if(e.button===2){ ptr.mode='erase-r'; return; }
+  if(e.button!==0) return;
+  if(tool!=='erase'){ const car=pickCar(w); if(car){ selectCar(car); Sound.click(); ptr.mode='none'; return; } }
+  if(sel&&!follow) closePopup();
+  if(tool==='road'){ const id=cellAtW(w); if(canStart(id)){ preview=[id]; ptr.mode='draw'; } else ptr.mode='none'; }
+  else if(tool==='glorieta'){ placeGlorieta(cellAtW(w)); ptr.mode='none'; }
+  else if(tool==='erase'){ ptr.mode='erase-l'; eraseCell(cellAtW(w)); }
+});
+cv.addEventListener('pointermove',e=>{
+  if(!G) return;
+  const w=s2w(e.clientX,e.clientY), id=cellAtW(w); hoverCell=id;
+  if(!ptr.down) return;
+  if(Math.hypot(e.clientX-ptr.sx,e.clientY-ptr.sy)>5) ptr.moved=true;
+  if(ptr.mode==='pan'){ cam.x=ptr.cx-(e.clientX-ptr.sx)/cam.z; cam.y=ptr.cy-(e.clientY-ptr.sy)/cam.z; cam.x=clamp(cam.x,0,WW); cam.y=clamp(cam.y,0,WH); camT.x=cam.x; camT.y=cam.y; camT.z=cam.z; }
+  else if(ptr.mode==='draw') extendPreview(id);
+  else if((ptr.mode==='erase-r'&&ptr.moved)||ptr.mode==='erase-l'){ if(id!==ptr.lastCell||ptr.mode==='erase-r'&&!ptr.erasedFirst){ if(ptr.mode==='erase-r'&&!ptr.erasedFirst){ ptr.erasedFirst=true; eraseCell(ptr.lastCell); } ptr.lastCell=id; eraseCell(id); } }
+});
+function endPtr(e){
+  if(!ptr.down) return;
+  if(ptr.mode==='draw') commitPreview();
+  else if(ptr.mode==='erase-r'&&!ptr.moved) eraseStrokeAt(s2w(e.clientX,e.clientY));
+  ptr.down=false; ptr.mode=null; ptr.erasedFirst=false; preview=[]; cv.classList.remove('pan');
+}
+cv.addEventListener('pointerup',endPtr); cv.addEventListener('pointercancel',endPtr);
+cv.addEventListener('dblclick',e=>{ if(state!=='play'||!G||G.over||fpvCar) return; const w=s2w(e.clientX,e.clientY); if(!eraseStrokeAt(w)&&G.glorietas.has(cellAtW(w))) placeGlorieta(cellAtW(w)); });
+cv.addEventListener('wheel',e=>{ e.preventDefault(); if(!G||fpvCar||state!=='play') return; const b=s2w(e.clientX,e.clientY); const z=clamp(cam.z*Math.exp(-e.deltaY*.0015),.25,3); cam.z=z; cam.x=b.x-(e.clientX-W/2)/z; cam.y=b.y-(e.clientY-H/2)/z; Object.assign(camT,{x:cam.x,y:cam.y,z}); autoCam=false; },{passive:false});
+
+addEventListener('keydown',e=>{
+  if(e.code==='Space'){ spaceDown=true; if(state==='play') e.preventDefault(); }
+  if(state!=='play'||!G) return;
+  if(fpvCar){ if(e.key==='Escape'){ exitFpv(); } else if(e.key==='Tab'){ e.preventDefault(); cycleFpv(e.shiftKey?-1:1); } return; }
+  if(e.key==='Escape'){ if($('stats').classList.contains('open')) toggleStats(false); else if(sel) closePopup(); else togglePause(); }
+  else if(e.key==='1') setTool('road'); else if(e.key==='2') setTool('glorieta'); else if(e.key==='3') setTool('erase');
+  else if(e.key==='p'||e.key==='P') togglePause();
+  else if(e.key==='t'||e.key==='T') toggleStats();
+  else if(e.key==='f'||e.key==='F'){ autoCam=true; follow=false; }
+  else if(e.key==='.'||e.key==='>') setSpeed(timeScale===1?2:fasterSpeed());
+  else if(e.key===','||e.key==='<') setSpeed(1);
+});
+addEventListener('keyup',e=>{ if(e.code==='Space') spaceDown=false; });
+
+/* =====================================================================
+   UI: HUD, dock, popup del vehículo, estadísticas, pantallas
+   ===================================================================== */
+let toastT=null;
+function toast(msg,warn){ const el=$('toast'); el.textContent=msg; el.classList.toggle('warn',!!warn); el.classList.add('show'); clearTimeout(toastT); toastT=setTimeout(()=>el.classList.remove('show'),warn?3600:3000); }
+function show(id){ $(id).classList.remove('hidden'); } function hide(id){ $(id).classList.add('hidden'); }
+function hideHud(){ ['tl','tr','dock','hint','popup','fpvUi'].forEach(hide); toggleStats(false); }
+function showHud(){ ['tl','tr','dock'].forEach(show); }
+let lastScore=-1;
+function bumpScore(){ const el=$('scoreNum'); el.classList.add('bump'); setTimeout(()=>el.classList.remove('bump'),140); }
+function updateHud(dt){
+  if(G.score!==lastScore){ lastScore=G.score; $('scoreNum').textContent=G.score; }
+  $('waveLbl').firstChild.nodeValue='OLA '+(G.wave+1);
+  $('timeLbl').textContent=fmtClock(G.time)+(timeScale>1?'  ⏩ '+timeScale+'x':'');
+  $('waveBar').firstChild.style.width=(G.waveT/WAVE_SEC*100).toFixed(1)+'%';
+  $('weatherLbl').textContent=G.weather.on?(G.city.weather==='tormenta'?'🌧 tormenta':'🌪 tolvanera'):'';
+  G.hintT+=dt; if(G.hintT>45) $('hint').style.opacity='0';
+  if(sel&&!fpvCar){ popupT-=dt; positionPopup(); if(popupT<=0){ popupT=.25; fillPopup(); } }
+  if($('stats').classList.contains('open')){ statsT-=dt; if(statsT<=0){ statsT=.5; renderStats(); } }
+}
+function updateDock(){ $('invRoad').textContent=G.tramos; $('invBridge').textContent=G.puentes; $('invRound').textContent=G.glorInv; }
+function setTool(t){ tool=t; document.querySelectorAll('.db[data-tool]').forEach(b=>b.classList.toggle('on',b.dataset.tool===t)); }
+document.querySelectorAll('.db[data-tool]').forEach(b=>b.addEventListener('click',()=>{ Sound.click(); setTool(b.dataset.tool); }));
+$('btnPause').onclick=()=>togglePause();
+$('btnStats').onclick=()=>toggleStats();
+$('statsClose').onclick=()=>toggleStats(false);
+$('btnSound').onclick=()=>{ Sound.init(); Sound.setMuted(!Sound.muted); $('btnSound').textContent=Sound.muted?'🔇':'🔊'; };
+$('btnFit').onclick=()=>{ autoCam=true; follow=false; };
+function setSpeed(v){ timeScale=v; $('btnNormal').classList.toggle('on',v===1); $('btnFast').classList.toggle('on',v>1); $('fastLbl').textContent=(v>1?v:2)+'x'; $('fpvSpeed').textContent=(v>1?'⏩ ':'▶ ')+v+'x'; }
+const fasterSpeed=()=>timeScale>=4?2:timeScale+1;
+$('btnNormal').onclick=()=>{ Sound.click(); setSpeed(1); };
+$('btnFast').onclick=()=>{ Sound.click(); setSpeed(timeScale===1?2:fasterSpeed()); };
+$('fpvSpeed').onclick=()=>setSpeed(timeScale>=4?1:timeScale+1);
+function togglePause(force){ if(state!=='play'||G.over) return; paused=force!=null?force:!paused; $('pauseScreen').classList.toggle('hidden',!paused); $('btnPause').classList.toggle('on',paused); $('btnPause').textContent=paused?'▶':'⏸'; document.body.classList.toggle('paused',paused); }
+$('resumeBtn').onclick=()=>togglePause(false);
+$('pauseMenuBtn').onclick=()=>{ togglePause(false); toMenu(); };
+
+/* ---------- Popup del vehículo seleccionado ---------- */
+let popupT=0;
+function selectCar(c){ sel=c; follow=false; show('popup'); const p=$('popup'); p.style.setProperty('--c',c.color); p.style.setProperty('--glow',rgba(c.color,.25)); $('pFollow').textContent='🎥 Seguir'; popupT=0; fillPopup(); positionPopup(); }
+function closePopup(){ sel=null; follow=false; hide('popup'); }
+function onSelectedGone(){ toast('El vehículo terminó su viaje'); closePopup(); }
+function positionPopup(){ if(!sel) return; const p=w2s(sel.x,sel.y), el=$('popup'), w=262, h=el.offsetHeight||250;
+  let x=p.x+22, y=p.y-h/2; if(x+w>W-10) x=p.x-w-22; x=clamp(x,10,W-w-10); y=clamp(y,90,H-h-80); el.style.left=x+'px'; el.style.top=y+'px'; }
+function fillPopup(){
+  const c=sel; if(!c||c.dead) return;
+  const info=routeInfo(c), sc=G.stats.byColor[c.pc.k];
+  $('pSw').style.background=c.color; $('pSw').style.color=c.color;
+  $('pTitle').textContent=c.cat.name+' · '+c.pc.name; $('pId').textContent='#'+c.id;
+  $('pFrom').textContent=c.home.name; $('pTo').textContent=c.dest.name;
+  const waiting=c.speed<2;
+  $('pState').textContent=c.lost?'Sin ruta, esperando':c.state==='ida'?(waiting?'Detenido (tráfico)':'Rumbo al destino'):(waiting?'Detenido (tráfico)':'Regresando a casa');
+  $('pSpeed').textContent=Math.round(c.speed*M_PER_PX*3.6)+' km/h';
+  $('pTrip').textContent=(G.time-(c.state==='ida'?c.t0:(c.t1||c.t0))).toFixed(1)+' s';
+  $('pEta').textContent=info.eta.toFixed(1)+' s · '+Math.round(info.remain*M_PER_PX)+' m';
+  $('pAvg').textContent=sc&&sc.deliv?fmtT(sc.sum/sc.deliv):'—';
+  $('pWait').textContent=c.wait.toFixed(1)+' s';
+}
+$('popup').addEventListener('click',e=>{ const a=e.target.closest('[data-act]'); if(!a) return; const act=a.dataset.act;
+  if(act==='close') closePopup();
+  else if(act==='follow'){ follow=!follow; autoCam=!follow&&autoCam; if(follow&&cam.z<1.3) camT.z=1.6; $('pFollow').textContent=follow?'🎥 Dejar de seguir':'🎥 Seguir'; }
+  else if(act==='fpv'&&sel) enterFpv(sel);
+});
+$('fpvExit').onclick=()=>exitFpv(); $('fpvNext').onclick=()=>cycleFpv(1); $('fpvPrev').onclick=()=>cycleFpv(-1);
+
+/* ---------- Panel de estadísticas ---------- */
+let statsT=0;
+function toggleStats(force){ const el=$('stats'), open=force!=null?force:!el.classList.contains('open'); el.classList.toggle('open',open); $('btnStats').classList.toggle('on',open); if(open){ statsT=0; renderStats(); } }
+function renderStats(){
+  const st=G.stats, n=G.cars.length, moving=G.cars.filter(c=>c.speed>=c.vmax*.25);
+  const avgV=n?G.cars.reduce((s,c)=>s+c.speed,0)/n*M_PER_PX*3.6:0;
+  let tot=0, cnt=0; Object.values(st.byColor).forEach(s=>{ tot+=s.sum; cnt+=s.deliv; });
+  const pend=G.dests.reduce((s,d)=>s+d.pending,0);
+  $('kpis').innerHTML=[
+    [G.score,'entregas'],[n,'autos en ruta'],[Math.round(avgV)+'','km/h prom.'],
+    [n?Math.round((1-moving.length/n)*100)+'%':'0%','congestión'],[st.log.length,'entregas/min'],[cnt?fmtT(tot/cnt):'—','llegada media'],
+    [pend,'pedidos pend.'],[G.roads.size,'tramos usados'],[st.waitSum.toFixed(0)+' s','espera total'],
+  ].map(k=>'<div class="kpi"><b>'+k[0]+'</b><span>'+k[1]+'</span></div>').join('');
+  // tabla por color
+  let rows='<tr><th>Color / destino</th><th>Entr.</th><th>Media</th><th>Mejor</th><th>Últ.</th><th>Estrés</th></tr>';
+  for(const pc of PALETTE.slice(0,G.colorCount)){ const s=st.byColor[pc.k]; if(!s) continue; const ds=G.dests.filter(d=>d.k===pc.k);
+    const stress=Math.max(...ds.map(d=>d.stress),0);
+    rows+='<tr><td><span class="sw" style="background:'+pc.hex+';color:'+pc.hex+'"></span>&nbsp; '+ds.map(d=>d.name).join(', ')+'</td><td>'+s.deliv+'</td><td>'+(s.deliv?fmtT(s.sum/s.deliv):'—')+'</td><td>'+fmtT(s.best)+'</td><td>'+fmtT(s.last)+'</td><td style="color:'+(stress>.75?'#FF2240':'inherit')+'">'+Math.round(stress*100)+'%</td></tr>'; }
+  $('tColor').innerHTML=rows;
+  rows='<tr><th>Categoría</th><th>En ruta</th><th>Viajes</th><th>Llegada media</th><th>Vel. media</th></tr>';
+  for(const c of CATS){ const s=st.byCat[c.k], live=G.cars.filter(x=>x.cat===c).length; const v=s.sum?s.dist/s.sum*M_PER_PX*3.6:0;
+    rows+='<tr><td>'+c.name+'</td><td>'+live+'</td><td>'+s.trips+'</td><td>'+(s.trips?fmtT(s.sum/s.trips):'—')+'</td><td>'+(v?Math.round(v)+' km/h':'—')+'</td></tr>'; }
+  $('tCat').innerHTML=rows;
+  drawLineChart(); drawBarChart();
+}
+function prepChart(id){ const c=$(id), r=c.getBoundingClientRect(), d=Math.min(2,devicePixelRatio||1); c.width=r.width*d; c.height=r.height*d; const g=c.getContext('2d'); g.setTransform(d,0,0,d,0,0); return {g,w:r.width,h:r.height}; }
+function drawLineChart(){
+  const {g,w,h}=prepChart('chartLine'), hs=G.stats.hist, pad=22;
+  g.strokeStyle='rgba(255,255,255,0.06)'; g.lineWidth=1; g.font='10px "Space Grotesk",system-ui'; g.fillStyle='rgba(255,255,255,0.35)';
+  for(let i=0;i<=2;i++){ const y=8+(h-pad-8)*i/2; g.beginPath(); g.moveTo(0,y); g.lineTo(w,y); g.stroke(); }
+  g.fillText('100%',2,18); g.fillText('0',2,h-pad-2);
+  if(hs.length<2){ g.fillText('Recolectando datos…',w/2-50,h/2); return; }
+  const maxN=Math.max(4,...hs.map(x=>x.n)), X=i=>i/(hs.length-1)*w, Y=v=>8+(h-pad-8)*(1-v);
+  const line=(fn,color,fill)=>{ g.beginPath(); hs.forEach((p,i)=>i?g.lineTo(X(i),Y(fn(p))):g.moveTo(X(i),Y(fn(p)))); g.strokeStyle=color; g.lineWidth=1.8; g.stroke(); if(fill){ g.lineTo(w,Y(0)); g.lineTo(0,Y(0)); g.closePath(); g.fillStyle=fill; g.fill(); } };
+  line(p=>p.n/maxN,'#00F0FF','rgba(0,240,255,0.06)'); line(p=>p.cong,'#FF2BD6');
+  g.fillStyle='rgba(255,255,255,0.35)'; g.fillText('-'+fmtClock(hs[hs.length-1].t-hs[0].t),2,h-4); g.textAlign='right'; g.fillText('ahora · máx '+maxN+' autos',w-2,h-4); g.textAlign='left';
+}
+function drawBarChart(){
+  const {g,w,h}=prepChart('chartBars'), items=PALETTE.slice(0,G.colorCount).map(pc=>{ const s=G.stats.byColor[pc.k]; return {pc,v:s&&s.deliv?s.sum/s.deliv:0}; });
+  const max=Math.max(5,...items.map(i=>i.v)), bh=Math.min(16,(h-6)/Math.max(1,items.length)-5);
+  g.font='10.5px "Space Grotesk",system-ui';
+  items.forEach((it,i)=>{ const y=4+i*(bh+5), x0=58, bw=(w-x0-48)*it.v/max;
+    g.fillStyle='rgba(255,255,255,0.55)'; g.fillText(it.pc.name,0,y+bh-3);
+    g.fillStyle='rgba(255,255,255,0.05)'; g.fillRect(x0,y,w-x0-48,bh);
+    g.fillStyle=it.pc.hex; g.shadowColor=it.pc.hex; g.shadowBlur=8; g.fillRect(x0,y,Math.max(1,bw),bh); g.shadowBlur=0;
+    g.fillStyle='#EDEDF5'; g.fillText(it.v?it.v.toFixed(1)+' s':'—',x0+bw+6,y+bh-3); });
+}
+
+/* ---------- Pantallas y estados ---------- */
+document.querySelectorAll('.city-b').forEach(b=>b.addEventListener('click',()=>{ document.querySelectorAll('.city-b').forEach(x=>x.classList.toggle('on',x===b)); cityKey=b.dataset.city; newGame(cityKey); $('startBest').textContent='Récord '+CITIES[cityKey].name+': '+lsGet('tcuu_best_'+cityKey,0); }));
+function startGame(){
+  Sound.init(); newGame(cityKey); state='play'; paused=false; lastScore=-1; fpvCar=null;
+  hide('startScreen'); hide('overScreen'); togglePause(false); showHud(); show('hint'); $('hint').style.opacity='1';
+  $('cityLbl').textContent=G.city.name; $('bestLbl').textContent='Récord '+lsGet('tcuu_best_'+cityKey,0);
+  setTool('road'); setSpeed(1); toast('Conecta cada colonia con el destino de su color');
+}
+function toMenu(){ state='menu'; fpvCar=null; closePopup(); hideHud(); hide('overScreen'); show('startScreen'); newGame(cityKey); $('startBest').textContent='Récord '+CITIES[cityKey].name+': '+lsGet('tcuu_best_'+cityKey,0); }
+$('playBtn').onclick=startGame;
+$('restartBtn').onclick=startGame;
+$('menuBtn').onclick=toMenu;
+
+// Arranque: mapa de fondo detrás de la pantalla de inicio
+newGame('chihuahua'); $('startBest').textContent='Récord Chihuahua: '+lsGet('tcuu_best_chihuahua',0);
+requestAnimationFrame(t=>{ last=t; requestAnimationFrame(loop); });
+
+// Gancho mínimo para pruebas automatizadas
+window.TC={ get G(){ return G; }, w2s, s2w, get cam(){ return cam; }, enterFpv, exitFpv, toggleStats, update:(dt)=>update(dt) };
+})();
+</script>
+</body>
+</html>
