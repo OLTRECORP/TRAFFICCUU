@@ -21,8 +21,9 @@ create table public.empresa_configuracion (
   key_path        text,
   password_sat    text,                         -- cifrado con Fernet por el backend; nunca legible desde el cliente
   logo_path       text,                         -- ruta en Storage (bucket público "logos")
-  color_primario  text not null default '#1d4ed8' check (color_primario ~ '^#[0-9a-fA-F]{6}$'),
-  color_base      text not null default '#f1f5f9' check (color_base ~ '^#[0-9a-fA-F]{6}$'),
+  color_primario  text not null default '#0f5c80' check (color_primario ~ '^#[0-9a-fA-F]{6}$'),
+  color_base      text not null default '#d8e9f0' check (color_base ~ '^#[0-9a-fA-F]{6}$'),
+  color_acento    text not null default '#f06000' check (color_acento ~ '^#[0-9a-fA-F]{6}$'),
   created_at      timestamptz not null default now(),
   updated_at      timestamptz not null default now()
 );
@@ -243,11 +244,11 @@ create policy tenant_bitacora on public.bitacora_mantenimiento
 
 -- password_sat: el cliente no puede leerlo ni escribirlo (solo el backend con service_role).
 revoke all on public.empresa_configuracion from anon, authenticated;
-grant select (id, user_id, rfc, razon_social, regimen_fiscal, cer_path, key_path, logo_path, color_primario, color_base, created_at, updated_at)
+grant select (id, user_id, rfc, razon_social, regimen_fiscal, cer_path, key_path, logo_path, color_primario, color_base, color_acento, created_at, updated_at)
   on public.empresa_configuracion to authenticated;
-grant insert (user_id, rfc, razon_social, regimen_fiscal, cer_path, key_path, logo_path, color_primario, color_base)
+grant insert (user_id, rfc, razon_social, regimen_fiscal, cer_path, key_path, logo_path, color_primario, color_base, color_acento)
   on public.empresa_configuracion to authenticated;
-grant update (rfc, razon_social, regimen_fiscal, cer_path, key_path, logo_path, color_primario, color_base)
+grant update (rfc, razon_social, regimen_fiscal, cer_path, key_path, logo_path, color_primario, color_base, color_acento)
   on public.empresa_configuracion to authenticated;
 
 -- ---------------------------------------------------------------------

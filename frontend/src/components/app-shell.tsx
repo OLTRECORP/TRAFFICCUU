@@ -1,0 +1,113 @@
+"use client";
+
+import Link from "next/link";
+import { usePathname, useRouter } from "next/navigation";
+import { useEffect, useState } from "react";
+import { LayoutDashboard, LogOut, Moon, Settings, Sun, Truck, Wrench } from "lucide-react";
+import { createClient } from "@/lib/supabase/client";
+import { cn } from "@/lib/utils";
+import { useTheme } from "@/components/theme-provider";
+
+const links = [
+  { href: "/dashboard", label: "Dashboard", title: "Dashboard", icon: LayoutDashboard },
+  { href: "/mantenimiento", label: "Mantenimiento", title: "Mantenimiento", icon: Wrench },
+  { href: "/settings", label: "Empresa", title: "Configuración de empresa", icon: Settings },
+];
+
+function Brand() {
+  const { logoUrl, empresa } = useTheme();
+  return (
+    <Link href="/dashboard" className="flex items-center gap-2 px-5 py-5">
+      {logoUrl ? (
+        // El logo va sobre una "pastilla" clara para verse bien con cualquier color de barra.
+        <span className="flex h-12 w-full max-w-[180px] items-center justify-center rounded-lg bg-white px-2 py-1">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={logoUrl} alt={empresa ?? "Logo"} className="max-h-full max-w-full object-contain" />
+        </span>
+      ) : (
+        <span className="flex items-center gap-2 text-lg font-bold text-sidebar-foreground">
+          <Truck className="h-6 w-6 text-highlight" /> ERP Logístico
+        </span>
+      )}
+    </Link>
+  );
+}
+
+export function Sidebar() {
+  const pathname = usePathname();
+  return (
+    <aside className="hidden w-60 shrink-0 flex-col bg-sidebar text-sidebar-foreground md:flex">
+      <Brand />
+      <nav className="mt-2 grid gap-1 px-3" aria-label="Principal">
+        {links.map(({ href, label, icon: Icon }) => {
+          const active = pathname.startsWith(href);
+          return (
+            <Link
+              key={href}
+              href={href}
+              aria-current={active ? "page" : undefined}
+              className={cn(
+                "relative flex items-center gap-3 rounded-md px-3 py-2.5 text-sm font-medium text-sidebar-foreground/75 transition-colors hover:bg-white/10 hover:text-sidebar-foreground",
+                active && "bg-white/10 text-sidebar-foreground",
+              )}
+            >
+              {active && <span className="absolute -right-3 top-1/2 h-6 w-1 -translate-y-1/2 rounded-l bg-highlight" />}
+              <Icon className={cn("h-[18px] w-[18px]", active && "text-highlight")} />
+              {label}
+            </Link>
+          );
+        })}
+      </nav>
+    </aside>
+  );
+}
+
+export function Topbar() {
+  const pathname = usePathname();
+  const router = useRouter();
+  const { mode, toggleMode, empresa } = useTheme();
+  const [email, setEmail] = useState<string>("");
+  const title = links.find((l) => pathname.startsWith(l.href))?.title ?? "ERP Logístico";
+
+  useEffect(() => {
+    createClient().auth.getUser().then(({ data }) => setEmail(data.user?.email ?? ""));
+  }, []);
+
+  async function logout() {
+    await createClient().auth.signOut();
+    router.replace("/login");
+  }
+
+  const initial = (empresa ?? email ?? "?").trim().charAt(0).toUpperCase() || "?";
+  const iconBtn = "flex h-9 w-9 items-center justify-center rounded-full text-sidebar-foreground/85 hover:bg-white/10";
+
+  return (
+    <header className="bg-sidebar text-sidebar-foreground">
+      <div className="flex h-14 items-center gap-3 px-4 md:px-6">
+        <h1 className="flex-1 text-base font-semibold">{title}</h1>
+        <button onClick={toggleMode} className={iconBtn} aria-label={mode === "dark" ? "Cambiar a modo claro" : "Cambiar a modo oscuro"}>
+          {mode === "dark" ? <Sun className="h-[18px] w-[18px]" /> : <Moon className="h-[18px] w-[18px]" />}
+        </button>
+        <div className="flex items-center gap-2">
+          <span className="flex h-8 w-8 items-center justify-center rounded-full bg-highlight text-sm font-bold text-white">{initial}</span>
+          <div className="hidden text-left leading-tight sm:block">
+            <p className="max-w-[180px] truncate text-sm font-medium">{empresa ?? "Mi empresa"}</p>
+            <p className="max-w-[180px] truncate text-xs text-sidebar-foreground/65">{email}</p>
+          </div>
+        </div>
+        <button onClick={logout} className={iconBtn} aria-label="Cerrar sesión">
+          <LogOut className="h-[18px] w-[18px]" />
+        </button>
+      </div>
+      {/* Navegación compacta en móvil */}
+      <nav className="flex gap-1 overflow-x-auto px-3 pb-2 md:hidden" aria-label="Principal móvil">
+        {links.map(({ href, label }) => (
+          <Link key={href} href={href}
+            className={cn("rounded-md px-3 py-1.5 text-sm text-sidebar-foreground/75", pathname.startsWith(href) && "bg-white/10 text-sidebar-foreground")}>
+            {label}
+          </Link>
+        ))}
+      </nav>
+    </header>
+  );
+}

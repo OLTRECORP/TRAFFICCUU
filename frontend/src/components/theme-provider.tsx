@@ -28,19 +28,27 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
   const [empresa, setEmpresa] = useState<string | null>(null);
   const [logoUrl, setLogoUrl] = useState<string | null>(null);
 
-  // El script inline del layout ya fijó la clase `dark` antes de hidratar.
+  const [ready, setReady] = useState(false);
+
+  // Misma regla que el script inline del layout; idempotente (seguro con StrictMode).
   useEffect(() => {
-    setMode(document.documentElement.classList.contains("dark") ? "dark" : "light");
+    let dark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+    try {
+      const t = localStorage.getItem("theme");
+      if (t) dark = t === "dark";
+    } catch { /* modo privado */ }
+    setMode(dark ? "dark" : "light");
+    setReady(true);
   }, []);
 
   const refresh = useCallback(async () => {
     const sb = createClient();
     const { data } = await sb
       .from("empresa_configuracion")
-      .select("razon_social,logo_path,color_primario,color_base,updated_at")
+      .select("razon_social,logo_path,color_primario,color_base,color_acento,updated_at")
       .maybeSingle();
     if (!data) return;
-    setSaved({ color_primario: data.color_primario, color_base: data.color_base });
+    setSaved({ color_primario: data.color_primario, color_base: data.color_base, color_acento: data.color_acento });
     setEmpresa(data.razon_social);
     setLogoUrl(
       data.logo_path
@@ -53,10 +61,11 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
 
   const active = draft ?? saved;
   useEffect(() => {
+    if (!ready) return; // evita quitar la clase `dark` del script inline antes de conocer el modo
     const root = document.documentElement;
     root.classList.toggle("dark", mode === "dark");
     for (const [k, v] of Object.entries(themeVars(active, mode))) root.style.setProperty(k, v);
-  }, [active, mode]);
+  }, [active, mode, ready]);
 
   const toggleMode = useCallback(() => {
     setMode((m) => {

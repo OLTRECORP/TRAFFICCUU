@@ -1,7 +1,8 @@
-export interface Branding { color_primario: string; color_base: string }
+export interface Branding { color_primario: string; color_base: string; color_acento: string }
 export type Mode = "light" | "dark";
 
-export const DEFAULT_BRANDING: Branding = { color_primario: "#1d4ed8", color_base: "#f1f5f9" };
+// Paleta por defecto inspirada en el logo GPN: azul petróleo, naranja y fondo azul grisáceo.
+export const DEFAULT_BRANDING: Branding = { color_primario: "#0f5c80", color_base: "#d8e9f0", color_acento: "#f06000" };
 export const HEX_RE = /^#[0-9a-fA-F]{6}$/;
 
 function hexToHsl(hex: string): [number, number, number] {
@@ -22,7 +23,9 @@ export function themeVars(b: Branding, mode: Mode): Record<string, string> {
   const safe = {
     color_primario: HEX_RE.test(b.color_primario) ? b.color_primario : DEFAULT_BRANDING.color_primario,
     color_base: HEX_RE.test(b.color_base) ? b.color_base : DEFAULT_BRANDING.color_base,
+    color_acento: HEX_RE.test(b.color_acento) ? b.color_acento : DEFAULT_BRANDING.color_acento,
   };
+  const [ah, as, al0] = hexToHsl(safe.color_acento);
   const [ph, ps, pl0] = hexToHsl(safe.color_primario);
   const [bh, bs0, bl] = hexToHsl(safe.color_base);
   const bs = Math.min(bs0, mode === "dark" ? 35 : 70);
@@ -31,8 +34,17 @@ export function themeVars(b: Branding, mode: Mode): Record<string, string> {
   const pl = mode === "dark" ? clamp(pl0, 52, 72) : pl0;
   const primaryFg = pl >= 60 ? "222 47% 11%" : "0 0% 100%";
 
+  // Barra lateral y encabezado: el color principal oscurecido (estilo "navy" corporativo).
+  const sl = mode === "dark" ? Math.min(pl0, 14) : clamp(Math.min(pl0, 26), 12, 26);
+  const brand = {
+    "--sidebar": hsl(ph, Math.min(ps, 85), sl),
+    "--sidebar-foreground": "0 0% 100%",
+    "--highlight": hsl(ah, as, mode === "dark" ? clamp(al0, 50, 66) : clamp(al0, 35, 55)),
+  };
+
   if (mode === "dark") {
     return {
+      ...brand,
       "--background": hsl(bh, bs, 8), "--foreground": hsl(bh, 20, 95),
       "--card": hsl(bh, bs, 11), "--card-foreground": hsl(bh, 20, 95),
       "--primary": hsl(ph, ps, pl), "--primary-foreground": primaryFg,
@@ -44,8 +56,9 @@ export function themeVars(b: Branding, mode: Mode): Record<string, string> {
   }
   const bg = clamp(bl, 92, 98); // el fondo claro nunca es tan oscuro que rompa la legibilidad
   return {
+    ...brand,
     "--background": hsl(bh, bs, bg), "--foreground": hsl(bh, 35, 11),
-    "--card": "0 0% 100%", "--card-foreground": hsl(bh, 35, 11),
+    "--card": hsl(bh, 15, 97.5), "--card-foreground": hsl(bh, 35, 11),
     "--primary": hsl(ph, ps, pl), "--primary-foreground": primaryFg,
     "--secondary": hsl(bh, bs, bg - 4), "--secondary-foreground": hsl(bh, 35, 11),
     "--muted": hsl(bh, bs, bg - 2), "--muted-foreground": hsl(bh, 14, 38),

@@ -39,6 +39,7 @@ export function SettingsForm() {
   const [logoPreview, setLogoPreview] = useState<string | null>(null);
   const [colorPrimario, setColorPrimario] = useState(DEFAULT_BRANDING.color_primario);
   const [colorBase, setColorBase] = useState(DEFAULT_BRANDING.color_base);
+  const [colorAcento, setColorAcento] = useState(DEFAULT_BRANDING.color_acento);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -46,14 +47,14 @@ export function SettingsForm() {
 
   useEffect(() => {
     sb.from("empresa_configuracion")
-      .select("id,user_id,rfc,razon_social,regimen_fiscal,cer_path,key_path,logo_path,color_primario,color_base")
+      .select("id,user_id,rfc,razon_social,regimen_fiscal,cer_path,key_path,logo_path,color_primario,color_base,color_acento")
       .maybeSingle()
       .then(({ data, error }) => {
         if (error) setError(error.message);
         else if (data) {
           setCfg(data as EmpresaConfig);
           setRfc(data.rfc); setRazon(data.razon_social); setRegimen(data.regimen_fiscal);
-          setColorPrimario(data.color_primario); setColorBase(data.color_base);
+          setColorPrimario(data.color_primario); setColorBase(data.color_base); setColorAcento(data.color_acento);
         }
         setLoading(false);
       });
@@ -62,8 +63,9 @@ export function SettingsForm() {
 
   // Vista previa en vivo de los colores; al salir sin guardar se restaura lo guardado.
   useEffect(() => {
-    if (HEX_RE.test(colorPrimario) && HEX_RE.test(colorBase)) preview({ color_primario: colorPrimario, color_base: colorBase });
-  }, [colorPrimario, colorBase, preview]);
+    if (HEX_RE.test(colorPrimario) && HEX_RE.test(colorBase) && HEX_RE.test(colorAcento))
+      preview({ color_primario: colorPrimario, color_base: colorBase, color_acento: colorAcento });
+  }, [colorPrimario, colorBase, colorAcento, preview]);
   useEffect(() => () => preview(null), [preview]);
 
   useEffect(() => {
@@ -93,7 +95,7 @@ export function SettingsForm() {
     const rfcN = rfc.trim().toUpperCase();
     if (!RFC_RE.test(rfcN)) return setError("RFC inválido");
     if (!razon.trim()) return setError("La razón social es obligatoria");
-    if (!HEX_RE.test(colorPrimario) || !HEX_RE.test(colorBase)) return setError("Los colores deben tener formato #RRGGBB");
+    if (![colorPrimario, colorBase, colorAcento].every((c) => HEX_RE.test(c))) return setError("Los colores deben tener formato #RRGGBB");
 
     setSaving(true);
     try {
@@ -102,7 +104,7 @@ export function SettingsForm() {
 
       const base = {
         rfc: rfcN, razon_social: razon.trim(), regimen_fiscal: regimen,
-        color_primario: colorPrimario.toLowerCase(), color_base: colorBase.toLowerCase(),
+        color_primario: colorPrimario.toLowerCase(), color_base: colorBase.toLowerCase(), color_acento: colorAcento.toLowerCase(),
       };
       let id = cfg?.id;
       if (id) {
@@ -167,7 +169,7 @@ export function SettingsForm() {
           <div className="grid gap-2">
             <Label htmlFor="regimen">Régimen fiscal</Label>
             <select id="regimen" value={regimen} onChange={(e) => setRegimen(e.target.value)}
-              className="h-10 rounded-md border border-input bg-card px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+              className="h-10 w-full min-w-0 rounded-md border border-input bg-card px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
               {REGIMENES.map(([c, l]) => <option key={c} value={c}>{l}</option>)}
             </select>
           </div>
@@ -198,13 +200,14 @@ export function SettingsForm() {
               <Input id="logo" type="file" accept="image/png,image/jpeg,image/webp" onChange={(e) => pickLogo(e.target.files?.[0] ?? null)} />
             </div>
           </div>
-          <div className="grid gap-4 sm:grid-cols-2">
+          <div className="grid gap-4 sm:grid-cols-3">
             <ColorField id="cprim" label="Color principal" value={colorPrimario} onChange={setColorPrimario} />
             <ColorField id="cbase" label="Color base (fondo)" value={colorBase} onChange={setColorBase} />
+            <ColorField id="cacen" label="Color de acento" value={colorAcento} onChange={setColorAcento} />
           </div>
           <div>
             <Button type="button" variant="outline" size="sm"
-              onClick={() => { setColorPrimario(DEFAULT_BRANDING.color_primario); setColorBase(DEFAULT_BRANDING.color_base); }}>
+              onClick={() => { setColorPrimario(DEFAULT_BRANDING.color_primario); setColorBase(DEFAULT_BRANDING.color_base); setColorAcento(DEFAULT_BRANDING.color_acento); }}>
               Restablecer colores
             </Button>
           </div>
