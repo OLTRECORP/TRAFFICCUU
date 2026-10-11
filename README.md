@@ -8,10 +8,12 @@ Control de fletes, CFDI con Carta Porte 2.0/3.x y mantenimiento de flotilla.
 | API | FastAPI (`backend/`) | Render (`backend/render.yaml`) |
 | Web | Next.js 14 App Router + Tailwind + shadcn/ui (`frontend/`) | Vercel (root dir `frontend`) |
 
-## Puesta en marcha
+> **Desplegar en producción: ver [DEPLOY.md](DEPLOY.md).**
+
+## Puesta en marcha (local)
 
 1. **Supabase**: ejecuta `supabase/schema.sql` en el SQL Editor. Crea un usuario en Auth.
-2. **Backend**: `cd backend && cp .env.example .env` (llena `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `FERNET_KEY`),
+2. **Backend**: `cd backend && cp .env.example .env` (llena `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `FERNET_KEY` = cualquier secreto largo),
    `pip install -r requirements.txt && uvicorn main:app --reload`. Tests: `pytest`.
 3. **Frontend**: `cd frontend && cp .env.example .env.local`
    (`NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `RENDER_API_URL`), `npm install && npm run dev`.

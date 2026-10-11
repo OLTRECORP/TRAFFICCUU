@@ -1,10 +1,16 @@
+import base64
+import hashlib
+
 from cryptography.fernet import Fernet, InvalidToken
 
 from .config import get_settings
 
 
 def _fernet() -> Fernet:
-    return Fernet(get_settings().fernet_key.encode())
+    # FERNET_KEY puede ser cualquier cadena secreta larga (p. ej. la que genera Render);
+    # se deriva una llave Fernet válida de 32 bytes con SHA-256.
+    digest = hashlib.sha256(get_settings().fernet_key.encode()).digest()
+    return Fernet(base64.urlsafe_b64encode(digest))
 
 
 def encrypt(plain: str) -> str:

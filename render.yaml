@@ -1,0 +1,21 @@
+# Render Blueprint: New > Blueprint > selecciona este repo. Render pedirá los valores marcados sync:false.
+services:
+  - type: web
+    name: erp-logistico-api
+    runtime: python
+    plan: free
+    rootDir: backend
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.12.8
+      - key: FERNET_KEY          # secreto de cifrado; Render lo genera solo (no lo pierdas ni lo cambies)
+        generateValue: true
+      - key: SUPABASE_URL        # Project URL de Supabase
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY   # service_role key (secreta)
+        sync: false
+      - key: CORS_ORIGINS        # URL de Vercel, ej. https://mi-erp.vercel.app
+        sync: false
