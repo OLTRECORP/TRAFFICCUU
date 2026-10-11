@@ -4,11 +4,14 @@
 
 @layer base {
   :root {
-    --background: 210 40% 98%;
+    --background: 197 44% 89%;
     --foreground: 222 47% 11%;
-    --card: 0 0% 100%;
+    --card: 0 0% 97.5%;
     --card-foreground: 222 47% 11%;
-    --primary: 221 83% 45%;
+    --primary: 199 79% 28%;
+    --sidebar: 199 79% 20%;
+    --sidebar-foreground: 0 0% 100%;
+    --highlight: 24 100% 47%;
     --primary-foreground: 210 40% 98%;
     --secondary: 210 40% 94%;
     --secondary-foreground: 222 47% 11%;
@@ -20,8 +23,29 @@
     --destructive-foreground: 0 0% 100%;
     --border: 214 32% 89%;
     --input: 214 32% 85%;
-    --ring: 221 83% 45%;
+    --ring: 199 79% 28%;
     --radius: 0.6rem;
+  }
+  .dark {
+    --background: 222 30% 8%;
+    --foreground: 210 20% 95%;
+    --card: 222 30% 11%;
+    --card-foreground: 210 20% 95%;
+    --primary: 199 70% 52%;
+    --sidebar: 199 60% 12%;
+    --sidebar-foreground: 0 0% 100%;
+    --highlight: 24 100% 55%;
+    --primary-foreground: 222 47% 11%;
+    --secondary: 222 25% 17%;
+    --secondary-foreground: 210 20% 95%;
+    --muted: 222 25% 15%;
+    --muted-foreground: 215 14% 68%;
+    --accent: 222 25% 18%;
+    --accent-foreground: 210 20% 95%;
+    --destructive: 0 62% 45%;
+    --border: 222 25% 21%;
+    --input: 222 25% 25%;
+    --ring: 199 70% 52%;
   }
   * { @apply border-border; }
   body { @apply bg-background text-foreground antialiased; }

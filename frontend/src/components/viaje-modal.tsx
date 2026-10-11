@@ -4,7 +4,7 @@ import type { Viaje } from "@/lib/types";
 import { fechaMx, km, mxn } from "@/lib/utils";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { ubicacionLabel } from "@/components/viajes-table";
+import { ubicacionLabel } from "@/lib/format";
 
 function Field({ label, value, mono }: { label: string; value: React.ReactNode; mono?: boolean }) {
   return (
