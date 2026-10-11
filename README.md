@@ -24,5 +24,6 @@ Control de fletes, CFDI con Carta Porte 2.0/3.x y mantenimiento de flotilla.
 - **Distancia**: `distancia_xml` = suma de `DistanciaRecorrida` de los destinos (ida); `distancia_operativa` = ida × 2.
 - **password_sat**: el cliente no puede leer ni escribir la columna (privilegios por columna); el backend la cifra con Fernet vía `POST /api/empresa/password-sat`.
 - **Cold start**: tras el login se muestra "Conectando al motor logístico..." y el hook `useBackendHealth` consulta `/api/health` (proxy servidor → `RENDER_API_URL/health`) cada 5 s hasta recibir 200.
+- **Branding y tema**: logo (bucket público `logos`, PNG/JPG/WebP ≤1 MB) y colores principal/base por empresa; `lib/theme.ts` deriva las variables CSS para claro y oscuro. El toggle claro/oscuro está en la barra superior y se recuerda en `localStorage`. Bases existentes: ejecutar `supabase/migrations/002_branding.sql`.
 - **`/api/sat/sincronizar`** es un mock: valida el rango, lanza un background task y deja el punto de integración real en `backend/app/sat.py`.
 - El backend usa `service_role` (ignora RLS), por eso valida el JWT y filtra manualmente por `empresa_id`; rechaza CFDI cuyo RFC emisor/receptor no sea el de la empresa.

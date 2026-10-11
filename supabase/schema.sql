@@ -20,6 +20,9 @@ create table public.empresa_configuracion (
   cer_path        text,                         -- ruta en Storage (bucket "fiel")
   key_path        text,
   password_sat    text,                         -- cifrado con Fernet por el backend; nunca legible desde el cliente
+  logo_path       text,                         -- ruta en Storage (bucket público "logos")
+  color_primario  text not null default '#1d4ed8' check (color_primario ~ '^#[0-9a-fA-F]{6}$'),
+  color_base      text not null default '#f1f5f9' check (color_base ~ '^#[0-9a-fA-F]{6}$'),
   created_at      timestamptz not null default now(),
   updated_at      timestamptz not null default now()
 );
@@ -240,11 +243,11 @@ create policy tenant_bitacora on public.bitacora_mantenimiento
 
 -- password_sat: el cliente no puede leerlo ni escribirlo (solo el backend con service_role).
 revoke all on public.empresa_configuracion from anon, authenticated;
-grant select (id, user_id, rfc, razon_social, regimen_fiscal, cer_path, key_path, created_at, updated_at)
+grant select (id, user_id, rfc, razon_social, regimen_fiscal, cer_path, key_path, logo_path, color_primario, color_base, created_at, updated_at)
   on public.empresa_configuracion to authenticated;
-grant insert (user_id, rfc, razon_social, regimen_fiscal, cer_path, key_path)
+grant insert (user_id, rfc, razon_social, regimen_fiscal, cer_path, key_path, logo_path, color_primario, color_base)
   on public.empresa_configuracion to authenticated;
-grant update (rfc, razon_social, regimen_fiscal, cer_path, key_path)
+grant update (rfc, razon_social, regimen_fiscal, cer_path, key_path, logo_path, color_primario, color_base)
   on public.empresa_configuracion to authenticated;
 
 -- ---------------------------------------------------------------------
@@ -269,3 +272,20 @@ create policy fiel_update_own on storage.objects
 create policy fiel_delete_own on storage.objects
   for delete to authenticated
   using (bucket_id = 'fiel' and (storage.foldername(name))[1] = auth.uid()::text);
+
+-- Bucket público "logos" (el logo no es sensible); solo el dueño escribe en su carpeta.
+insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+values ('logos', 'logos', true, 1048576, array['image/png','image/jpeg','image/webp'])
+on conflict (id) do nothing;
+
+create policy logos_insert_own on storage.objects
+  for insert to authenticated
+  with check (bucket_id = 'logos' and (storage.foldername(name))[1] = auth.uid()::text);
+
+create policy logos_update_own on storage.objects
+  for update to authenticated
+  using (bucket_id = 'logos' and (storage.foldername(name))[1] = auth.uid()::text);
+
+create policy logos_delete_own on storage.objects
+  for delete to authenticated
+  using (bucket_id = 'logos' and (storage.foldername(name))[1] = auth.uid()::text);

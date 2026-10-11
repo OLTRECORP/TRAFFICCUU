@@ -27,4 +27,5 @@ export interface Bitacora { id: string; tracto_id: string; servicio_id: string; 
 export interface EmpresaConfig {
   id: string; user_id: string; rfc: string; razon_social: string; regimen_fiscal: string;
   cer_path: string | null; key_path: string | null;
+  logo_path: string | null; color_primario: string; color_base: string;
 }
