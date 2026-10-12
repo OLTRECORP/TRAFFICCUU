@@ -181,7 +181,8 @@ begin
   insert into public.reglas_mantenimiento (empresa_id, tipo_servicio, intervalo_km) values
     (new.id, 'Aceite',  20000),
     (new.id, 'Balatas', 60000),
-    (new.id, 'Llantas', 120000);
+    (new.id, 'Llantas', 120000)
+  on conflict (empresa_id, tipo_servicio) do nothing;
   return new;
 end;
 $$;
@@ -202,10 +203,14 @@ alter table public.viajes                 enable row level security;
 alter table public.reglas_mantenimiento   enable row level security;
 alter table public.bitacora_mantenimiento enable row level security;
 
-create policy empresa_owner on public.empresa_configuracion
-  for all to authenticated
-  using (user_id = auth.uid())
-  with check (user_id = auth.uid());
+create policy empresa_select_own on public.empresa_configuracion
+  for select to authenticated using (user_id = auth.uid());
+create policy empresa_insert_own on public.empresa_configuracion
+  for insert to authenticated with check (user_id = auth.uid());
+create policy empresa_update_own on public.empresa_configuracion
+  for update to authenticated using (user_id = auth.uid()) with check (user_id = auth.uid());
+create policy empresa_delete_own on public.empresa_configuracion
+  for delete to authenticated using (user_id = auth.uid());
 
 create policy tenant_tractocamiones on public.tractocamiones
   for all to authenticated
@@ -234,8 +239,10 @@ create policy tenant_viajes on public.viajes
 
 create policy tenant_reglas on public.reglas_mantenimiento
   for all to authenticated
-  using (empresa_id = public.mi_empresa_id())
-  with check (empresa_id = public.mi_empresa_id());
+  using (exists (select 1 from public.empresa_configuracion e
+                 where e.id = empresa_id and e.user_id = auth.uid()))
+  with check (exists (select 1 from public.empresa_configuracion e
+                      where e.id = empresa_id and e.user_id = auth.uid()));
 
 create policy tenant_bitacora on public.bitacora_mantenimiento
   for all to authenticated
