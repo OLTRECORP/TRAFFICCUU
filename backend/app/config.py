@@ -11,6 +11,7 @@ class Settings(BaseSettings):
     fernet_key: str
     cors_origins: str = "http://localhost:3000"
     max_xml_bytes: int = 5 * 1024 * 1024
+    max_excel_bytes: int = 15 * 1024 * 1024
 
     @property
     def cors_list(self) -> list[str]:

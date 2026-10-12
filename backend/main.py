@@ -11,6 +11,7 @@ from app.cfdi_parser import CFDIError, parse_cfdi
 from app.config import get_settings
 from app.crypto import encrypt
 from app.db import get_admin_client
+from app.excel_import import ExcelError, guardar, parse_workbook
 from app.sat import descargar_cfdis
 from app.viajes_service import guardar_viaje
 
@@ -59,6 +60,23 @@ async def procesar_xml(file: UploadFile = File(...), tenant: Tenant = Depends(cu
         "carta_porte": cfdi.version_carta_porte,
         "warnings": cfdi.warnings,
     }
+
+
+@app.post("/api/importar/excel")
+async def importar_excel(file: UploadFile = File(...), tenant: Tenant = Depends(current_tenant)) -> dict:
+    """Carga el Excel de administración de fletes: crea o actualiza facturas y órdenes sin duplicar."""
+    if not (file.filename or "").lower().endswith((".xlsx", ".xlsm")):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "El archivo debe ser .xlsx")
+    limit = get_settings().max_excel_bytes
+    content = await file.read(limit + 1)
+    if len(content) > limit:
+        raise HTTPException(status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, "El Excel excede el tamaño máximo permitido")
+    try:
+        parsed = parse_workbook(content)
+    except ExcelError as exc:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc))
+    resultado = guardar(get_admin_client(), tenant.empresa_id, parsed)
+    return {**resultado, "omitidas": parsed["omitidas"], "uuid_danados": parsed["uuid_danados"]}
 
 
 class SyncRequest(BaseModel):

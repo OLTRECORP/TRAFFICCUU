@@ -3,13 +3,15 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-import { LayoutDashboard, LogOut, Moon, Settings, Sun, Truck, Wrench } from "lucide-react";
+import { FileText, LayoutDashboard, LogOut, ReceiptText, Moon, Settings, Sun, Truck, Wrench } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { cn } from "@/lib/utils";
 import { useTheme } from "@/components/theme-provider";
 
 const links = [
   { href: "/dashboard", label: "Dashboard", title: "Dashboard", icon: LayoutDashboard },
+  { href: "/facturas", label: "Facturas", title: "Lista de facturas", icon: FileText },
+  { href: "/ordenes", label: "Órdenes de compra", title: "Relación de órdenes de compra", icon: ReceiptText },
   { href: "/mantenimiento", label: "Mantenimiento", title: "Mantenimiento", icon: Wrench },
   { href: "/settings", label: "Empresa", title: "Configuración de empresa", icon: Settings },
 ];
