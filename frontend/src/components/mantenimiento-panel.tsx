@@ -7,6 +7,7 @@ import { calcularAlertas, peorNivel, type Alerta, type Nivel } from "@/lib/mante
 import type { Bitacora, Regla, Tracto } from "@/lib/types";
 import { cn, km } from "@/lib/utils";
 import { Alert } from "@/components/ui/alert";
+import { ErrorAlert } from "@/components/error-alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -58,7 +59,7 @@ export function MantenimientoPanel() {
   );
 
   if (loading) return <p className="text-sm text-muted-foreground">Calculando alertas…</p>;
-  if (error) return <Alert variant="error">{error}</Alert>;
+  if (error) return <ErrorAlert where="mantenimiento" message={error} />;
   if (!tractos.length)
     return <Alert variant="info">No hay tractocamiones. Se crean automáticamente al procesar el primer XML con Carta Porte.</Alert>;
 
@@ -149,7 +150,7 @@ function RegistrarServicio({
           </DialogDescription>
         </div>
         <form onSubmit={onSubmit} className="grid gap-4">
-          {error && <Alert variant="error">{error}</Alert>}
+          {error && <ErrorAlert where="mantenimiento-registro" message={error} />}
           <div className="grid gap-2">
             <Label htmlFor="km">Kilometraje al servicio</Label>
             <Input id="km" type="number" min={0} step="0.1" required value={kmServicio} onChange={(e) => setKmServicio(e.target.value)} />

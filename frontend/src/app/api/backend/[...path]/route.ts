@@ -4,7 +4,7 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
 // Solo se reenvían rutas conocidas del backend.
-const ALLOWED = new Set(["xml/procesar", "sat/sincronizar", "empresa/password-sat"]);
+const ALLOWED = new Set(["xml/procesar", "sat/sincronizar", "empresa/password-sat", "importar/excel"]);
 const PREFIX: Record<string, string> = { "empresa/password-sat": "/api/empresa/password-sat" };
 
 export async function POST(req: NextRequest, { params }: { params: { path: string[] } }) {

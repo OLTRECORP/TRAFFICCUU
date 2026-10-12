@@ -6,6 +6,7 @@ import { createClient } from "@/lib/supabase/client";
 import { postBackend } from "@/lib/api";
 import type { EmpresaConfig } from "@/lib/types";
 import { Alert } from "@/components/ui/alert";
+import { ErrorAlert } from "@/components/error-alert";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -156,7 +157,7 @@ export function SettingsForm() {
 
   return (
     <form onSubmit={onSubmit} className="grid gap-6">
-      {error && <Alert variant="error">{error}</Alert>}
+      {error && <ErrorAlert where="empresa" message={error} />}
       {ok && <Alert variant="success">Configuración guardada.</Alert>}
 
       <Card>
