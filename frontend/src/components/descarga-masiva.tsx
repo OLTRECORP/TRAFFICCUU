@@ -1,7 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { CloudDownload, Loader2, Stethoscope, Workflow } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { CloudDownload, FileArchive, Loader2, Square, Stethoscope, Workflow } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { ApiError, postBackend } from "@/lib/api";
 import type { FacturaXmlMes, SatDescarga } from "@/lib/types";
@@ -13,6 +13,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
 const MESES = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"];
 const SONDEO_MS = 3000;
+const LATIDO_MAX_MS = 5 * 60_000;   // sin señales de vida de la corrida en este tiempo = interrumpida
+const ZIP_MAX_BYTES = 4 * 1024 * 1024;   // límite de Vercel para el cuerpo de la petición
 const sel = "h-10 rounded-md border bg-background px-3 text-sm";
 
 /** Descarga masiva de los XML de las facturas emitidas (y sus complementos de pago) desde el SAT. */
@@ -25,6 +27,9 @@ export function DescargaMasiva({ onDone }: { onDone: () => void }) {
   const [error, setError] = useState<{ message: string; status?: number; path?: string } | null>(null);
   const [diag, setDiag] = useState<{ ok: boolean; pasos: { paso: string; ok: boolean; detalle: string }[] } | null>(null);
   const [probando, setProbando] = useState(false);
+  const [deteniendo, setDeteniendo] = useState(false);
+  const [subiendo, setSubiendo] = useState(false);
+  const zipRef = useRef<HTMLInputElement>(null);
 
   const leer = useCallback(async () => {
     const sb = createClient();
@@ -40,8 +45,18 @@ export function DescargaMasiva({ onDone }: { onDone: () => void }) {
   }, [anio]);
   useEffect(() => { void leer(); }, [leer]);
 
-  const activa = !!corrida && (corrida.estado === "pendiente" || corrida.estado === "en_proceso")
-    && Date.now() - new Date(corrida.updated_at).getTime() < 2 * 3600_000;
+  const enCurso = !!corrida && (corrida.estado === "pendiente" || corrida.estado === "en_proceso");
+  const [ahora, setAhora] = useState(() => Date.now());
+  useEffect(() => { const t = setInterval(() => setAhora(Date.now()), 15_000); return () => clearInterval(t); }, []);
+  const interrumpida = enCurso && ahora - new Date(corrida!.updated_at).getTime() > LATIDO_MAX_MS;
+  const activa = enCurso && !interrumpida;
+
+  // Mientras corre, se mantiene despierto el servidor (el plan gratuito de Render se duerme sin visitas y mata el proceso).
+  useEffect(() => {
+    if (!activa) return;
+    const t = setInterval(() => { void fetch("/api/health").catch(() => undefined); }, 60_000);
+    return () => clearInterval(t);
+  }, [activa]);
   useEffect(() => {
     if (!activa) return;
     const t = setInterval(() => void leer().then((c) => { if (c && c.estado !== "en_proceso" && c.estado !== "pendiente") onDone(); }), SONDEO_MS);
@@ -56,6 +71,28 @@ export function DescargaMasiva({ onDone }: { onDone: () => void }) {
     try { setDiag(await postBackend("sat/diagnostico", "{}", "application/json")); }
     catch (e) { const a = e as ApiError; setError({ message: a.message, status: a.status, path: a.path }); }
     finally { setProbando(false); }
+  }
+
+  async function detener() {
+    setDeteniendo(true); setError(null);
+    try { await postBackend("sat/descarga-masiva/cancelar", "{}", "application/json"); await leer(); }
+    catch (e) { const a = e as ApiError; setError({ message: a.message, status: a.status, path: a.path }); }
+    finally { setDeteniendo(false); }
+  }
+
+  async function subirZip(files: FileList | null) {
+    const f = files?.[0];
+    if (zipRef.current) zipRef.current.value = "";
+    if (!f) return;
+    if (f.size > ZIP_MAX_BYTES) return setError({ message: `El .zip pesa ${(f.size / 1048576).toFixed(1)} MB; el máximo es 4 MB. Divídelo en varios .zip.` });
+    setSubiendo(true); setError(null);
+    try {
+      const fd = new FormData();
+      fd.append("file", f);
+      await postBackend("xml/subir-zip", fd);
+      await leer();
+    } catch (e) { const a = e as ApiError; setError({ message: a.message, status: a.status, path: a.path }); }
+    finally { setSubiendo(false); }
   }
 
   async function iniciar(m: "faltantes" | "anio" | "reprocesar" = modo) {
@@ -94,6 +131,11 @@ export function DescargaMasiva({ onDone }: { onDone: () => void }) {
             {pidiendo || activa ? <Loader2 className="h-4 w-4 animate-spin" /> : <CloudDownload className="h-4 w-4" />}
             {activa ? "Descargando…" : "Descargar XML"}
           </Button>
+          <input ref={zipRef} type="file" accept=".zip" hidden onChange={(e) => void subirZip(e.target.files)} />
+          <Button variant="outline" onClick={() => zipRef.current?.click()} disabled={subiendo || activa}
+            title="Sube varios XML a la vez; se asignan a sus facturas igual que los del SAT (máx. 4 MB)">
+            {subiendo ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileArchive className="h-4 w-4" />} Subir XML (.zip)
+          </Button>
           <Button variant="outline" onClick={() => void probar()} disabled={probando} title="Revisa tablas, FIEL y autenticación con el SAT">
             {probando ? <Loader2 className="h-4 w-4 animate-spin" /> : <Stethoscope className="h-4 w-4" />} Probar conexión
           </Button>
@@ -128,20 +170,31 @@ export function DescargaMasiva({ onDone }: { onDone: () => void }) {
           </div>
         )}
         {error && <ErrorAlert where="descarga-masiva" message={error.message} status={error.status} path={error.path} />}
-        {corrida && <Resultado c={corrida} activa={activa} />}
+        {enCurso && (
+          <div className="flex flex-wrap items-center gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs">
+            {interrumpida
+              ? <span>El proceso dejó de responder (el servidor se reinició o se durmió). Lo ya asignado se conservó.</span>
+              : <span className="flex items-center gap-2"><Loader2 className="h-3.5 w-3.5 animate-spin" /> Proceso en curso. Puedes detenerlo cuando quieras.</span>}
+            <Button size="sm" variant="outline" className="ml-auto h-7 px-2 text-xs" disabled={deteniendo} onClick={() => void detener()}>
+              {deteniendo ? <Loader2 className="h-3 w-3 animate-spin" /> : <Square className="h-3 w-3" />} {interrumpida ? "Marcar como detenido" : "Detener"}
+            </Button>
+          </div>
+        )}
+        {corrida && <Resultado c={corrida} activa={activa} interrumpida={interrumpida} />}
       </CardContent>
     </Card>
   );
 }
 
-function Resultado({ c, activa }: { c: SatDescarga; activa: boolean }) {
+function Resultado({ c, activa, interrumpida }: { c: SatDescarga; activa: boolean; interrumpida: boolean }) {
   const hechos = c.detalle.length;
   return (
     <div className="grid gap-2 rounded-md border bg-secondary/40 p-3 text-xs">
       <div className="flex flex-wrap items-center gap-2">
-        <span className="font-semibold">{c.modo === "reprocesar" ? "Último proceso de Carta Porte" : `Última descarga · ${c.anio}`}</span>
+        <span className="font-semibold">{c.modo === "reprocesar" ? "Último proceso de Carta Porte" : c.modo === "zip" ? "Último .zip subido" : `Última descarga · ${c.anio}`}</span>
         <Badge variant={c.estado === "ok" ? "verde" : c.estado === "error" ? "rojo" : "amarillo"}>
-          {c.estado === "ok" ? "Terminada" : c.estado === "error" ? "Con error" : activa ? `En proceso (${hechos}/${c.meses.length} meses)` : "Interrumpida"}
+          {c.estado === "ok" ? "Terminada" : c.estado === "error" ? "Con error" : c.estado === "cancelado" ? "Detenida"
+            : activa ? (c.meses.length ? `En proceso (${hechos}/${c.meses.length} meses)` : "En proceso") : interrumpida ? "Interrumpida" : "Interrumpida"}
         </Badge>
         <span>{c.xml_recibidos} XML · {c.facturas_asignadas} facturas asignadas · {c.complementos} complementos de pago · {c.viajes} viajes de Carta Porte</span>
       </div>
@@ -149,7 +202,7 @@ function Resultado({ c, activa }: { c: SatDescarga; activa: boolean }) {
       {c.detalle.filter((d) => d.estado === "error").map((d) => (
         <p key={d.mes} className="text-destructive">Mes {d.mes}: {d.mensaje}</p>
       ))}
-      <Bitacora lineas={c.bitacora ?? []} abierta={activa || c.estado === "error"} />
+      <Bitacora lineas={c.bitacora ?? []} abierta={activa || c.estado === "error" || c.estado === "cancelado" || c.modo === "zip"} />
       {c.sin_asignar.length > 0 && (
         <details>
           <summary className="cursor-pointer font-medium">{c.sin_asignar.length} XML sin factura (revisar)</summary>

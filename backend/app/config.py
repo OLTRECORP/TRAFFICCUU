@@ -12,6 +12,7 @@ class Settings(BaseSettings):
     cors_origins: str = "http://localhost:3000"
     max_xml_bytes: int = 5 * 1024 * 1024
     max_excel_bytes: int = 15 * 1024 * 1024
+    max_zip_bytes: int = 25 * 1024 * 1024
     # Mapa: OpenStreetMap (Nominatim para direcciones, OSRM para distancia por carretera). Sin llave.
     # Apunta a tu propio servidor o a otro proveedor compatible si el uso público no alcanza.
     nominatim_url: str = "https://nominatim.openstreetmap.org"

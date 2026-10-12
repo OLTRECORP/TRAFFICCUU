@@ -12,6 +12,8 @@ Reglas de asignación (en este orden):
      una candidata; si hay varias o ninguna el XML queda en `sin_asignar` para revisión manual.
      La factura asignada así recupera su UUID."""
 import calendar
+import io
+import zipfile
 import logging
 import re
 from datetime import date, datetime, timedelta, timezone
@@ -23,16 +25,21 @@ from .auth import Tenant
 from .bitacora import Bitacora
 from .carta_porte_service import registrar as registrar_carta_porte
 from .cfdi_parser import CFDIError, pagos_cfdi, resumen_cfdi
+from .config import get_settings
 from .db import get_admin_client
 from .rutas_service import LugaresCatalogo, calcular_km_viajes
-from .sat import SatError, descargar_emitidos_rango
+from .sat import Cancelado, SatError, descargar_emitidos_rango
 
 log = logging.getLogger("descarga_masiva")
 
 LOTE = 200
 PAGINA = 1000
 MAX_SIN_ASIGNAR = 200       # XML sin factura que se conservan en la corrida para revisarlos
-ACTIVA_MAX = timedelta(hours=2)   # una corrida "en proceso" más vieja se considera abandonada
+# Una corrida activa escribe su bitácora cada pocos segundos; si lleva más de esto sin actualizarse, el servidor
+# que la ejecutaba se reinició o se durmió (p. ej. plan gratuito de Render) y se considera interrumpida.
+ACTIVA_MAX = timedelta(minutes=5)
+MAX_ZIP_ENTRADAS = 3000
+MAX_ZIP_DESCOMPRIMIDO = 300 * 1024 * 1024
 
 
 def _ahora() -> datetime:
@@ -120,6 +127,79 @@ def iniciar(empresa_id: str, anio: int, modo: str) -> dict:
     return db.table("sat_descargas").insert(fila).execute().data[0]
 
 
+def cancelar(empresa_id: str) -> dict:
+    """Detiene las descargas activas de la empresa. Si el proceso sigue vivo se le avisa y termina en unos
+    segundos; si está interrumpido (sin latido) se marca como cancelado de inmediato."""
+    db = get_admin_client()
+    activas = (
+        db.table("sat_descargas").select("id, updated_at").eq("empresa_id", empresa_id)
+        .in_("estado", ["pendiente", "en_proceso"]).execute().data
+    )
+    res = {"detenidas": 0, "solicitadas": 0}
+    for r in activas:
+        if _ahora() - _parse_ts(r["updated_at"]) >= ACTIVA_MAX:
+            db.table("sat_descargas").update({
+                "estado": "cancelado", "cancelar": True,
+                "error": "Interrumpida: el servidor dejó de responder. Lo ya asignado se conservó.",
+            }).eq("id", r["id"]).execute()
+            res["detenidas"] += 1
+        else:
+            db.table("sat_descargas").update({"cancelar": True}).eq("id", r["id"]).execute()
+            res["solicitadas"] += 1
+    return res
+
+
+def iniciar_zip(empresa_id: str, nombre: str) -> dict:
+    """Crea la corrida para un .zip de XML subido por el usuario."""
+    db = get_admin_client()
+    activas = (
+        db.table("sat_descargas").select("id, updated_at").eq("empresa_id", empresa_id)
+        .in_("estado", ["pendiente", "en_proceso"]).execute().data
+    )
+    if any(_ahora() - _parse_ts(r["updated_at"]) < ACTIVA_MAX for r in activas):
+        raise HTTPException(status.HTTP_409_CONFLICT, "Ya hay un proceso en curso; espera a que termine o detenlo")
+    fila = {"empresa_id": empresa_id, "modo": "zip", "anio": date.today().year, "meses": []}
+    return db.table("sat_descargas").insert(fila).execute().data[0]
+
+
+def _xmls_del_zip(contenido: bytes, avisar, parar, acu: dict):
+    """Genera los XML válidos de un .zip y registra en la bitácora cada archivo aceptado o rechazado."""
+    try:
+        z = zipfile.ZipFile(io.BytesIO(contenido))
+    except zipfile.BadZipFile:
+        raise SatError("El archivo no es un .zip válido")
+    with z:
+        entradas = [i for i in z.infolist() if not i.is_dir() and not i.filename.startswith("__MACOSX/")]
+        if len(entradas) > MAX_ZIP_ENTRADAS:
+            raise SatError(f"El .zip trae {len(entradas)} archivos; el máximo es {MAX_ZIP_ENTRADAS}")
+        if sum(i.file_size for i in entradas) > MAX_ZIP_DESCOMPRIMIDO:
+            raise SatError("El contenido del .zip es demasiado grande")
+        avisar(f"El .zip trae {len(entradas)} archivo(s)")
+        limite = get_settings().max_xml_bytes
+        for i in entradas:
+            if parar():
+                raise Cancelado()
+            nombre = i.filename.rsplit("/", 1)[-1]
+            if not nombre.lower().endswith(".xml"):
+                acu["zip_rechazados"] += 1
+                avisar(f"{i.filename}: rechazado (no es .xml)", "aviso")
+                continue
+            if i.file_size > limite:
+                acu["zip_rechazados"] += 1
+                avisar(f"{i.filename}: rechazado (pesa más de {limite // 1024} KB)", "aviso")
+                continue
+            data = z.read(i)
+            try:
+                r = resumen_cfdi(data)
+            except CFDIError as exc:
+                acu["zip_rechazados"] += 1
+                avisar(f"{i.filename}: rechazado ({exc})", "aviso")
+                continue
+            acu["zip_aceptados"] += 1
+            avisar(f"{i.filename}: CFDI {r['uuid'][:8]}… tipo {r.get('tipo_comprobante')} aceptado")
+            yield data
+
+
 class _Indice:
     """Facturas de la empresa indexadas para asignar XML sin consultar la base por cada uno."""
 
@@ -168,6 +248,8 @@ def procesar_xmls(db, empresa_id: str, indice: _Indice, xmls, id_solicitud: str 
 def _recorrer(db, empresa_id, indice, xmls, id_solicitud, acumulado, sat_rows, ahora, ctx) -> None:
     avisar = ctx.get("log") or (lambda m, n="info": None)
     for xml in xmls:
+        if ctx.get("parar") and ctx["parar"]():
+            raise Cancelado()
         acumulado["xml_recibidos"] += 1
         try:
             r = resumen_cfdi(xml)
@@ -274,42 +356,25 @@ def _rango_mes(anio: int, mes: int) -> tuple[datetime, datetime]:
     return ini, min(fin, datetime.now() - timedelta(minutes=1))
 
 
-def ejecutar(empresa_id: str, job_id: str, anio: int, meses: list[int]) -> None:
-    """Tarea de fondo: toda excepción termina con la corrida en estado 'error' y un mensaje legible."""
+def ejecutar(empresa_id: str, job_id: str, anio: int, meses: list[int], zip_bytes: bytes | None = None) -> None:
+    """Tarea de fondo: toda excepción termina con la corrida en un estado final (ok, error o cancelado) y un mensaje."""
     try:
-        _ejecutar(empresa_id, job_id, anio, meses)
+        _ejecutar(empresa_id, job_id, anio, meses, zip_bytes)
     except Exception as exc:
         log.exception("Descarga masiva %s falló", job_id)
         marcar_error(job_id, f"Error inesperado: {type(exc).__name__}")
 
 
-def _contadores() -> dict:
-    return {"xml_recibidos": 0, "ignorados": 0, "facturas_asignadas": 0, "complementos": 0, "uuid_recuperados": 0,
-            "sin_asignar": [], "sin_asignar_total": 0, "viajes": 0, "viajes_existentes": 0, "sin_carta_porte": 0, "viajes_error": 0}
-
-
-def _reprocesar(db, empresa_id: str, ctx: dict, acu: dict) -> None:
-    """Registra la Carta Porte de los XML que ya están guardados en `facturas_sat` (p. ej. los bajados uno por uno)."""
-    avisar = ctx["log"]
-    filas = _leer_todo(lambda a, b: db.table("facturas_sat").select("factura_id").eq("empresa_id", empresa_id)
-                       .eq("estado", "ok").not_.is_("xml", "null").order("factura_id").range(a, b))
-    avisar(f"{len(filas)} factura(s) con XML guardado; registrando su Carta Porte…")
-    folios = {f["id"]: f["folio"] for f in _leer_todo(lambda a, b: db.table("facturas").select("id, folio")
-                                                       .eq("empresa_id", empresa_id).order("id").range(a, b))}
-    for fila in filas:
-        xml = db.table("facturas_sat").select("xml").eq("factura_id", fila["factura_id"]).limit(1).execute().data[0]["xml"]
-        acu["xml_recibidos"] += 1
-        _carta_porte(db, ctx["cp"], xml.encode(), {"id": fila["factura_id"], "folio": folios.get(fila["factura_id"], "?")}, acu, avisar)
-
-
-def _ejecutar(empresa_id: str, job_id: str, anio: int, meses: list[int]) -> None:
-    """Un mes a la vez. Un mes que falla no detiene a los demás; todo queda en la corrida y en su bitácora."""
+def _ejecutar(empresa_id: str, job_id: str, anio: int, meses: list[int], zip_bytes: bytes | None = None) -> None:
+    """Un mes a la vez (o los XML de un .zip, o el reproceso de Carta Porte). Un mes que falla no detiene a los
+    demás; el usuario puede detener la corrida; todo queda en la corrida y en su bitácora."""
     db = get_admin_client()
     bit = Bitacora(db, job_id)
     avisar = bit.add
     acu = _contadores()
     detalle: list[dict] = []
     primer_error = None
+    cancelado = False
 
     def guardar(estado: str, error: str | None = None) -> None:
         bit.flush(**{
@@ -318,7 +383,10 @@ def _ejecutar(empresa_id: str, job_id: str, anio: int, meses: list[int]) -> None
             "complementos": acu["complementos"], "viajes": acu["viajes"], "sin_asignar": acu["sin_asignar"],
         })
 
-    avisar(f"Descarga iniciada: {'reproceso de Carta Porte' if not meses else f'año {anio}, meses {meses}'}")
+    if zip_bytes is not None:
+        avisar(f"Procesando .zip subido ({len(zip_bytes) // 1024} KB)")
+    else:
+        avisar(f"Descarga iniciada: {'reproceso de Carta Porte' if not meses else f'año {anio}, meses {meses}'}")
     guardar("en_proceso")
     try:
         rfc = db.table("empresa_configuracion").select("rfc").eq("id", empresa_id).single().execute().data["rfc"]
@@ -328,44 +396,65 @@ def _ejecutar(empresa_id: str, job_id: str, anio: int, meses: list[int]) -> None
         ))
         avisar(f"{len(facturas)} facturas cargadas para asignar los XML")
         indice = _Indice(facturas)
-        ctx = {"log": avisar, "cp": (Tenant(user_id="", empresa_id=empresa_id, rfc=rfc), LugaresCatalogo(db, empresa_id))}
+        ctx = {"log": avisar, "parar": bit.cancelado,
+               "cp": (Tenant(user_id="", empresa_id=empresa_id, rfc=rfc), LugaresCatalogo(db, empresa_id))}
     except Exception as exc:
         avisar(f"No se pudo preparar la descarga: {type(exc).__name__}: {str(exc)[:200]}", "error")
         guardar("error", f"No se pudo preparar la descarga: {type(exc).__name__}")
         return
 
-    if not meses:
-        try:
+    ok = True
+    try:
+        if zip_bytes is not None:
+            procesar_xmls(db, empresa_id, indice, _xmls_del_zip(zip_bytes, avisar, bit.cancelado, acu), None, acu, ctx)
+            avisar(f".zip: {acu['zip_aceptados']} XML aceptados, {acu['zip_rechazados']} rechazados", "ok" if acu["zip_aceptados"] else "error")
+            ok = acu["zip_aceptados"] > 0
+            if not ok:
+                primer_error = "Ningún archivo del .zip es un CFDI válido"
+        elif not meses:
             _reprocesar(db, empresa_id, ctx, acu)
-        except Exception as exc:
-            log.exception("Reproceso %s falló", job_id)
-            avisar(f"Reproceso interrumpido: {type(exc).__name__}: {str(exc)[:200]}", "error")
-            primer_error = f"Reproceso interrumpido: {type(exc).__name__}"
-        meses_ok = primer_error is None
-    else:
-        for mes in meses:
-            antes = acu["xml_recibidos"]
-            entrada = {"mes": mes, "estado": "ok", "xml": 0, "mensaje": None}
-            detalle.append(entrada)
-            avisar(f"— Mes {mes:02d}/{anio} —")
-            try:
-                ini, fin = _rango_mes(anio, mes)
-                procesar_xmls(db, empresa_id, indice, descargar_emitidos_rango(empresa_id, ini, fin, log=avisar), None, acu, ctx)
-                avisar(f"Mes {mes:02d}: {acu['xml_recibidos'] - antes} XML recibidos", "ok")
-            except SatError as exc:
-                entrada.update(estado="error", mensaje=str(exc)[:300])
-                primer_error = primer_error or str(exc)[:500]
-                avisar(f"Mes {mes:02d}: {exc}", "error")
-            except Exception as exc:
-                log.exception("Descarga masiva %s mes %s: fallo inesperado", job_id, mes)
-                entrada.update(estado="error", mensaje=f"Error inesperado: {type(exc).__name__}: {str(exc)[:150]}")
-                primer_error = primer_error or entrada["mensaje"]
-                avisar(f"Mes {mes:02d}: {entrada['mensaje']}", "error")
-            entrada["xml"] = acu["xml_recibidos"] - antes
-            guardar("en_proceso")
-        meses_ok = not all(e["estado"] == "error" for e in detalle)
+        else:
+            for mes in meses:
+                if bit.cancelado():
+                    raise Cancelado()
+                antes = acu["xml_recibidos"]
+                entrada = {"mes": mes, "estado": "ok", "xml": 0, "mensaje": None}
+                detalle.append(entrada)
+                avisar(f"— Mes {mes:02d}/{anio} —")
+                try:
+                    ini, fin = _rango_mes(anio, mes)
+                    procesar_xmls(db, empresa_id, indice,
+                                  descargar_emitidos_rango(empresa_id, ini, fin, log=avisar, parar=bit.cancelado), None, acu, ctx)
+                    avisar(f"Mes {mes:02d}: {acu['xml_recibidos'] - antes} XML recibidos", "ok")
+                except (SatError, Cancelado) as exc:
+                    if isinstance(exc, Cancelado):
+                        entrada.update(estado="error", mensaje="Detenido por el usuario")
+                        raise
+                    entrada.update(estado="error", mensaje=str(exc)[:300])
+                    primer_error = primer_error or str(exc)[:500]
+                    avisar(f"Mes {mes:02d}: {exc}", "error")
+                except Exception as exc:
+                    log.exception("Descarga masiva %s mes %s: fallo inesperado", job_id, mes)
+                    entrada.update(estado="error", mensaje=f"Error inesperado: {type(exc).__name__}: {str(exc)[:150]}")
+                    primer_error = primer_error or entrada["mensaje"]
+                    avisar(f"Mes {mes:02d}: {entrada['mensaje']}", "error")
+                entrada["xml"] = acu["xml_recibidos"] - antes
+                guardar("en_proceso")
+            ok = not all(e["estado"] == "error" for e in detalle)
+    except Cancelado:
+        cancelado = True
+        avisar("Proceso detenido por el usuario. Lo ya asignado se conservó; puedes volver a iniciarlo y continuará con lo que falte.", "aviso")
+    except SatError as exc:
+        ok = False
+        primer_error = str(exc)[:500]
+        avisar(str(exc), "error")
+    except Exception as exc:
+        log.exception("Proceso %s interrumpido", job_id)
+        ok = False
+        primer_error = f"Proceso interrumpido: {type(exc).__name__}"
+        avisar(f"Proceso interrumpido: {type(exc).__name__}: {str(exc)[:200]}", "error")
 
-    if acu["viajes"]:
+    if acu["viajes"] and not cancelado:
         try:
             avisar("Ubicando orígenes/destinos en el mapa y calculando km operativos…")
             r = calcular_km_viajes(empresa_id, avisar)
@@ -373,10 +462,13 @@ def _ejecutar(empresa_id: str, job_id: str, anio: int, meses: list[int]) -> None
         except Exception as exc:
             avisar(f"No se pudieron calcular los km por mapa: {type(exc).__name__}: {str(exc)[:200]}", "aviso")
 
-    avisar(f"Terminado: {acu['xml_recibidos']} XML, {acu['facturas_asignadas']} facturas asignadas, {acu['complementos']} complementos, "
-           f"{acu['viajes']} viajes nuevos desde Carta Porte, {acu['sin_asignar_total']} XML sin factura, {acu['viajes_error']} viajes con error",
-           "ok" if meses_ok else "error")
-    guardar("ok" if meses_ok else "error", None if meses_ok else primer_error)
+    avisar(f"{'Detenido' if cancelado else 'Terminado'}: {acu['xml_recibidos']} XML, {acu['facturas_asignadas']} facturas asignadas, "
+           f"{acu['complementos']} complementos, {acu['viajes']} viajes nuevos desde Carta Porte, {acu['sin_asignar_total']} XML sin factura, "
+           f"{acu['viajes_error']} viajes con error", "aviso" if cancelado else ("ok" if ok else "error"))
+    if cancelado:
+        guardar("cancelado", "Detenido por el usuario")
+    else:
+        guardar("ok" if ok else "error", None if ok else primer_error)
 
 
 def marcar_error(job_id: str, mensaje: str) -> None:

@@ -12,7 +12,7 @@ from app.cfdi_parser import CFDIError, parse_cfdi
 from app.config import get_settings
 from app.crypto import encrypt
 from app.db import get_admin_client
-from app.descarga_masiva import ejecutar as descarga_ejecutar, iniciar as descarga_iniciar
+from app.descarga_masiva import cancelar as descarga_cancelar, ejecutar as descarga_ejecutar, iniciar as descarga_iniciar, iniciar_zip
 from app.sat import diagnosticar as sat_diagnosticar
 from app.mapas import MapaError, geocodificar
 from app.rutas_service import asignar_viaje, calcular_km_viajes, calcular_ruta
@@ -161,6 +161,28 @@ def descarga_masiva(body: DescargaMasivaRequest, background: BackgroundTasks, te
     job = descarga_iniciar(tenant.empresa_id, body.anio, body.modo)
     background.add_task(descarga_ejecutar, tenant.empresa_id, job["id"], body.anio, job["meses"])
     return {"id": job["id"], "meses": job["meses"]}
+
+
+@app.post("/api/sat/descarga-masiva/cancelar")
+def descarga_masiva_cancelar(tenant: Tenant = Depends(current_tenant)) -> dict:
+    """Detiene la descarga en curso. Si el proceso quedó interrumpido (el servidor se reinició o durmió), la marca
+    como cancelada al instante; si sigue vivo, termina en unos segundos y conserva lo ya asignado."""
+    return descarga_cancelar(tenant.empresa_id)
+
+
+@app.post("/api/xml/subir-zip", status_code=status.HTTP_202_ACCEPTED)
+async def subir_zip(background: BackgroundTasks, file: UploadFile = File(...), tenant: Tenant = Depends(current_tenant)) -> dict:
+    """Sube varios XML de una vez en un .zip: se descomprime en el servidor, se valida cada archivo y se asigna a su
+    factura como en la descarga del SAT. Corre en segundo plano; aceptados y rechazados quedan en la bitácora."""
+    if not (file.filename or "").lower().endswith(".zip"):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "El archivo debe ser .zip")
+    limit = get_settings().max_zip_bytes
+    content = await file.read(limit + 1)
+    if len(content) > limit:
+        raise HTTPException(status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, "El .zip excede el tamaño máximo permitido")
+    job = iniciar_zip(tenant.empresa_id, file.filename or "xml.zip")
+    background.add_task(descarga_ejecutar, tenant.empresa_id, job["id"], job["anio"], [], content)
+    return {"id": job["id"]}
 
 
 @app.post("/api/sat/diagnostico")

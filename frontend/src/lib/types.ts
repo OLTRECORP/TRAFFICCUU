@@ -98,8 +98,8 @@ export interface FacturaMes { mes: string; n: number; total: number }
 
 export interface FacturaXmlMes { anio: number; mes: number; total: number; con_xml: number }
 export interface SatDescarga {
-  id: string; modo: "anio" | "faltantes" | "reprocesar"; anio: number; meses: number[];
-  estado: "pendiente" | "en_proceso" | "ok" | "error";
+  id: string; modo: "anio" | "faltantes" | "reprocesar" | "zip"; anio: number; meses: number[];
+  estado: "pendiente" | "en_proceso" | "ok" | "error" | "cancelado";
   detalle: { mes: number; estado: "ok" | "error"; xml: number; mensaje: string | null }[];
   xml_recibidos: number; facturas_asignadas: number; complementos: number; viajes: number;
   bitacora: { t: string; n: "info" | "ok" | "aviso" | "error"; m: string }[];

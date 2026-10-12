@@ -83,17 +83,27 @@ def _cargar_fiel(empresa_id: str, log=None):
     return cfg["rfc"], fiel
 
 
+class Cancelado(Exception):
+    """El usuario detuvo la descarga; no es un fallo."""
+
+
+def _revisar(parar) -> None:
+    if parar and parar():
+        raise Cancelado()
+
+
 class SatSinResultados(SatError):
     """El SAT atendió la solicitud pero no hay CFDI en el rango pedido."""
 
 
-def _verificar(fiel, rfc: str, id_solicitud: str, espera_max: int, intervalo: int, log=None) -> list[str]:
+def _verificar(fiel, rfc: str, id_solicitud: str, espera_max: int, intervalo: int, log=None, parar=None) -> list[str]:
     """Espera a que el SAT termine la solicitud y devuelve los ids de paquete a descargar."""
     from cfdiclient import Autenticacion, VerificaSolicitudDescarga
 
     verifica = VerificaSolicitudDescarga(fiel)
     limite = time.monotonic() + espera_max
     while True:
+        _revisar(parar)
         token = Autenticacion(fiel).obtener_token()
         v = verifica.verificar_descarga(token, rfc, id_solicitud)
         estado = str(v.get("estado_solicitud"))
@@ -108,14 +118,17 @@ def _verificar(fiel, rfc: str, id_solicitud: str, espera_max: int, intervalo: in
         if time.monotonic() > limite:
             raise SatError("El SAT sigue procesando la solicitud; vuelve a intentarlo en unos minutos")
         _avisar(log, f"Esperando {intervalo}s para volver a preguntar al SAT…")
-        time.sleep(intervalo)
+        for _ in range(max(1, intervalo // 5)):   # dormir en tramos para poder detenerse pronto
+            time.sleep(min(5, intervalo))
+            _revisar(parar)
 
 
-def _xmls_de_paquetes(fiel, rfc: str, paquetes: list[str], log=None) -> Iterator[bytes]:
+def _xmls_de_paquetes(fiel, rfc: str, paquetes: list[str], log=None, parar=None) -> Iterator[bytes]:
     from cfdiclient import Autenticacion, DescargaMasiva
 
     descarga = DescargaMasiva(fiel)
     for id_paquete in paquetes:
+        _revisar(parar)
         token = Autenticacion(fiel).obtener_token()
         _avisar(log, f"Descargando paquete {id_paquete[:12]}…")
         p = descarga.descargar_paquete(token, rfc, id_paquete)
@@ -182,6 +195,7 @@ def descargar_emitidos_rango(
     espera_max: int = 1800,
     intervalo: int = 20,
     log=None,
+    parar=None,
 ) -> Iterator[bytes]:
     """Descarga masiva de los CFDI EMITIDOS por la empresa entre `desde` y `hasta` (facturas y
     complementos de pago, solo vigentes). Un generador de XML en bytes; vacío si el SAT no tiene
@@ -202,12 +216,12 @@ def descargar_emitidos_rango(
     if on_solicitud:
         on_solicitud(res["id_solicitud"])
     try:
-        paquetes = _verificar(fiel, rfc, res["id_solicitud"], espera_max, intervalo, log)
+        paquetes = _verificar(fiel, rfc, res["id_solicitud"], espera_max, intervalo, log, parar)
     except SatSinResultados:
         _avisar(log, "El SAT no tiene CFDI emitidos en ese periodo", "aviso")
         return
     _avisar(log, f"Solicitud terminada: {len(paquetes)} paquete(s) por descargar", "ok")
-    yield from _xmls_de_paquetes(fiel, rfc, paquetes, log)
+    yield from _xmls_de_paquetes(fiel, rfc, paquetes, log, parar)
 
 
 def diagnosticar(empresa_id: str) -> list[dict]:
