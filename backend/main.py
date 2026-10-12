@@ -13,6 +13,7 @@ from app.config import get_settings
 from app.crypto import encrypt
 from app.db import get_admin_client
 from app.descarga_masiva import ejecutar as descarga_ejecutar, iniciar as descarga_iniciar
+from app.sat import diagnosticar as sat_diagnosticar
 from app.mapas import MapaError, geocodificar
 from app.rutas_service import asignar_viaje, calcular_km_viajes, calcular_ruta
 from app.facturas_sat import ejecutar as sat_ejecutar, preparar as sat_preparar
@@ -148,8 +149,9 @@ def guardar_password_sat(body: PasswordSat, user: CurrentUser = Depends(current_
 
 class DescargaMasivaRequest(BaseModel):
     anio: int = Field(ge=2014, le=2100)
-    # "anio" = los 12 meses; "faltantes" = solo los meses (por fecha de emisión) con facturas sin XML
-    modo: Literal["anio", "faltantes"] = "faltantes"
+    # "anio" = los 12 meses; "faltantes" = solo los meses (por fecha de emisión) con facturas sin XML;
+    # "reprocesar" = no consulta al SAT: registra la Carta Porte de los XML ya guardados
+    modo: Literal["anio", "faltantes", "reprocesar"] = "faltantes"
 
 
 @app.post("/api/sat/descarga-masiva", status_code=status.HTTP_202_ACCEPTED)
@@ -159,6 +161,13 @@ def descarga_masiva(body: DescargaMasivaRequest, background: BackgroundTasks, te
     job = descarga_iniciar(tenant.empresa_id, body.anio, body.modo)
     background.add_task(descarga_ejecutar, tenant.empresa_id, job["id"], body.anio, job["meses"])
     return {"id": job["id"], "meses": job["meses"]}
+
+
+@app.post("/api/sat/diagnostico")
+def sat_diagnostico(tenant: Tenant = Depends(current_tenant)) -> dict:
+    """Prueba tablas, FIEL y autenticación con el SAT y dice cuál paso falla."""
+    pasos = sat_diagnosticar(tenant.empresa_id)
+    return {"ok": all(p["ok"] for p in pasos), "pasos": pasos}
 
 
 class GeocodificarRequest(BaseModel):

@@ -19,8 +19,12 @@ from decimal import Decimal, InvalidOperation
 
 from fastapi import HTTPException, status
 
+from .auth import Tenant
+from .bitacora import Bitacora
+from .carta_porte_service import registrar as registrar_carta_porte
 from .cfdi_parser import CFDIError, pagos_cfdi, resumen_cfdi
 from .db import get_admin_client
+from .rutas_service import LugaresCatalogo, calcular_km_viajes
 from .sat import SatError, descargar_emitidos_rango
 
 log = logging.getLogger("descarga_masiva")
@@ -103,7 +107,9 @@ def iniciar(empresa_id: str, anio: int, modo: str) -> dict:
     if any(_ahora() - _parse_ts(r["updated_at"]) < ACTIVA_MAX for r in activas):
         raise HTTPException(status.HTTP_409_CONFLICT, "Ya hay una descarga masiva en curso; espera a que termine")
 
-    if modo == "faltantes":
+    if modo == "reprocesar":
+        meses = []
+    elif modo == "faltantes":
         meses = meses_pendientes(empresa_id, anio)
         if not meses:
             raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, f"No hay facturas de {anio} sin XML por descargar")
@@ -147,34 +153,40 @@ def _lote(tabla, filas: list[dict], conflicto: str) -> None:
         tabla.upsert(filas[i:i + LOTE], on_conflict=conflicto).execute()
 
 
-def procesar_xmls(db, empresa_id: str, indice: _Indice, xmls, id_solicitud: str | None, acumulado: dict) -> None:
-    """Asigna cada XML (factura o complemento de pago) y guarda. `acumulado` lleva los contadores."""
+def procesar_xmls(db, empresa_id: str, indice: _Indice, xmls, id_solicitud: str | None, acumulado: dict, ctx: dict | None = None) -> None:
+    """Asigna cada XML (factura o complemento de pago) y guarda. `acumulado` lleva los contadores.
+    `ctx` (opcional): {"log": callable(mensaje, nivel), "cp": (Tenant, LugaresCatalogo)} para la bitácora y
+    para registrar la Carta Porte de cada factura."""
     ahora = _ahora().isoformat()
     sat_rows: list[dict] = []
     try:
-        _recorrer(db, empresa_id, indice, xmls, id_solicitud, acumulado, sat_rows, ahora)
+        _recorrer(db, empresa_id, indice, xmls, id_solicitud, acumulado, sat_rows, ahora, ctx or {})
     finally:   # si el SAT falla a medio paquete, lo ya asignado se conserva
         _lote(db.table("facturas_sat"), sat_rows, "factura_id")
 
 
-def _recorrer(db, empresa_id, indice, xmls, id_solicitud, acumulado, sat_rows, ahora) -> None:
+def _recorrer(db, empresa_id, indice, xmls, id_solicitud, acumulado, sat_rows, ahora, ctx) -> None:
+    avisar = ctx.get("log") or (lambda m, n="info": None)
     for xml in xmls:
         acumulado["xml_recibidos"] += 1
         try:
             r = resumen_cfdi(xml)
         except CFDIError as exc:
             acumulado["ignorados"] += 1
-            log.warning("XML descartado: %s", exc)
+            avisar(f"XML descartado (no es un CFDI válido): {exc}", "aviso")
             continue
         tipo = r.get("tipo_comprobante")
         if tipo == "P":
             try:
                 _guardar_complemento(db, empresa_id, indice, r, pagos_cfdi(xml), xml, acumulado)
+                avisar(f"Complemento de pago {r.get('serie') or ''}{r.get('folio') or ''} ({r['uuid'][:8]}…) guardado y ligado a sus facturas", "ok")
             except CFDIError:
                 acumulado["ignorados"] += 1
+                avisar(f"Complemento de pago {r['uuid'][:8]}… ilegible, se omitió", "aviso")
             continue
         if tipo != "I":              # egresos y traslados no son facturas del Excel
             acumulado["ignorados"] += 1
+            avisar(f"CFDI {r['uuid'][:8]}… tipo {tipo} omitido (no es factura de ingreso ni complemento de pago)")
             continue
 
         r_plano = {"uuid": r["uuid"], "serie": r.get("serie"), "folio": r.get("folio"), "total": r.get("total")}
@@ -186,6 +198,7 @@ def _recorrer(db, empresa_id, indice, xmls, id_solicitud, acumulado, sat_rows, a
                     "total": r.get("total"), "fecha": (r.get("fecha") or "")[:10], "motivo": motivo,
                 })
             acumulado["sin_asignar_total"] += 1
+            avisar(f"Sin factura para el XML {r['uuid'][:8]}… folio {r.get('serie') or ''}{r.get('folio') or ''} total {r.get('total')}: {motivo}", "aviso")
             continue
         if not factura.get("uuid"):
             # Recupera el UUID dañado/vacío del Excel con el del XML (índice único por empresa+uuid).
@@ -200,6 +213,25 @@ def _recorrer(db, empresa_id, indice, xmls, id_solicitud, acumulado, sat_rows, a
             "actualizado_en": ahora,
         })
         acumulado["facturas_asignadas"] += 1
+        avisar(f"XML {r['uuid'][:8]}… asignado a la factura {factura['folio']}", "ok")
+        if ctx.get("cp"):
+            _carta_porte(db, ctx["cp"], xml, factura, acumulado, avisar)
+
+
+def _carta_porte(db, cp, xml: bytes, factura: dict, acumulado: dict, avisar) -> None:
+    tenant, catalogo = cp
+    resultado, detalle = registrar_carta_porte(db, tenant, xml, factura["id"], catalogo)
+    if resultado == "creado":
+        acumulado["viajes"] += 1
+        avisar(f"Carta Porte → {detalle}", "ok")
+    elif resultado == "existente":
+        acumulado["viajes_existentes"] += 1
+    elif resultado == "sin_carta_porte":
+        acumulado["sin_carta_porte"] += 1
+        avisar(f"Factura {factura['folio']}: {detalle}")
+    else:
+        acumulado["viajes_error"] += 1
+        avisar(f"Factura {factura['folio']}: no se registró el viaje: {detalle}", "error")
 
 
 def _guardar_complemento(db, empresa_id: str, indice: _Indice, r: dict, pagos: list[dict], xml: bytes, acumulado: dict) -> None:
@@ -251,50 +283,100 @@ def ejecutar(empresa_id: str, job_id: str, anio: int, meses: list[int]) -> None:
         marcar_error(job_id, f"Error inesperado: {type(exc).__name__}")
 
 
+def _contadores() -> dict:
+    return {"xml_recibidos": 0, "ignorados": 0, "facturas_asignadas": 0, "complementos": 0, "uuid_recuperados": 0,
+            "sin_asignar": [], "sin_asignar_total": 0, "viajes": 0, "viajes_existentes": 0, "sin_carta_porte": 0, "viajes_error": 0}
+
+
+def _reprocesar(db, empresa_id: str, ctx: dict, acu: dict) -> None:
+    """Registra la Carta Porte de los XML que ya están guardados en `facturas_sat` (p. ej. los bajados uno por uno)."""
+    avisar = ctx["log"]
+    filas = _leer_todo(lambda a, b: db.table("facturas_sat").select("factura_id").eq("empresa_id", empresa_id)
+                       .eq("estado", "ok").not_.is_("xml", "null").order("factura_id").range(a, b))
+    avisar(f"{len(filas)} factura(s) con XML guardado; registrando su Carta Porte…")
+    folios = {f["id"]: f["folio"] for f in _leer_todo(lambda a, b: db.table("facturas").select("id, folio")
+                                                       .eq("empresa_id", empresa_id).order("id").range(a, b))}
+    for fila in filas:
+        xml = db.table("facturas_sat").select("xml").eq("factura_id", fila["factura_id"]).limit(1).execute().data[0]["xml"]
+        acu["xml_recibidos"] += 1
+        _carta_porte(db, ctx["cp"], xml.encode(), {"id": fila["factura_id"], "folio": folios.get(fila["factura_id"], "?")}, acu, avisar)
+
+
 def _ejecutar(empresa_id: str, job_id: str, anio: int, meses: list[int]) -> None:
-    """Un mes a la vez. Un mes que falla no detiene a los demás; todo queda en la corrida."""
+    """Un mes a la vez. Un mes que falla no detiene a los demás; todo queda en la corrida y en su bitácora."""
     db = get_admin_client()
-    tabla = db.table("sat_descargas")
-    facturas = _leer_todo(lambda a, b: (
-        db.table("facturas").select("id, folio, uuid, total, estado, complemento").eq("empresa_id", empresa_id)
-        .order("id").range(a, b)
-    ))
-    indice = _Indice(facturas)
-    acu = {"xml_recibidos": 0, "ignorados": 0, "facturas_asignadas": 0, "complementos": 0,
-           "uuid_recuperados": 0, "sin_asignar": [], "sin_asignar_total": 0}
+    bit = Bitacora(db, job_id)
+    avisar = bit.add
+    acu = _contadores()
     detalle: list[dict] = []
     primer_error = None
 
     def guardar(estado: str, error: str | None = None) -> None:
-        tabla.update({
+        bit.flush(**{
             "estado": estado, "detalle": detalle, "error": error,
             "xml_recibidos": acu["xml_recibidos"], "facturas_asignadas": acu["facturas_asignadas"],
-            "complementos": acu["complementos"], "sin_asignar": acu["sin_asignar"],
-        }).eq("id", job_id).execute()
+            "complementos": acu["complementos"], "viajes": acu["viajes"], "sin_asignar": acu["sin_asignar"],
+        })
 
+    avisar(f"Descarga iniciada: {'reproceso de Carta Porte' if not meses else f'año {anio}, meses {meses}'}")
     guardar("en_proceso")
-    for mes in meses:
-        antes = acu["xml_recibidos"]
-        entrada = {"mes": mes, "estado": "ok", "xml": 0, "mensaje": None}
-        detalle.append(entrada)
-        try:
-            ini, fin = _rango_mes(anio, mes)
-            procesar_xmls(db, empresa_id, indice, descargar_emitidos_rango(empresa_id, ini, fin), None, acu)
-        except SatError as exc:
-            entrada.update(estado="error", mensaje=str(exc)[:300])
-            primer_error = primer_error or str(exc)[:500]
-            log.warning("Descarga masiva %s mes %s: %s", job_id, mes, exc)
-        except Exception as exc:
-            log.exception("Descarga masiva %s mes %s: fallo inesperado", job_id, mes)
-            entrada.update(estado="error", mensaje=f"Error inesperado: {type(exc).__name__}")
-            primer_error = primer_error or entrada["mensaje"]
-        entrada["xml"] = acu["xml_recibidos"] - antes
-        guardar("en_proceso")
+    try:
+        rfc = db.table("empresa_configuracion").select("rfc").eq("id", empresa_id).single().execute().data["rfc"]
+        facturas = _leer_todo(lambda a, b: (
+            db.table("facturas").select("id, folio, uuid, total, estado, complemento").eq("empresa_id", empresa_id)
+            .order("id").range(a, b)
+        ))
+        avisar(f"{len(facturas)} facturas cargadas para asignar los XML")
+        indice = _Indice(facturas)
+        ctx = {"log": avisar, "cp": (Tenant(user_id="", empresa_id=empresa_id, rfc=rfc), LugaresCatalogo(db, empresa_id))}
+    except Exception as exc:
+        avisar(f"No se pudo preparar la descarga: {type(exc).__name__}: {str(exc)[:200]}", "error")
+        guardar("error", f"No se pudo preparar la descarga: {type(exc).__name__}")
+        return
 
-    todos_fallaron = all(e["estado"] == "error" for e in detalle)
-    guardar("error" if todos_fallaron else "ok", primer_error if todos_fallaron else None)
-    log.info("Descarga masiva %s terminada: %d XML, %d facturas, %d complementos",
-             job_id, acu["xml_recibidos"], acu["facturas_asignadas"], acu["complementos"])
+    if not meses:
+        try:
+            _reprocesar(db, empresa_id, ctx, acu)
+        except Exception as exc:
+            log.exception("Reproceso %s falló", job_id)
+            avisar(f"Reproceso interrumpido: {type(exc).__name__}: {str(exc)[:200]}", "error")
+            primer_error = f"Reproceso interrumpido: {type(exc).__name__}"
+        meses_ok = primer_error is None
+    else:
+        for mes in meses:
+            antes = acu["xml_recibidos"]
+            entrada = {"mes": mes, "estado": "ok", "xml": 0, "mensaje": None}
+            detalle.append(entrada)
+            avisar(f"— Mes {mes:02d}/{anio} —")
+            try:
+                ini, fin = _rango_mes(anio, mes)
+                procesar_xmls(db, empresa_id, indice, descargar_emitidos_rango(empresa_id, ini, fin, log=avisar), None, acu, ctx)
+                avisar(f"Mes {mes:02d}: {acu['xml_recibidos'] - antes} XML recibidos", "ok")
+            except SatError as exc:
+                entrada.update(estado="error", mensaje=str(exc)[:300])
+                primer_error = primer_error or str(exc)[:500]
+                avisar(f"Mes {mes:02d}: {exc}", "error")
+            except Exception as exc:
+                log.exception("Descarga masiva %s mes %s: fallo inesperado", job_id, mes)
+                entrada.update(estado="error", mensaje=f"Error inesperado: {type(exc).__name__}: {str(exc)[:150]}")
+                primer_error = primer_error or entrada["mensaje"]
+                avisar(f"Mes {mes:02d}: {entrada['mensaje']}", "error")
+            entrada["xml"] = acu["xml_recibidos"] - antes
+            guardar("en_proceso")
+        meses_ok = not all(e["estado"] == "error" for e in detalle)
+
+    if acu["viajes"]:
+        try:
+            avisar("Ubicando orígenes/destinos en el mapa y calculando km operativos…")
+            r = calcular_km_viajes(empresa_id, avisar)
+            avisar(f"Km operativos: {r['calculados']} viajes calculados, {r['sin_mapa']} sin ubicación en el mapa, {r['pendientes']} pendientes", "ok")
+        except Exception as exc:
+            avisar(f"No se pudieron calcular los km por mapa: {type(exc).__name__}: {str(exc)[:200]}", "aviso")
+
+    avisar(f"Terminado: {acu['xml_recibidos']} XML, {acu['facturas_asignadas']} facturas asignadas, {acu['complementos']} complementos, "
+           f"{acu['viajes']} viajes nuevos desde Carta Porte, {acu['sin_asignar_total']} XML sin factura, {acu['viajes_error']} viajes con error",
+           "ok" if meses_ok else "error")
+    guardar("ok" if meses_ok else "error", None if meses_ok else primer_error)
 
 
 def marcar_error(job_id: str, mensaje: str) -> None:

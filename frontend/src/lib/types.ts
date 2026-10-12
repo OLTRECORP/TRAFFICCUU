@@ -98,10 +98,11 @@ export interface FacturaMes { mes: string; n: number; total: number }
 
 export interface FacturaXmlMes { anio: number; mes: number; total: number; con_xml: number }
 export interface SatDescarga {
-  id: string; modo: "anio" | "faltantes"; anio: number; meses: number[];
+  id: string; modo: "anio" | "faltantes" | "reprocesar"; anio: number; meses: number[];
   estado: "pendiente" | "en_proceso" | "ok" | "error";
   detalle: { mes: number; estado: "ok" | "error"; xml: number; mensaje: string | null }[];
-  xml_recibidos: number; facturas_asignadas: number; complementos: number;
+  xml_recibidos: number; facturas_asignadas: number; complementos: number; viajes: number;
+  bitacora: { t: string; n: "info" | "ok" | "aviso" | "error"; m: string }[];
   sin_asignar: { uuid: string; folio: string; total: string | null; fecha: string; motivo: string }[];
   error: string | null; created_at: string; updated_at: string;
 }
@@ -112,6 +113,7 @@ export interface ComplementoPago {
 export interface Lugar {
   id: string; nombre: string; tipo: "origen" | "destino" | "ambos"; direccion: string | null;
   referencia: string | null; lat: number | null; lng: number | null; activo: boolean;
+  precio_tonelada: number | null;
 }
 export interface Ruta {
   id: string; origen_id: string; destino_id: string; distancia_km: number; calculada_en: string;

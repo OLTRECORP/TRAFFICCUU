@@ -15,6 +15,7 @@ class UbicacionData:
     nombre: str | None = None
     municipio: str | None = None
     estado: str | None = None
+    domicilio: str | None = None    # calle, colonia, CP... de la Carta Porte (no se guarda en `ubicaciones`)
 
 
 @dataclass
@@ -85,7 +86,17 @@ def _ubicacion(node: ET.Element) -> UbicacionData:
         nombre=nombre,
         municipio=dom.get("Municipio") if dom is not None else None,
         estado=dom.get("Estado") if dom is not None else None,
+        domicilio=_domicilio_texto(dom),
     )
+
+
+def _domicilio_texto(dom: ET.Element | None) -> str | None:
+    if dom is None:
+        return None
+    calle = " ".join(p for p in (dom.get("Calle"), dom.get("NumeroExterior")) if p)
+    cp = f"C.P. {dom.get('CodigoPostal')}" if dom.get("CodigoPostal") else None
+    partes = [calle or None, dom.get("Colonia"), dom.get("Localidad"), dom.get("Municipio"), dom.get("Estado"), cp, dom.get("Pais")]
+    return ", ".join(p for p in partes if p) or None
 
 
 def parse_cfdi(xml_bytes: bytes) -> CFDIViaje:

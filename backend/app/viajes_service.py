@@ -2,8 +2,9 @@
 from fastapi import HTTPException, status
 
 from .auth import Tenant
-from .cfdi_parser import CFDIViaje
+from .cfdi_parser import CFDIViaje, UbicacionData
 from .db import get_admin_client
+from .rutas_service import LugaresCatalogo, _norm
 
 
 def _upsert_id(table: str, conflict: str, row: dict) -> str:
@@ -11,7 +12,17 @@ def _upsert_id(table: str, conflict: str, row: dict) -> str:
     return res.data[0]["id"]
 
 
-def guardar_viaje(tenant: Tenant, v: CFDIViaje) -> dict:
+def _ubicacion_row(u: UbicacionData) -> dict:
+    """Fila de `ubicaciones`. El IDUbicacion de la Carta Porte (OR000001/DE000001) se repite en casi todos
+    los viajes, así que se le agrega el lugar para que cada origen/destino distinto sea un registro distinto."""
+    lugar = _norm(u.nombre or u.municipio)
+    return {
+        "id_ubicacion": f"{u.id_ubicacion}|{lugar}" if lugar else u.id_ubicacion,
+        "nombre": u.nombre, "municipio": u.municipio, "estado": u.estado,
+    }
+
+
+def guardar_viaje(tenant: Tenant, v: CFDIViaje, factura_id: str | None = None, catalogo: LugaresCatalogo | None = None) -> dict:
     db = get_admin_client()
     eid = tenant.empresa_id
 
@@ -45,12 +56,14 @@ def guardar_viaje(tenant: Tenant, v: CFDIViaje) -> dict:
     chofer_id = ensure("choferes", "empresa_id,rfc", {
         "empresa_id": eid, "rfc": v.chofer_rfc, "nombre": v.chofer_nombre, "licencia": v.chofer_licencia,
     })
-    origen_id = ensure("ubicaciones", "empresa_id,id_ubicacion", {
-        "empresa_id": eid, **v.origen.__dict__,
-    })
-    destino_id = ensure("ubicaciones", "empresa_id,id_ubicacion", {
-        "empresa_id": eid, **v.destino.__dict__,
-    })
+    origen_id = ensure("ubicaciones", "empresa_id,id_ubicacion", {"empresa_id": eid, **_ubicacion_row(v.origen)})
+    destino_id = ensure("ubicaciones", "empresa_id,id_ubicacion", {"empresa_id": eid, **_ubicacion_row(v.destino)})
+
+    # Un viaje por factura (se liga por UUID) y origen/destino del catálogo de lugares (se crean si no existen).
+    if factura_id is None:
+        fac = db.table("facturas").select("id").eq("empresa_id", eid).eq("uuid", v.uuid.lower()).limit(1).execute().data
+        factura_id = fac[0]["id"] if fac else None
+    catalogo = catalogo or LugaresCatalogo(db, eid)
 
     row = {
         "empresa_id": eid,
@@ -68,6 +81,9 @@ def guardar_viaje(tenant: Tenant, v: CFDIViaje) -> dict:
         "subtotal": float(v.subtotal),
         "total": float(v.total),
         "fecha": v.fecha.isoformat(),
+        "factura_id": factura_id,
+        "lugar_origen_id": catalogo.asegurar(v.origen, "origen"),
+        "lugar_destino_id": catalogo.asegurar(v.destino, "destino"),
     }
     try:
         # El trigger trg_viaje_suma_kilometraje actualiza tractocamiones.kilometraje_actual
