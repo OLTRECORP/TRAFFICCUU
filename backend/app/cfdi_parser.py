@@ -16,6 +16,8 @@ class UbicacionData:
     municipio: str | None = None
     estado: str | None = None
     domicilio: str | None = None    # calle, colonia, CP... de la Carta Porte (no se guarda en `ubicaciones`)
+    calle: str | None = None        # lugar concreto de entrega/carga (ej. "CEMEX ... PLANTA SAN PEDRO")
+    fecha: datetime | None = None   # FechaHoraSalidaLlegada
 
 
 @dataclass
@@ -39,6 +41,14 @@ class CFDIViaje:
     chofer_nombre: str
     chofer_licencia: str | None
     modelo_vehiculo: str | None = None
+    toneladas_facturadas: Decimal | None = None   # concepto facturado en toneladas (Cantidad)
+    precio_tonelada: Decimal | None = None        # ValorUnitario de ese concepto
+    peso_bruto_total_kg: Decimal | None = None    # PesoBrutoTotal tal cual; el portal lo toma como capacidad del tracto
+    mercancia: str | None = None
+    tipo_permiso_sct: str | None = None
+    num_permiso_sct: str | None = None
+    aseguradora: str | None = None
+    poliza_seguro: str | None = None
     warnings: list[str] = field(default_factory=list)
 
     @property
@@ -87,7 +97,36 @@ def _ubicacion(node: ET.Element) -> UbicacionData:
         municipio=dom.get("Municipio") if dom is not None else None,
         estado=dom.get("Estado") if dom is not None else None,
         domicilio=_domicilio_texto(dom),
+        calle=(dom.get("Calle") or "").strip() or None if dom is not None else None,
+        fecha=_fecha_opcional(node.get("FechaHoraSalidaLlegada")),
     )
+
+
+def _fecha_opcional(value: str | None) -> datetime | None:
+    try:
+        return datetime.fromisoformat(value) if value else None
+    except ValueError:
+        return None
+
+
+def _opt_dec(value: str | None) -> Decimal | None:
+    try:
+        return Decimal(value) if value not in (None, "") else None
+    except InvalidOperation:
+        return None
+
+
+def _toneladas(root: ET.Element) -> tuple[Decimal | None, Decimal | None]:
+    """(toneladas, precio por tonelada) de los conceptos facturados en toneladas (A75/TNE o unidad «tonelada»)."""
+    nodo = _child(root, "Conceptos")
+    total, precio = Decimal(0), None
+    for c in (_children(nodo, "Concepto") if nodo is not None else []):
+        if c.get("ClaveUnidad") in ("A75", "TNE") or "TONELADA" in (c.get("Unidad") or "").upper():
+            cant = _opt_dec(c.get("Cantidad"))
+            if cant:
+                total += cant
+                precio = precio if precio is not None else _opt_dec(c.get("ValorUnitario"))
+    return (total, precio) if total else (None, None)
 
 
 def _domicilio_texto(dom: ET.Element | None) -> str | None:
@@ -164,6 +203,9 @@ def parse_cfdi(xml_bytes: bytes) -> CFDIViaje:
     if operador is None or not operador.get("RFCFigura"):
         raise CFDIError("No se encontró figura de transporte con TipoFigura=01 (Operador)")
 
+    toneladas, precio = _toneladas(root)
+    mercancia = _child(mercancias, "Mercancia")
+    seguros = _child(auto, "Seguros")
     return CFDIViaje(
         uuid=uuid.upper(),
         fecha=_parse_fecha(root.get("Fecha")),
@@ -184,6 +226,14 @@ def parse_cfdi(xml_bytes: bytes) -> CFDIViaje:
         chofer_nombre=operador.get("NombreFigura", ""),
         chofer_licencia=operador.get("NumLicencia"),
         modelo_vehiculo=ident.get("AnioModeloVM") if ident is not None else None,
+        toneladas_facturadas=toneladas,
+        precio_tonelada=precio,
+        peso_bruto_total_kg=_opt_dec(mercancias.get("PesoBrutoTotal")),
+        mercancia=mercancia.get("Descripcion") if mercancia is not None else None,
+        tipo_permiso_sct=auto.get("PermSCT"),
+        num_permiso_sct=auto.get("NumPermisoSCT"),
+        aseguradora=(seguros.get("AseguraRespCivil") if seguros is not None else None),
+        poliza_seguro=(seguros.get("PolizaRespCivil") if seguros is not None else None),
         warnings=warnings,
     )
 

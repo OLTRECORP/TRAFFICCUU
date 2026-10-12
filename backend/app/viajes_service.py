@@ -22,6 +22,19 @@ def _ubicacion_row(u: UbicacionData) -> dict:
     }
 
 
+def _completar(db, tabla: str, fila_id: str, datos: dict) -> None:
+    """Completa solo los campos vacíos de una ficha existente; nunca pisa lo capturado a mano."""
+    datos = {k: val for k, val in datos.items() if val not in (None, "")}
+    if not datos:
+        return
+    actual = db.table(tabla).select(",".join(datos)).eq("id", fila_id).limit(1).execute().data
+    if not actual:
+        return
+    faltan = {k: val for k, val in datos.items() if actual[0].get(k) in (None, "")}
+    if faltan:
+        db.table(tabla).update(faltan).eq("id", fila_id).execute()
+
+
 def guardar_viaje(tenant: Tenant, v: CFDIViaje, factura_id: str | None = None, catalogo: LugaresCatalogo | None = None) -> dict:
     db = get_admin_client()
     eid = tenant.empresa_id
@@ -48,10 +61,22 @@ def guardar_viaje(tenant: Tenant, v: CFDIViaje, factura_id: str | None = None, c
     tracto_id = ensure("tractocamiones", "empresa_id,placa", {
         "empresa_id": eid, "placa": v.placa_vehiculo, "modelo": v.modelo_vehiculo,
     })
+    # Ficha del tracto desde la Carta Porte: solo llena lo que esté vacío. El PesoBrutoTotal se toma como capacidad.
+    _completar(db, "tractocamiones", tracto_id, {
+        "anio": int(v.modelo_vehiculo) if (v.modelo_vehiculo or "").isdigit() else None,
+        "config_vehicular": v.configuracion_vehicular, "tipo_permiso_sct": v.tipo_permiso_sct,
+        "num_permiso_sct": v.num_permiso_sct, "aseguradora": v.aseguradora, "poliza_seguro": v.poliza_seguro,
+        "capacidad_kg": float(v.peso_bruto_total_kg) if v.peso_bruto_total_kg else None,
+    })
     gondola_id = None
     if v.placa_remolque:
         gondola_id = ensure("gondolas", "empresa_id,placa", {
             "empresa_id": eid, "placa": v.placa_remolque, "subtipo": v.subtipo_remolque,
+        })
+        # La Carta Porte declara permiso y seguro del autotransporte completo (tracto + remolque).
+        _completar(db, "gondolas", gondola_id, {
+            "tipo_permiso_sct": v.tipo_permiso_sct, "num_permiso_sct": v.num_permiso_sct,
+            "aseguradora": v.aseguradora, "poliza_seguro": v.poliza_seguro,
         })
     chofer_id = ensure("choferes", "empresa_id,rfc", {
         "empresa_id": eid, "rfc": v.chofer_rfc, "nombre": v.chofer_nombre, "licencia": v.chofer_licencia,
@@ -83,7 +108,13 @@ def guardar_viaje(tenant: Tenant, v: CFDIViaje, factura_id: str | None = None, c
         "fecha": v.fecha.isoformat(),
         "factura_id": factura_id,
         "lugar_origen_id": catalogo.asegurar(v.origen, "origen"),
-        "lugar_destino_id": catalogo.asegurar(v.destino, "destino"),
+        "lugar_destino_id": catalogo.asegurar(v.destino, "destino", v.precio_tonelada),
+        "toneladas_facturadas": float(v.toneladas_facturadas) if v.toneladas_facturadas is not None else None,
+        "precio_tonelada": float(v.precio_tonelada) if v.precio_tonelada is not None else None,
+        "peso_bruto_total_kg": float(v.peso_bruto_total_kg) if v.peso_bruto_total_kg is not None else None,
+        "mercancia": v.mercancia,
+        "fecha_salida": v.origen.fecha.isoformat() if v.origen.fecha else None,
+        "fecha_llegada": v.destino.fecha.isoformat() if v.destino.fecha else None,
     }
     try:
         # El trigger trg_viaje_suma_kilometraje actualiza tractocamiones.kilometraje_actual

@@ -54,3 +54,42 @@ def test_bitacora_acumula_y_escribe_avisos_al_momento():
     b.add("algo falló", "error")
     assert [l["n"] for l in b.lineas] == ["info", "error"]
     assert db.updates and db.updates[-1][1]["bitacora"][-1]["m"] == "algo falló"
+
+
+XML_TON = """<?xml version="1.0" encoding="UTF-8"?>
+<cfdi:Comprobante xmlns:cfdi="http://www.sat.gob.mx/cfd/4" xmlns:cartaporte31="http://www.sat.gob.mx/CartaPorte31"
+ Version="4.0" Serie="B" Folio="1" Fecha="2026-07-08T13:21:26" SubTotal="4370.70" Total="4895.18">
+<cfdi:Emisor Rfc="AAA010101AAA"/><cfdi:Receptor Rfc="BBB010101BBB"/>
+<cfdi:Conceptos><cfdi:Concepto ClaveUnidad="A75" Unidad="TONELADA" Cantidad="51.42" ValorUnitario="85.00"/></cfdi:Conceptos>
+<cfdi:Complemento><tfd:TimbreFiscalDigital xmlns:tfd="http://www.sat.gob.mx/TimbreFiscalDigital" UUID="9FB3A96F-6D44-42DF-9E93-EEF40E619099"/>
+<cartaporte31:CartaPorte Version="3.1"><cartaporte31:Ubicaciones>
+<cartaporte31:Ubicacion TipoUbicacion="Origen" NombreRemitenteDestinatario="CLIENTE " FechaHoraSalidaLlegada="2026-07-07T06:00:00"><cartaporte31:Domicilio Calle="KM 1" Estado="BCN"/></cartaporte31:Ubicacion>
+<cartaporte31:Ubicacion TipoUbicacion="Destino" NombreRemitenteDestinatario="CLIENTE" FechaHoraSalidaLlegada="2026-07-07T13:00:00" DistanciaRecorrida="23"><cartaporte31:Domicilio Calle="PLANTA SAN PEDRO" Estado="BCN"/></cartaporte31:Ubicacion>
+</cartaporte31:Ubicaciones>
+<cartaporte31:Mercancias PesoBrutoTotal="48000"><cartaporte31:Mercancia Descripcion="Gravilla"/>
+<cartaporte31:Autotransporte PermSCT="TPAF01" NumPermisoSCT="123"><cartaporte31:IdentificacionVehicular ConfigVehicular="C2R3" PlacaVM="42BJ1K" AnioModeloVM="2011"/>
+<cartaporte31:Seguros AseguraRespCivil="AXA" PolizaRespCivil="999"/>
+<cartaporte31:Remolques><cartaporte31:Remolque SubTipoRem="CTR014" Placa="15UY8W"/></cartaporte31:Remolques></cartaporte31:Autotransporte></cartaporte31:Mercancias>
+<cartaporte31:FiguraTransporte><cartaporte31:TiposFigura TipoFigura="01" RFCFigura="POMA7005077I8" NombreFigura="X"/></cartaporte31:FiguraTransporte>
+</cartaporte31:CartaPorte></cfdi:Complemento></cfdi:Comprobante>"""
+
+
+def test_parser_toneladas_precio_fechas_y_ficha_del_tracto():
+    from decimal import Decimal
+    from app.cfdi_parser import parse_cfdi
+    v = parse_cfdi(XML_TON.encode())
+    assert (v.toneladas_facturadas, v.precio_tonelada) == (Decimal("51.42"), Decimal("85.00"))
+    assert v.peso_bruto_total_kg == 48000 and v.mercancia == "Gravilla"
+    assert v.origen.fecha.hour == 6 and v.destino.fecha.hour == 13 and v.destino.calle == "PLANTA SAN PEDRO"
+    assert (v.tipo_permiso_sct, v.num_permiso_sct, v.aseguradora, v.poliza_seguro) == ("TPAF01", "123", "AXA", "999")
+
+
+def test_precio_tonelada_del_xml_sobrescribe_y_deja_aviso():
+    db = DB(lugares=[{"id": "L1", "nombre": "CLIENTE - PLANTA SAN PEDRO", "tipo": "destino", "direccion": "x", "precio_tonelada": 80.0}])
+    cat = LugaresCatalogo(db, "e1")
+    u = UbicacionData("DE1", nombre="CLIENTE", calle="PLANTA SAN PEDRO")
+    assert cat.asegurar(u, "destino", 85) == "L1"
+    assert ("lugares", {"precio_tonelada": 85.0}) in db.updates
+    assert "80.0 → 85.0" in cat.avisos[0]
+    nuevo = cat.asegurar(UbicacionData("DE2", nombre="OTRO", calle="P2"), "destino", 70)
+    assert db.tables["lugares"][-1]["precio_tonelada"] == 70.0 and nuevo

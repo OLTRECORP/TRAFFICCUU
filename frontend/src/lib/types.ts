@@ -43,6 +43,14 @@ export interface Viaje {
   lugar_destino_id: string | null;
   distancia_mapa_km: number | null;   // ida por mapa; km_operativos = ida x 2
   km_operativos: number | null;
+  toneladas_facturadas?: number | null; precio_tonelada?: number | null; mercancia?: string | null;
+  fecha_salida?: string | null; fecha_llegada?: string | null;
+}
+
+/** Viaje con toneladas facturadas por encima de la capacidad del tracto (vista viajes_sobrepeso). */
+export interface ViajeSobrepeso {
+  viaje_id: string; factura_id: string | null; tracto_placa: string; capacidad_kg: number;
+  toneladas_facturadas: number; exceso_kg: number;
 }
 
 export interface Regla { id: string; tipo_servicio: string; intervalo_km: number }

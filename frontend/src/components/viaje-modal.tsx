@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { Loader2 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { ApiError, postBackend } from "@/lib/api";
-import type { Lugar, Viaje } from "@/lib/types";
+import type { Lugar, Viaje, ViajeSobrepeso } from "@/lib/types";
 import { Alert } from "@/components/ui/alert";
 import { fechaMx, km, mxn } from "@/lib/utils";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
@@ -29,11 +29,15 @@ export function ViajeModal({ viaje, onClose, onChanged }: { viaje: Viaje | null;
   const [kmIda, setKmIda] = useState<number | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [sobrepeso, setSobrepeso] = useState<ViajeSobrepeso | null>(null);
 
   useEffect(() => {
     if (!viaje) return;
     setOrigen(viaje.lugar_origen_id ?? ""); setDestino(viaje.lugar_destino_id ?? "");
     setKmIda(viaje.distancia_mapa_km != null ? Number(viaje.distancia_mapa_km) : null); setError(null);
+    setSobrepeso(null);
+    void createClient().from("viajes_sobrepeso").select("*").eq("viaje_id", viaje.id).limit(1)
+      .then(({ data }) => setSobrepeso(((data ?? [])[0] as ViajeSobrepeso | undefined) ?? null));
     void createClient().from("lugares").select("*").eq("activo", true).order("nombre").then(({ data }) => setLugares((data ?? []) as Lugar[]));
   }, [viaje]);
 
@@ -64,6 +68,12 @@ export function ViajeModal({ viaje, onClose, onChanged }: { viaje: Viaje | null;
               </TabsList>
 
               <TabsContent value="logistica">
+                {sobrepeso && (
+                  <Alert variant="error" className="mb-3">
+                    Posible sobrepeso: {Number(sobrepeso.toneladas_facturadas).toLocaleString("es-MX")} t facturadas contra una capacidad de{" "}
+                    {(Number(sobrepeso.capacidad_kg) / 1000).toLocaleString("es-MX")} t del tracto (excede {Number(sobrepeso.exceso_kg).toLocaleString("es-MX")} kg).
+                  </Alert>
+                )}
                 <dl className="grid gap-4 sm:grid-cols-2">
                   <Field label="Origen" value={ubicacionLabel(viaje.origen)} />
                   <Field label="Destino" value={ubicacionLabel(viaje.destino)} />
@@ -71,6 +81,10 @@ export function ViajeModal({ viaje, onClose, onChanged }: { viaje: Viaje | null;
                   <Field label="Placa góndola" value={viaje.gondola?.placa} />
                   <Field label="Chofer" value={viaje.chofer?.nombre} />
                   <Field label="Licencia" value={viaje.chofer?.licencia} />
+                  <Field label="Mercancía" value={viaje.mercancia} />
+                  <Field label="Toneladas facturadas" value={viaje.toneladas_facturadas != null ? `${Number(viaje.toneladas_facturadas).toLocaleString("es-MX")} t${viaje.precio_tonelada != null ? ` × ${mxn(Number(viaje.precio_tonelada))}` : ""}` : null} />
+                  <Field label="Salida" value={viaje.fecha_salida ? fechaMx(viaje.fecha_salida) : null} />
+                  <Field label="Llegada" value={viaje.fecha_llegada ? fechaMx(viaje.fecha_llegada) : null} />
                   <Field label="Distancia oficial (XML, ida)" value={km(viaje.distancia_xml)} />
                   <Field label="Distancia operativa (redondo)" value={km(viaje.distancia_operativa)} />
                 </dl>

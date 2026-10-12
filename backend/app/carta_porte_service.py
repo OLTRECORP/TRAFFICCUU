@@ -31,9 +31,18 @@ def registrar(db, tenant: Tenant, xml: bytes, factura_id: str | None, catalogo: 
     except Exception as exc:
         log.exception("No se pudo guardar el viaje del CFDI %s", cfdi.uuid)
         return "error", f"{type(exc).__name__}: {str(exc)[:200]}"
+    extras = list(catalogo.avisos)
+    catalogo.avisos.clear()
+    try:
+        sp = db.table("viajes_sobrepeso").select("exceso_kg, capacidad_kg").eq("viaje_id", viaje["id"]).limit(1).execute().data
+    except Exception:   # vista de la migración 012 aún sin crear
+        sp = []
+    if sp:
+        extras.append(f"Posible sobrepeso: {cfdi.toneladas_facturadas} t facturadas contra capacidad de {float(sp[0]['capacidad_kg']) / 1000:g} t "
+                      f"(exceso {float(sp[0]['exceso_kg']):g} kg)")
     return "creado", (
         f"Viaje {cfdi.folio or cfdi.uuid[:8]}: chofer {cfdi.chofer_nombre}, tracto {cfdi.placa_vehiculo}"
         f"{', góndola ' + cfdi.placa_remolque if cfdi.placa_remolque else ''}, "
         f"{cfdi.origen.nombre or cfdi.origen.municipio} → {cfdi.destino.nombre or cfdi.destino.municipio}, "
-        f"{cfdi.distancia_xml} km"
+        f"{cfdi.distancia_xml} km" + "".join(f". {e}" for e in extras)
     )
