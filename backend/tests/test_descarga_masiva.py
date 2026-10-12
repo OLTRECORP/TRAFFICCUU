@@ -147,3 +147,24 @@ def test_egresos_se_ignoran_y_xml_roto_no_detiene():
     acu = acumulado()
     dm.procesar_xmls(db, "e1", dm._Indice([]), [cfdi(U2, tipo="E"), b"<no-xml"], None, acu)
     assert acu["ignorados"] == 2 and acu["xml_recibidos"] == 2
+
+
+def test_cada_xml_asignado_registra_su_carta_porte_y_deja_bitacora(monkeypatch):
+    fs = facturas()
+    visto = []
+    monkeypatch.setattr(dm, "registrar_carta_porte", lambda db, tenant, xml, fid, cat: visto.append(fid) or ("creado", "Viaje A123"))
+    lineas = []
+    acu = acumulado() | {"viajes": 0, "viajes_existentes": 0, "sin_carta_porte": 0, "viajes_error": 0}
+    ctx = {"log": lambda m, n="info": lineas.append((n, m)), "cp": ("tenant", "catalogo")}
+    dm.procesar_xmls(FakeDB(facturas=fs), "e1", dm._Indice(fs), [cfdi(U1), cfdi(U2, folio="9", total="1")], None, acu, ctx)
+    assert visto == ["f1"] and acu["viajes"] == 1
+    assert ("ok", "Carta Porte → Viaje A123") in lineas
+    assert any(n == "aviso" and "Sin factura" in m for n, m in lineas)
+
+
+def test_factura_sin_carta_porte_se_cuenta_sin_romper(monkeypatch):
+    fs = facturas()
+    monkeypatch.setattr(dm, "registrar_carta_porte", lambda *a: ("sin_carta_porte", "El CFDI no contiene complemento Carta Porte"))
+    acu = acumulado() | {"viajes": 0, "viajes_existentes": 0, "sin_carta_porte": 0, "viajes_error": 0}
+    dm.procesar_xmls(FakeDB(facturas=fs), "e1", dm._Indice(fs), [cfdi(U1)], None, acu, {"cp": (1, 2)})
+    assert acu["sin_carta_porte"] == 1 and acu["facturas_asignadas"] == 1

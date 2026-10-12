@@ -5,7 +5,7 @@ export const maxDuration = 60;
 
 // Solo se reenvían rutas conocidas del backend.
 const ALLOWED = new Set(["xml/procesar", "sat/sincronizar", "empresa/password-sat", "importar/excel",
-  "sat/descarga-masiva", "mapas/geocodificar", "rutas/calcular", "viajes/calcular-km"]);
+  "sat/descarga-masiva", "sat/diagnostico", "mapas/geocodificar", "rutas/calcular", "viajes/calcular-km"]);
 const FACTURA_SAT = /^(facturas\/[0-9a-f-]{36}\/sat|viajes\/[0-9a-f-]{36}\/lugares)$/i;
 const PREFIX: Record<string, string> = { "empresa/password-sat": "/api/empresa/password-sat" };
 

@@ -87,6 +87,10 @@ export function ViajeModal({ viaje, onClose, onChanged }: { viaje: Viaje | null;
                         <option value="">Sin asignar</option>{lugares.map((l) => <option key={l.id} value={l.id}>{l.nombre}</option>)}
                       </select></label>
                   </div>
+                  {(() => {
+                    const p = lugares.find((l) => l.id === destino)?.precio_tonelada;
+                    return p != null ? <p className="text-sm">Precio por tonelada del destino (referencia): <b>{mxn(Number(p))}</b></p> : null;
+                  })()}
                   <p className="flex items-center gap-2 text-sm">
                     {saving && <Loader2 className="h-4 w-4 animate-spin" />}
                     {kmIda != null ? <>Ida {km(kmIda)} · <b>km operativos (redondo) {km(kmIda * 2)}</b></> : "Asigna origen y destino ubicados en el mapa para calcular los km."}

@@ -39,6 +39,12 @@ def descargar_cfdis(empresa_id: str, desde: date, hasta: date) -> int:
     return 0
 
 
+def _avisar(log, mensaje: str, nivel: str = "info") -> None:
+    """`log` es un callable (mensaje, nivel) opcional, p. ej. Bitacora.add."""
+    if log:
+        log(mensaje, nivel)
+
+
 class SatError(Exception):
     """Fallo al consultar el SAT; el mensaje se muestra al usuario en el popup de la factura."""
 
@@ -46,9 +52,10 @@ class SatError(Exception):
 # EstadoSolicitud de VerificaSolicitudDescarga
 _EN_ESPERA = {"1", "2"}
 _TERMINADA = "3"
+_ESTADOS = {"1": "aceptada", "2": "en proceso", "3": "terminada", "4": "error", "5": "rechazada", "6": "vencida"}
 
 
-def _cargar_fiel(empresa_id: str):
+def _cargar_fiel(empresa_id: str, log=None):
     """FIEL ya cargada en el portal: .cer/.key del bucket privado `fiel` + contraseña cifrada (Fernet)."""
     from cfdiclient import Fiel  # import tardío: solo se necesita al hablar con el SAT
 
@@ -63,12 +70,16 @@ def _cargar_fiel(empresa_id: str):
     )
     if not (cfg.get("cer_path") and cfg.get("key_path") and cfg.get("password_sat")):
         raise SatError("Falta cargar la FIEL completa (.cer, .key y contraseña) en Configuración")
+    _avisar(log, f"Leyendo la FIEL de la empresa {cfg['rfc']}…")
     cer = db.storage.from_("fiel").download(cfg["cer_path"])
     key = db.storage.from_("fiel").download(cfg["key_path"])
     try:
         fiel = Fiel(cer, key, decrypt(cfg["password_sat"]))  # la contraseña no se registra en logs
     except Exception as exc:
         raise SatError("No se pudo abrir la FIEL: revisa el archivo .key y su contraseña") from exc
+    if fiel.cer.has_expired():
+        raise SatError("La FIEL (.cer) está vencida; carga una vigente en Empresa")
+    _avisar(log, "FIEL abierta correctamente", "ok")
     return cfg["rfc"], fiel
 
 
@@ -76,7 +87,7 @@ class SatSinResultados(SatError):
     """El SAT atendió la solicitud pero no hay CFDI en el rango pedido."""
 
 
-def _verificar(fiel, rfc: str, id_solicitud: str, espera_max: int, intervalo: int) -> list[str]:
+def _verificar(fiel, rfc: str, id_solicitud: str, espera_max: int, intervalo: int, log=None) -> list[str]:
     """Espera a que el SAT termine la solicitud y devuelve los ids de paquete a descargar."""
     from cfdiclient import Autenticacion, VerificaSolicitudDescarga
 
@@ -86,6 +97,8 @@ def _verificar(fiel, rfc: str, id_solicitud: str, espera_max: int, intervalo: in
         token = Autenticacion(fiel).obtener_token()
         v = verifica.verificar_descarga(token, rfc, id_solicitud)
         estado = str(v.get("estado_solicitud"))
+        _avisar(log, f"SAT: solicitud {id_solicitud[:8]}… estado {estado} ({_ESTADOS.get(estado, 'desconocido')}), "
+                     f"CFDI {v.get('numero_cfdis')}, código {v.get('codigo_estado_solicitud')}")
         if estado == _TERMINADA:
             return v.get("paquetes") or []
         if str(v.get("codigo_estado_solicitud")) == "5004":
@@ -94,17 +107,20 @@ def _verificar(fiel, rfc: str, id_solicitud: str, espera_max: int, intervalo: in
             raise SatError(f"El SAT respondió: {v.get('mensaje') or 'solicitud rechazada o sin resultados'} (estado {estado})")
         if time.monotonic() > limite:
             raise SatError("El SAT sigue procesando la solicitud; vuelve a intentarlo en unos minutos")
+        _avisar(log, f"Esperando {intervalo}s para volver a preguntar al SAT…")
         time.sleep(intervalo)
 
 
-def _xmls_de_paquetes(fiel, rfc: str, paquetes: list[str]) -> Iterator[bytes]:
+def _xmls_de_paquetes(fiel, rfc: str, paquetes: list[str], log=None) -> Iterator[bytes]:
     from cfdiclient import Autenticacion, DescargaMasiva
 
     descarga = DescargaMasiva(fiel)
     for id_paquete in paquetes:
         token = Autenticacion(fiel).obtener_token()
+        _avisar(log, f"Descargando paquete {id_paquete[:12]}…")
         p = descarga.descargar_paquete(token, rfc, id_paquete)
         if not p.get("paquete_b64"):
+            _avisar(log, f"El SAT no entregó contenido del paquete: {p.get('mensaje') or p.get('cod_estatus')}", "aviso")
             continue
         with zipfile.ZipFile(io.BytesIO(base64.b64decode(p["paquete_b64"]))) as z:
             for name in z.namelist():
@@ -165,23 +181,67 @@ def descargar_emitidos_rango(
     on_solicitud=None,
     espera_max: int = 1800,
     intervalo: int = 20,
+    log=None,
 ) -> Iterator[bytes]:
     """Descarga masiva de los CFDI EMITIDOS por la empresa entre `desde` y `hasta` (facturas y
     complementos de pago, solo vigentes). Un generador de XML en bytes; vacío si el SAT no tiene
     comprobantes en el rango. Lanza SatError si el SAT rechaza la solicitud."""
     from cfdiclient import Autenticacion, SolicitaDescargaEmitidos
 
-    rfc, fiel = _cargar_fiel(empresa_id)
+    rfc, fiel = _cargar_fiel(empresa_id, log)
+    _avisar(log, "Autenticando con el SAT…")
     token = Autenticacion(fiel).obtener_token()
+    _avisar(log, "Autenticado. Enviando solicitud de CFDI emitidos "
+                 f"{desde:%Y-%m-%d} a {hasta:%Y-%m-%d}…")
     res = SolicitaDescargaEmitidos(fiel).solicitar_descarga(
         token, rfc, desde, hasta, rfc_emisor=rfc, tipo_solicitud="CFDI", estado_comprobante="Vigente"
     )
+    _avisar(log, f"SAT respondió a la solicitud: código {res.get('cod_estatus')} — {res.get('mensaje')}")
     if res.get("cod_estatus") != "5000" or not res.get("id_solicitud"):
-        raise SatError(f"El SAT no aceptó la solicitud: {res.get('mensaje') or res.get('cod_estatus') or 'sin respuesta'}")
+        raise SatError(f"El SAT no aceptó la solicitud (código {res.get('cod_estatus')}): {res.get('mensaje') or 'sin respuesta'}")
     if on_solicitud:
         on_solicitud(res["id_solicitud"])
     try:
-        paquetes = _verificar(fiel, rfc, res["id_solicitud"], espera_max, intervalo)
+        paquetes = _verificar(fiel, rfc, res["id_solicitud"], espera_max, intervalo, log)
     except SatSinResultados:
+        _avisar(log, "El SAT no tiene CFDI emitidos en ese periodo", "aviso")
         return
-    yield from _xmls_de_paquetes(fiel, rfc, paquetes)
+    _avisar(log, f"Solicitud terminada: {len(paquetes)} paquete(s) por descargar", "ok")
+    yield from _xmls_de_paquetes(fiel, rfc, paquetes, log)
+
+
+def diagnosticar(empresa_id: str) -> list[dict]:
+    """Prueba paso a paso lo que necesita la descarga (tablas, FIEL, autenticación con el SAT) y dice
+    cuál falla. Devuelve [{paso, ok, detalle}]; se detiene en el primer fallo."""
+    pasos: list[dict] = []
+
+    def paso(nombre: str, ok: bool, detalle: str) -> bool:
+        pasos.append({"paso": nombre, "ok": ok, "detalle": detalle})
+        return ok
+
+    db = get_admin_client()
+    try:
+        db.table("sat_descargas").select("id").limit(1).execute()
+        db.table("complementos_pago").select("id").limit(1).execute()
+        db.table("lugares").select("id").limit(1).execute()
+        db.table("sat_descargas").select("bitacora").limit(1).execute()
+    except Exception:
+        paso("Base de datos", False, "Faltan tablas o columnas: ejecuta en Supabase las migraciones 009 y 010")
+        return pasos
+    paso("Base de datos", True, "Migraciones 009 y 010 aplicadas")
+    try:
+        rfc, fiel = _cargar_fiel(empresa_id)
+    except SatError as exc:
+        paso("FIEL", False, str(exc))
+        return pasos
+    vence = fiel.cer.get_notAfter().decode()[:8]
+    paso("FIEL", True, f"RFC {rfc}, vence {vence[:4]}-{vence[4:6]}-{vence[6:]}")
+    try:
+        from cfdiclient import Autenticacion
+
+        Autenticacion(fiel).obtener_token()
+    except Exception as exc:
+        paso("Autenticación con el SAT", False, f"El SAT rechazó la autenticación o no respondió ({type(exc).__name__}: {str(exc)[:200]})")
+        return pasos
+    paso("Autenticación con el SAT", True, "Token obtenido; la descarga masiva puede solicitarse")
+    return pasos

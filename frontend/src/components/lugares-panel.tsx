@@ -5,6 +5,7 @@ import { Loader2, MapPin, Pencil, Plus, Search, Trash2 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { ApiError, postBackend } from "@/lib/api";
 import type { Lugar } from "@/lib/types";
+import { mxn } from "@/lib/utils";
 import { Alert } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -50,14 +51,14 @@ export function LugaresPanel() {
           <TableHeader>
             <TableRow className="hover:bg-transparent">
               <TableHead>Nombre</TableHead><TableHead>Tipo</TableHead><TableHead>Dirección</TableHead>
-              <TableHead>Referencia</TableHead><TableHead>Mapa</TableHead><TableHead className="text-right">Acciones</TableHead>
+              <TableHead>Referencia</TableHead><TableHead className="text-right">Precio por tonelada</TableHead><TableHead>Mapa</TableHead><TableHead className="text-right">Acciones</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {loading ? (
-              <TableRow><TableCell colSpan={6} className="py-10 text-center text-muted-foreground">Cargando…</TableCell></TableRow>
+              <TableRow><TableCell colSpan={7} className="py-10 text-center text-muted-foreground">Cargando…</TableCell></TableRow>
             ) : filtradas.length === 0 ? (
-              <TableRow><TableCell colSpan={6} className="py-10 text-center text-muted-foreground">
+              <TableRow><TableCell colSpan={7} className="py-10 text-center text-muted-foreground">
                 {rows.length ? "Sin resultados." : "Aún no hay lugares. Agrega tus orígenes y destinos habituales."}
               </TableCell></TableRow>
             ) : filtradas.map((l) => (
@@ -66,6 +67,7 @@ export function LugaresPanel() {
                 <TableCell>{TIPOS[l.tipo]}</TableCell>
                 <TableCell className="max-w-xs truncate" title={l.direccion ?? undefined}>{l.direccion ?? "—"}</TableCell>
                 <TableCell>{l.referencia ?? "—"}</TableCell>
+                <TableCell className="whitespace-nowrap text-right">{l.precio_tonelada != null ? mxn(Number(l.precio_tonelada)) : "—"}</TableCell>
                 <TableCell>{l.lat != null && l.lng != null
                   ? <Badge variant="verde">Ubicado</Badge> : <Badge variant="amarillo">Sin ubicar</Badge>}</TableCell>
                 <TableCell className="text-right">
@@ -84,7 +86,7 @@ export function LugaresPanel() {
 
 function Formulario({ editar, onClose, onSaved }: { editar: Lugar | "nuevo" | null; onClose: () => void; onSaved: () => void }) {
   const nuevo = editar === "nuevo";
-  const [v, setV] = useState({ nombre: "", tipo: "ambos", direccion: "", referencia: "", lat: "", lng: "", activo: true });
+  const [v, setV] = useState({ nombre: "", tipo: "ambos", direccion: "", referencia: "", precio: "", lat: "", lng: "", activo: true });
   const [saving, setSaving] = useState(false);
   const [ubicando, setUbicando] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -92,7 +94,7 @@ function Formulario({ editar, onClose, onSaved }: { editar: Lugar | "nuevo" | nu
   useEffect(() => {
     if (!editar) return;
     const l = typeof editar === "string" ? null : editar;
-    setV({ nombre: l?.nombre ?? "", tipo: l?.tipo ?? "ambos", direccion: l?.direccion ?? "", referencia: l?.referencia ?? "",
+    setV({ nombre: l?.nombre ?? "", tipo: l?.tipo ?? "ambos", direccion: l?.direccion ?? "", referencia: l?.referencia ?? "", precio: l?.precio_tonelada != null ? String(l.precio_tonelada) : "",
       lat: l?.lat != null ? String(l.lat) : "", lng: l?.lng != null ? String(l.lng) : "", activo: l?.activo ?? true });
     setError(null);
   }, [editar]);
@@ -112,11 +114,13 @@ function Formulario({ editar, onClose, onSaved }: { editar: Lugar | "nuevo" | nu
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!editar) return;
+    if (v.precio.trim() !== "" && !(Number(v.precio) >= 0)) return setError("El precio por tonelada no es válido.");
     if ((lat != null || lng != null) && !puntoValido) return setError("Latitud y longitud no son válidas.");
     setSaving(true); setError(null);
     const sb = createClient();
     const datos = {
       nombre: v.nombre.trim(), tipo: v.tipo, direccion: v.direccion.trim() || null, referencia: v.referencia.trim() || null,
+      precio_tonelada: v.precio.trim() === "" ? null : Number(v.precio),
       lat: puntoValido ? lat : null, lng: puntoValido ? lng : null, activo: v.activo,
     };
     let err;
@@ -168,6 +172,8 @@ function Formulario({ editar, onClose, onSaved }: { editar: Lugar | "nuevo" | nu
               </div></div>
             <div className="grid gap-1.5 sm:col-span-2"><Label htmlFor="l-ref">Referencia</Label>
               <Input id="l-ref" value={v.referencia} placeholder="Ej. Frente a la caseta, portón 3" onChange={(e) => setV({ ...v, referencia: e.target.value })} /></div>
+            <div className="grid gap-1.5 sm:col-span-2"><Label htmlFor="l-precio">Precio por tonelada (referencia del destino, MXN)</Label>
+              <Input id="l-precio" type="number" step="0.01" min="0" value={v.precio} placeholder="Ej. 385.00" onChange={(e) => setV({ ...v, precio: e.target.value })} /></div>
             <div className="grid gap-1.5"><Label htmlFor="l-lat">Latitud</Label>
               <Input id="l-lat" type="number" step="any" value={v.lat} onChange={(e) => setV({ ...v, lat: e.target.value })} /></div>
             <div className="grid gap-1.5"><Label htmlFor="l-lng">Longitud</Label>

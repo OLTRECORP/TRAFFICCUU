@@ -2,22 +2,58 @@
 Km operativos de un viaje = distancia de ida por mapa x 2 (la unidad regresa), igual que la regla del XML."""
 import logging
 import re
+import time
 import unicodedata
 from datetime import datetime, timezone
 
 from fastapi import HTTPException, status
 
 from .db import get_admin_client
-from .mapas import MapaError, distancia_km
+from .mapas import MapaError, distancia_km, geocodificar
 
 log = logging.getLogger("rutas")
 
+MAX_UBICAR = 20         # lugares por corrida que se ubican en el mapa a partir de su dirección
 MAX_RUTAS_NUEVAS = 40   # por corrida, para no saturar el servidor público de OSRM
 
 
 def _norm(texto: str | None) -> str:
     t = unicodedata.normalize("NFKD", texto or "").encode("ascii", "ignore").decode().lower()
     return re.sub(r"[^a-z0-9]+", " ", t).strip()
+
+
+class LugaresCatalogo:
+    """Catálogo `lugares` de la empresa en memoria, para dar de alta los orígenes/destinos de las Cartas Porte
+    sin una consulta por viaje. Coincide por nombre sin acentos ni mayúsculas."""
+
+    def __init__(self, db, empresa_id: str):
+        self.db, self.empresa_id = db, empresa_id
+        filas = db.table("lugares").select("id, nombre, tipo, direccion").eq("empresa_id", empresa_id).limit(10000).execute().data
+        self.por_nombre = {_norm(f["nombre"]): f for f in filas}
+
+    def asegurar(self, u, tipo: str) -> str | None:
+        """Id del lugar para una ubicación de Carta Porte (UbicacionData); lo crea si no existe."""
+        nombre = (u.nombre or ", ".join(p for p in (u.municipio, u.estado) if p) or "").strip()
+        if not nombre:
+            return None
+        clave = _norm(nombre)
+        lugar = self.por_nombre.get(clave)
+        if lugar:
+            cambios = {}
+            if lugar["tipo"] not in (tipo, "ambos"):
+                cambios["tipo"] = "ambos"
+            if not lugar.get("direccion") and u.domicilio:
+                cambios["direccion"] = u.domicilio
+            if cambios:
+                self.db.table("lugares").update(cambios).eq("id", lugar["id"]).execute()
+                lugar.update(cambios)
+            return lugar["id"]
+        nuevo = self.db.table("lugares").insert({
+            "empresa_id": self.empresa_id, "nombre": nombre, "tipo": tipo, "direccion": u.domicilio,
+            "referencia": "Creado desde la Carta Porte",
+        }).execute().data[0]
+        self.por_nombre[clave] = nuevo
+        return nuevo["id"]
 
 
 def _lugar(db, empresa_id: str, lugar_id: str) -> dict:
@@ -77,10 +113,35 @@ def asignar_viaje(empresa_id: str, viaje_id: str, origen_id: str | None, destino
     return {"distancia_km": None, "km_operativos": None}
 
 
-def calcular_km_viajes(empresa_id: str) -> dict:
+def ubicar_lugares(empresa_id: str, log=None) -> int:
+    """Pone latitud/longitud a los lugares sin ubicar usando su dirección (o su nombre). Devuelve cuántos ubicó."""
+    db = get_admin_client()
+    pendientes = (
+        db.table("lugares").select("id, nombre, direccion").eq("empresa_id", empresa_id).eq("activo", True)
+        .is_("lat", "null").limit(MAX_UBICAR).execute().data
+    )
+    ubicados = 0
+    for i, l in enumerate(pendientes):
+        if i:
+            time.sleep(1.1)   # política de uso de Nominatim: máximo ~1 consulta por segundo
+        consulta = l.get("direccion") or f"{l['nombre']}, México"
+        try:
+            r = geocodificar(consulta)
+            db.table("lugares").update({"lat": r["lat"], "lng": r["lng"]}).eq("id", l["id"]).execute()
+            ubicados += 1
+            if log:
+                log(f"Lugar «{l['nombre']}» ubicado en el mapa ({r['lat']}, {r['lng']})", "ok")
+        except MapaError as exc:
+            if log:
+                log(f"Lugar «{l['nombre']}» sin ubicar: {exc}", "aviso")
+    return ubicados
+
+
+def calcular_km_viajes(empresa_id: str, log=None) -> dict:
     """1) A los viajes sin lugares les pone origen/destino cuyo nombre coincide con el de la Carta Porte
     (sin acentos ni mayúsculas). 2) Calcula los km de los que ya tienen ambos lugares y les falta la distancia."""
     db = get_admin_client()
+    ubicados = ubicar_lugares(empresa_id, log)
     lugares = db.table("lugares").select("id, nombre, lat, lng").eq("empresa_id", empresa_id).eq("activo", True).execute().data
     por_nombre = {_norm(l["nombre"]): l["id"] for l in lugares}
     viajes = db.table("viajes").select(
@@ -91,7 +152,7 @@ def calcular_km_viajes(empresa_id: str) -> dict:
     def buscar(u: dict | None) -> str | None:
         return next((por_nombre[k] for k in (_norm((u or {}).get("nombre")), _norm((u or {}).get("municipio"))) if k in por_nombre), None)
 
-    res = {"asignados": 0, "calculados": 0, "sin_coincidencia": 0, "sin_mapa": 0, "pendientes": 0}
+    res = {"asignados": 0, "calculados": 0, "sin_coincidencia": 0, "sin_mapa": 0, "pendientes": 0, "ubicados": ubicados}
     nuevas = 0
     hechos: dict[tuple[str, str], bool] = {}   # par ya resuelto en esta corrida (True = se calculó)
     for v in viajes:

@@ -6,8 +6,11 @@ from datetime import datetime, timedelta, timezone
 
 from fastapi import HTTPException, status
 
+from .auth import Tenant
+from .carta_porte_service import registrar as registrar_carta_porte
 from .cfdi_parser import CFDIError, resumen_cfdi
 from .db import get_admin_client
+from .rutas_service import LugaresCatalogo
 from .sat import SatError, descargar_cfdi_por_uuid
 
 log = logging.getLogger("facturas_sat")
@@ -79,6 +82,12 @@ def ejecutar(empresa_id: str, factura_id: str, uuid: str) -> None:
             "actualizado_en": _ahora().isoformat(),
         }).eq("factura_id", factura_id).execute()
         log.info("Factura %s actualizada desde el SAT", factura_id)
+        try:   # la Carta Porte del XML alimenta viajes, choferes, tractos, góndolas y lugares
+            rfc = db.table("empresa_configuracion").select("rfc").eq("id", empresa_id).single().execute().data["rfc"]
+            res, detalle = registrar_carta_porte(db, Tenant("", empresa_id, rfc), xml, factura_id, LugaresCatalogo(db, empresa_id))
+            log.info("Factura %s Carta Porte: %s %s", factura_id, res, detalle)
+        except Exception:
+            log.exception("Factura %s: no se pudo registrar la Carta Porte", factura_id)
     except (SatError, CFDIError) as exc:
         tabla.update({"estado": "error", "error": str(exc)[:500]}).eq("factura_id", factura_id).execute()
         log.warning("Factura %s: %s", factura_id, exc)
