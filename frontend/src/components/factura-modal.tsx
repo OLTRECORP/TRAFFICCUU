@@ -191,7 +191,7 @@ export function FacturaModal({ factura, onClose }: { factura: Factura | null; on
                       <Field label="Peso bruto total (capacidad del tracto)" value={cp.peso_bruto_total ? `${cp.peso_bruto_total} kg` : null} />
                     </dl>
                     <Lista titulo="Ubicaciones" items={cp.ubicaciones.map((u) =>
-                      `${u.tipo}: ${ubicacionLabel({ id: "", id_ubicacion: u.id ?? "", nombre: u.nombre, municipio: u.municipio, estado: u.estado })}${u.distancia ? ` · ${u.distancia} km` : ""}`)} />
+                      `${u.tipo}: ${u.referencia ?? ubicacionLabel({ id: "", id_ubicacion: u.id ?? "", nombre: u.nombre, municipio: u.municipio, estado: u.estado })}${u.distancia ? ` · ${u.distancia} km` : ""}`)} />
                     <Lista titulo="Mercancías" items={cp.mercancias.map((m) => `${m.cantidad} × ${m.descripcion}${m.peso_kg ? ` · ${m.peso_kg} kg` : ""}`)} />
                     <Lista titulo="Figuras de transporte" items={cp.figuras.map((f) => `${f.nombre} (${f.rfc})${f.licencia ? ` · Lic. ${f.licencia}` : ""}`)} />
                   </div>

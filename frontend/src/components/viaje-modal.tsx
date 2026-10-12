@@ -9,7 +9,7 @@ import { Alert } from "@/components/ui/alert";
 import { fechaMx, km, mxn } from "@/lib/utils";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { ubicacionLabel } from "@/lib/format";
+import { destinoLabel, origenLabel } from "@/lib/format";
 
 function Field({ label, value, mono }: { label: string; value: React.ReactNode; mono?: boolean }) {
   return (
@@ -75,8 +75,9 @@ export function ViajeModal({ viaje, onClose, onChanged }: { viaje: Viaje | null;
                   </Alert>
                 )}
                 <dl className="grid gap-4 sm:grid-cols-2">
-                  <Field label="Origen" value={ubicacionLabel(viaje.origen)} />
-                  <Field label="Destino" value={ubicacionLabel(viaje.destino)} />
+                  <Field label="Origen" value={origenLabel(viaje)} />
+                  <Field label="Destino" value={destinoLabel(viaje)} />
+                  <Field label="Cliente (receptor)" value={viaje.destino?.nombre} />
                   <Field label="Placa tractocamión" value={viaje.tracto?.placa} />
                   <Field label="Placa góndola" value={viaje.gondola?.placa} />
                   <Field label="Chofer" value={viaje.chofer?.nombre} />

@@ -29,13 +29,14 @@ class LugaresCatalogo:
     def __init__(self, db, empresa_id: str):
         self.db, self.empresa_id = db, empresa_id
         self.avisos: list[str] = []   # cambios hechos a lugares existentes, para la bitácora
-        filas = db.table("lugares").select("id, nombre, tipo, direccion, precio_tonelada").eq("empresa_id", empresa_id).limit(10000).execute().data
+        filas = db.table("lugares").select("id, nombre, tipo, direccion, precio_tonelada, cliente").eq("empresa_id", empresa_id).limit(10000).execute().data
         self.por_nombre = {_norm(f["nombre"]): f for f in filas}
 
     def asegurar(self, u, tipo: str, precio_tonelada=None) -> str | None:
         """Id del lugar para una ubicación de Carta Porte (UbicacionData); lo crea si no existe.
         El nombre es «cliente - lugar de entrega» (ej. «TRITURADOS ROCA DE BC - CEMEX ... PLANTA SAN PEDRO TECATE»).
-        Un lugar ya existente con solo el nombre del cliente se reutiliza si no tiene otra dirección.
+        El cliente va aparte (`cliente`): un cliente puede tener varios destinos y nunca se reutiliza un lugar solo
+        porque el cliente coincida; un lugar existente se reutiliza únicamente si tiene la misma dirección.
         El precio por tonelada del XML sobrescribe el del destino; el cambio se anota en `avisos`."""
         base = (u.nombre or "").strip()
         nombre = (f"{base} - {u.calle}" if base and u.calle else base or u.calle
@@ -45,7 +46,7 @@ class LugaresCatalogo:
         lugar = self.por_nombre.get(_norm(nombre))
         if lugar is None and base:
             simple = self.por_nombre.get(_norm(base))
-            if simple and (not simple.get("direccion") or simple["direccion"] == u.domicilio):
+            if simple and u.domicilio and simple.get("direccion") == u.domicilio:
                 lugar = simple
         if lugar:
             cambios = {}
@@ -53,6 +54,8 @@ class LugaresCatalogo:
                 cambios["tipo"] = "ambos"
             if not lugar.get("direccion") and u.domicilio:
                 cambios["direccion"] = u.domicilio
+            if base and not lugar.get("cliente"):
+                cambios["cliente"] = base
             if tipo == "destino" and precio_tonelada is not None and lugar.get("precio_tonelada") != float(precio_tonelada):
                 antes = lugar.get("precio_tonelada")
                 cambios["precio_tonelada"] = float(precio_tonelada)
@@ -63,7 +66,7 @@ class LugaresCatalogo:
                 lugar.update(cambios)
             return lugar["id"]
         fila = {"empresa_id": self.empresa_id, "nombre": nombre, "tipo": tipo, "direccion": u.domicilio,
-                "referencia": "Creado desde la Carta Porte"}
+                "referencia": "Creado desde la Carta Porte", "cliente": base or None}
         if tipo == "destino" and precio_tonelada is not None:
             fila["precio_tonelada"] = float(precio_tonelada)
         nuevo = self.db.table("lugares").insert(fila).execute().data[0]

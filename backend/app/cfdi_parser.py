@@ -251,6 +251,14 @@ def _check_xml(xml_bytes: bytes) -> ET.Element:
     return root
 
 
+def _referencia_ubicacion(u: ET.Element) -> str | None:
+    """Nombre de referencia del lugar: «cliente - lugar de entrega» (el cliente puede tener varios destinos)."""
+    nombre = (u.get("NombreRemitenteDestinatario") or u.get("NombreRemitente") or u.get("NombreDestinatario") or "").strip()
+    dom = _child(u, "Domicilio")
+    calle = ((dom.get("Calle") if dom is not None else "") or "").strip()
+    return " - ".join(p for p in (nombre, calle) if p) or None
+
+
 def resumen_cfdi(xml_bytes: bytes) -> dict:
     """Resumen JSON de un CFDI para mostrarlo en el portal. A diferencia de `parse_cfdi`,
     no exige Carta Porte: un CFDI de pago o sin traslado devuelve `carta_porte: None`."""
@@ -276,6 +284,8 @@ def resumen_cfdi(xml_bytes: bytes) -> dict:
             {"tipo": u.get("TipoUbicacion"), "id": u.get("IDUbicacion"),
              "nombre": u.get("NombreRemitenteDestinatario") or u.get("NombreRemitente") or u.get("NombreDestinatario"),
              "fecha": u.get("FechaHoraSalidaLlegada"), "distancia": u.get("DistanciaRecorrida"),
+             "calle": (_child(u, "Domicilio").get("Calle") if _child(u, "Domicilio") is not None else None),
+             "referencia": _referencia_ubicacion(u),
              "municipio": (_child(u, "Domicilio").get("Municipio") if _child(u, "Domicilio") is not None else None),
              "estado": (_child(u, "Domicilio").get("Estado") if _child(u, "Domicilio") is not None else None)}
             for u in (_children(ubic_parent, "Ubicacion") if ubic_parent is not None else [])

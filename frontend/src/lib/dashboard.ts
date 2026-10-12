@@ -1,5 +1,5 @@
 import type { FacturaEstadistica, Viaje } from "@/lib/types";
-import { ubicacionLabel } from "@/lib/format";
+import { destinoLabel } from "@/lib/format";
 
 export type Rango = "1S" | "1M" | "3M" | "1A";
 export const RANGOS: { id: Rango; dias: number; label: string }[] = [
@@ -23,7 +23,7 @@ export function kpis(viajes: Viaje[], ahora = new Date()): Kpis {
   const mes = viajes.filter((v) => new Date(v.fecha).getTime() >= desde);
   const cuenta = new Map<string, number>();
   for (const v of mes) {
-    const k = ubicacionLabel(v.destino);
+    const k = destinoLabel(v);
     cuenta.set(k, (cuenta.get(k) ?? 0) + 1);
   }
   const top = [...cuenta.entries()].sort((a, b) => b[1] - a[1])[0];

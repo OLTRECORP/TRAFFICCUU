@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Banknote, MapPin, Route, Truck } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { agrupar, kpis, RANGOS, resumenFacturas, serieFacturacion, type Rango } from "@/lib/dashboard";
-import { ubicacionLabel } from "@/lib/format";
+import { destinoLabel } from "@/lib/format";
 import type { FacturaDia, FacturaEstadistica, FacturaMes, OrdenResumen, Viaje } from "@/lib/types";
 import { cn, km, mxn } from "@/lib/utils";
 import { Alert } from "@/components/ui/alert";
@@ -18,7 +18,7 @@ import { KpiCard } from "./kpi-card";
 import { UploadXml } from "./upload-xml";
 
 const SELECT =
-  "*, origen:ubicaciones!origen_id(*), destino:ubicaciones!destino_id(*), chofer:choferes(*), tracto:tractocamiones(id,placa), gondola:gondolas(*)";
+  "*, origen:ubicaciones!origen_id(*), destino:ubicaciones!destino_id(*), chofer:choferes(*), lugar_origen:lugares!lugar_origen_id(nombre), lugar_destino:lugares!lugar_destino_id(nombre), tracto:tractocamiones(id,placa), gondola:gondolas(*)";
 
 export function DashboardView() {
   const { empresa } = useTheme();
@@ -65,7 +65,7 @@ export function DashboardView() {
   const fact = useMemo(() => resumenFacturas(est), [est]);
   const serie = useMemo(() => serieFacturacion(dias.map((x) => ({ fecha: x.dia, total: Number(x.total) })), rango), [dias, rango]);
   const porChofer = useMemo(() => agrupar(viajes, (v) => v.chofer?.nombre ?? "Sin chofer"), [viajes]);
-  const porDestino = useMemo(() => agrupar(viajes, (v) => ubicacionLabel(v.destino)), [viajes]);
+  const porDestino = useMemo(() => agrupar(viajes, (v) => destinoLabel(v)), [viajes]);
 
   return (
     <div className="grid gap-6">
