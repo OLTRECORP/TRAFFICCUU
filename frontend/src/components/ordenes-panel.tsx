@@ -11,6 +11,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { OrdenModal } from "@/components/orden-modal";
 import { ImportExcel } from "@/components/import-excel";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 
@@ -23,6 +24,7 @@ export function OrdenesPanel({ qInicial = "" }: { qInicial?: string }) {
   const [q, setQ] = useState(qInicial);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [selected, setSelected] = useState<OrdenResumen | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -60,12 +62,12 @@ export function OrdenesPanel({ qInicial = "" }: { qInicial?: string }) {
             ) : rows.length === 0 ? (
               <TableRow><TableCell colSpan={7} className="py-10 text-center text-muted-foreground">Sin órdenes. Importa el Excel de administración de fletes.</TableCell></TableRow>
             ) : rows.map((o) => (
-              <TableRow key={o.id} className="border-0 even:bg-secondary/70">
+              <TableRow key={o.id} className="cursor-pointer border-0 even:bg-secondary/70" onClick={() => setSelected(o)}>
                 <TableCell className="font-medium">{o.numero}</TableCell>
                 <TableCell className="whitespace-nowrap">{o.fecha_creacion ? fechaMx(o.fecha_creacion) : "—"}</TableCell>
                 <TableCell className="whitespace-nowrap">{o.fecha_pago ? fechaMx(o.fecha_pago) : "—"}</TableCell>
                 <TableCell className="whitespace-nowrap text-right">{mxn(o.monto)}</TableCell>
-                <TableCell className="text-right"><Link className="font-medium text-highlight hover:underline" href={`/facturas?q=${o.numero}`}>{o.n_facturas}</Link></TableCell>
+                <TableCell className="text-right"><Link onClick={(e) => e.stopPropagation()} className="font-medium text-highlight hover:underline" href={`/facturas?q=${o.numero}`}>{o.n_facturas}</Link></TableCell>
                 <TableCell className="whitespace-nowrap text-right">{mxn(o.suma_facturas)}</TableCell>
                 <TableCell className="text-right">
                   <Badge variant={Math.abs(o.diferencia) <= 1 ? "verde" : "amarillo"}>{mxn(o.diferencia)}</Badge>
@@ -83,6 +85,7 @@ export function OrdenesPanel({ qInicial = "" }: { qInicial?: string }) {
           </div>
         </div>
       </Card>
+      <OrdenModal orden={selected} onClose={() => setSelected(null)} />
     </div>
   );
 }

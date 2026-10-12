@@ -175,3 +175,97 @@ def parse_cfdi(xml_bytes: bytes) -> CFDIViaje:
         modelo_vehiculo=ident.get("AnioModeloVM") if ident is not None else None,
         warnings=warnings,
     )
+
+
+def _check_xml(xml_bytes: bytes) -> ET.Element:
+    head = xml_bytes[:4096].upper()
+    if b"<!DOCTYPE" in head or b"<!ENTITY" in xml_bytes.upper():
+        raise CFDIError("El XML contiene DTD/entidades, no es un CFDI válido")
+    try:
+        root = ET.fromstring(xml_bytes)
+    except ET.ParseError as exc:
+        raise CFDIError(f"XML mal formado: {exc}")
+    if _local(root.tag) != "Comprobante":
+        raise CFDIError("El nodo raíz no es cfdi:Comprobante")
+    return root
+
+
+def resumen_cfdi(xml_bytes: bytes) -> dict:
+    """Resumen JSON de un CFDI para mostrarlo en el portal. A diferencia de `parse_cfdi`,
+    no exige Carta Porte: un CFDI de pago o sin traslado devuelve `carta_porte: None`."""
+    root = _check_xml(xml_bytes)
+    emisor, receptor = _child(root, "Emisor"), _child(root, "Receptor")
+    complemento = _child(root, "Complemento")
+    timbre = _child(complemento, "TimbreFiscalDigital")
+    if timbre is None or not timbre.get("UUID"):
+        raise CFDIError("El CFDI no está timbrado (sin TimbreFiscalDigital/UUID)")
+
+    conceptos_node = _child(root, "Conceptos")
+    conceptos = [
+        {"descripcion": c.get("Descripcion"), "cantidad": c.get("Cantidad"),
+         "importe": c.get("Importe"), "clave_prod_serv": c.get("ClaveProdServ")}
+        for c in (_children(conceptos_node, "Concepto") if conceptos_node is not None else [])
+    ]
+
+    carta_porte = None
+    cp = _child(complemento, "CartaPorte")
+    if cp is not None:
+        ubic_parent = _child(cp, "Ubicaciones")
+        ubicaciones = [
+            {"tipo": u.get("TipoUbicacion"), "id": u.get("IDUbicacion"),
+             "nombre": u.get("NombreRemitenteDestinatario") or u.get("NombreRemitente") or u.get("NombreDestinatario"),
+             "fecha": u.get("FechaHoraSalidaLlegada"), "distancia": u.get("DistanciaRecorrida"),
+             "municipio": (_child(u, "Domicilio").get("Municipio") if _child(u, "Domicilio") is not None else None),
+             "estado": (_child(u, "Domicilio").get("Estado") if _child(u, "Domicilio") is not None else None)}
+            for u in (_children(ubic_parent, "Ubicacion") if ubic_parent is not None else [])
+        ]
+        mercancias = _child(cp, "Mercancias")
+        auto = _child(mercancias, "Autotransporte")
+        ident = _child(auto, "IdentificacionVehicular")
+        remolques = _child(auto, "Remolques")
+        figuras = _child(cp, "FiguraTransporte")
+        carta_porte = {
+            "version": cp.get("Version"),
+            "id_ccp": cp.get("IdCCP"),
+            "total_dist_rec": cp.get("TotalDistRec"),
+            "ubicaciones": ubicaciones,
+            "mercancias": [
+                {"descripcion": m.get("Descripcion"), "cantidad": m.get("Cantidad"),
+                 "peso_kg": m.get("PesoEnKg"), "clave_unidad": m.get("ClaveUnidad")}
+                for m in (_children(mercancias, "Mercancia") if mercancias is not None else [])
+            ],
+            "peso_bruto_total": mercancias.get("PesoBrutoTotal") if mercancias is not None else None,
+            "vehiculo": {
+                "placa": ident.get("PlacaVM") if ident is not None else None,
+                "config": ident.get("ConfigVehicular") if ident is not None else None,
+                "anio": ident.get("AnioModeloVM") if ident is not None else None,
+            },
+            "remolques": [
+                {"placa": r.get("Placa"), "subtipo": r.get("SubTipoRem")}
+                for r in (_children(remolques, "Remolque") if remolques is not None else [])
+            ],
+            "figuras": [
+                {"tipo": f.get("TipoFigura"), "rfc": f.get("RFCFigura"), "nombre": f.get("NombreFigura"),
+                 "licencia": f.get("NumLicencia")}
+                for f in (_children(figuras, "TiposFigura") if figuras is not None else [])
+            ],
+        }
+
+    return {
+        "uuid": timbre.get("UUID").upper(),
+        "version": root.get("Version"),
+        "tipo_comprobante": root.get("TipoDeComprobante"),
+        "serie": root.get("Serie"),
+        "folio": root.get("Folio"),
+        "fecha": root.get("Fecha"),
+        "fecha_timbrado": timbre.get("FechaTimbrado"),
+        "moneda": root.get("Moneda"),
+        "subtotal": root.get("SubTotal"),
+        "total": root.get("Total"),
+        "emisor": {"rfc": emisor.get("Rfc") if emisor is not None else None,
+                   "nombre": emisor.get("Nombre") if emisor is not None else None},
+        "receptor": {"rfc": receptor.get("Rfc") if receptor is not None else None,
+                     "nombre": receptor.get("Nombre") if receptor is not None else None},
+        "conceptos": conceptos,
+        "carta_porte": carta_porte,
+    }

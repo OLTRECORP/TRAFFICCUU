@@ -49,7 +49,7 @@ function niceMax(v: number) {
 }
 
 /** Dona con total al centro y leyenda en tabla. */
-export function Donut({ datos, titulo, centro }: { datos: Rebanada[]; titulo: string; centro: string }) {
+export function Donut({ datos, titulo, centro, unidad = "Viajes" }: { datos: Rebanada[]; titulo: string; centro: string; unidad?: string }) {
   const total = datos.reduce((s, d) => s + d.valor, 0);
   const R = 62, C = 2 * Math.PI * R;
   let acum = 0;
@@ -77,7 +77,7 @@ export function Donut({ datos, titulo, centro }: { datos: Rebanada[]; titulo: st
       </div>
       <table className="w-full text-xs">
         <thead>
-          <tr className="border-b text-left text-muted-foreground"><th className="pb-1.5 font-medium">{titulo}</th><th className="pb-1.5 text-right font-medium">Viajes</th><th className="pb-1.5 text-right font-medium">%</th></tr>
+          <tr className="border-b text-left text-muted-foreground"><th className="pb-1.5 font-medium">{titulo}</th><th className="pb-1.5 text-right font-medium">{unidad}</th><th className="pb-1.5 text-right font-medium">%</th></tr>
         </thead>
         <tbody>
           {datos.map((d, i) => (
