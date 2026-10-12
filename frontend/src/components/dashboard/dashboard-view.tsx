@@ -13,6 +13,7 @@ import { useTheme } from "@/components/theme-provider";
 import { ViajeModal } from "@/components/viaje-modal";
 import { ViajesTable } from "@/components/viajes-table";
 import { AreaChart, Donut } from "./charts";
+import { FacturasOrdenes } from "./facturas-ordenes";
 import { KpiCard } from "./kpi-card";
 import { UploadXml } from "./upload-xml";
 
@@ -62,6 +63,8 @@ export function DashboardView() {
         <KpiCard icon={Banknote} label="Facturación total" value={mxn(k.facturacion)} hint="Últimos 30 días" />
         <KpiCard icon={MapPin} label="Destino más frecuente" value={k.destinoTop} hint="Últimos 30 días" />
       </section>
+
+      <FacturasOrdenes />
 
       <section className="grid gap-4 xl:grid-cols-[1.7fr_1fr]" aria-label="Viajes">
         <div className="grid content-start gap-2">

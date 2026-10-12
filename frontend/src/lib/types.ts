@@ -66,3 +66,26 @@ export interface ImportExcelResult {
   ordenes_compra: { total: number; nuevas: number; actualizadas: number };
   omitidas: number; uuid_danados: number;
 }
+
+export interface FacturaSat {
+  factura_id: string; uuid: string; estado: "pendiente" | "ok" | "error"; error: string | null;
+  datos: CfdiResumen | null; actualizado_en: string | null; updated_at: string;
+}
+export interface CfdiResumen {
+  uuid: string; version: string | null; tipo_comprobante: string | null; serie: string | null; folio: string | null;
+  fecha: string | null; fecha_timbrado: string | null; moneda: string | null; subtotal: string | null; total: string | null;
+  emisor: { rfc: string | null; nombre: string | null }; receptor: { rfc: string | null; nombre: string | null };
+  conceptos: { descripcion: string | null; cantidad: string | null; importe: string | null; clave_prod_serv: string | null }[];
+  carta_porte: {
+    version: string | null; id_ccp: string | null; total_dist_rec: string | null;
+    ubicaciones: { tipo: string | null; id: string | null; nombre: string | null; fecha: string | null; distancia: string | null; municipio: string | null; estado: string | null }[];
+    mercancias: { descripcion: string | null; cantidad: string | null; peso_kg: string | null; clave_unidad: string | null }[];
+    peso_bruto_total: string | null;
+    vehiculo: { placa: string | null; config: string | null; anio: string | null };
+    remolques: { placa: string | null; subtipo: string | null }[];
+    figuras: { tipo: string | null; rfc: string | null; nombre: string | null; licencia: string | null }[];
+  } | null;
+}
+
+export interface FacturaEstadistica { estado: string; complemento: string; con_orden: boolean; n: number; total: number }
+export interface FacturaMes { mes: string; n: number; total: number }

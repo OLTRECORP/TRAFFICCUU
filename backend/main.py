@@ -11,6 +11,7 @@ from app.cfdi_parser import CFDIError, parse_cfdi
 from app.config import get_settings
 from app.crypto import encrypt
 from app.db import get_admin_client
+from app.facturas_sat import ejecutar as sat_ejecutar, preparar as sat_preparar
 from app.excel_import import ExcelError, guardar, parse_workbook
 from app.sat import descargar_cfdis
 from app.viajes_service import guardar_viaje
@@ -105,6 +106,22 @@ def _run_sync(job_id: str, empresa_id: str, desde: date, hasta: date) -> None:
         log.info("Job %s terminado: %d CFDI", job_id, n)
     except Exception:
         log.exception("Job %s falló", job_id)
+
+
+class FacturaSatRequest(BaseModel):
+    forzar: bool = False  # True = botón de actualización manual: vuelve a pedir el CFDI al SAT
+
+
+@app.post("/api/facturas/{factura_id}/sat", status_code=status.HTTP_202_ACCEPTED)
+def actualizar_factura_sat(
+    factura_id: uuidlib.UUID, body: FacturaSatRequest, background: BackgroundTasks, tenant: Tenant = Depends(current_tenant)
+) -> dict:
+    """Descarga el CFDI (y su Carta Porte) desde el SAT con la FIEL de la empresa. Si la factura ya
+    tiene datos del SAT no hace nada, salvo `forzar`. El resultado se lee de `facturas_sat`."""
+    r = sat_preparar(tenant.empresa_id, str(factura_id), body.forzar)
+    if not r["omitido"]:
+        background.add_task(sat_ejecutar, tenant.empresa_id, str(factura_id), r["uuid"])
+    return {"estado": r["estado"], "omitido": r["omitido"]}
 
 
 class PasswordSat(BaseModel):

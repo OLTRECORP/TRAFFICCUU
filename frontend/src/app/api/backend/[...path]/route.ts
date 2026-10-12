@@ -5,11 +5,12 @@ export const maxDuration = 60;
 
 // Solo se reenvían rutas conocidas del backend.
 const ALLOWED = new Set(["xml/procesar", "sat/sincronizar", "empresa/password-sat", "importar/excel"]);
+const FACTURA_SAT = /^facturas\/[0-9a-f-]{36}\/sat$/i;
 const PREFIX: Record<string, string> = { "empresa/password-sat": "/api/empresa/password-sat" };
 
 export async function POST(req: NextRequest, { params }: { params: { path: string[] } }) {
   const key = params.path.join("/");
-  if (!ALLOWED.has(key)) return NextResponse.json({ detail: "Ruta no permitida" }, { status: 404 });
+  if (!ALLOWED.has(key) && !FACTURA_SAT.test(key)) return NextResponse.json({ detail: "Ruta no permitida" }, { status: 404 });
 
   const base = process.env.RENDER_API_URL;
   const auth = req.headers.get("authorization");

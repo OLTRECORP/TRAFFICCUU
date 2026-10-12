@@ -11,6 +11,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { FacturaModal } from "@/components/factura-modal";
 import { ImportExcel } from "@/components/import-excel";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 
@@ -26,6 +27,7 @@ export function FacturasPanel({ ordenInicial = "" }: { ordenInicial?: string }) 
   const [comp, setComp] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [selected, setSelected] = useState<Factura | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -33,7 +35,7 @@ export function FacturasPanel({ ordenInicial = "" }: { ordenInicial?: string }) 
       .order("fecha_emision", { ascending: false, nullsFirst: false }).order("folio", { ascending: false })
       .range((pagina - 1) * TAM, pagina * TAM - 1);
     const t = q.trim().replace(/[,()%]/g, "");
-    if (t) query = query.or(`folio.ilike.%${t}%,orden_compra.ilike.%${t}%`);
+    if (t) query = query.or(`folio.ilike.%${t}%,orden_compra.ilike.%${t}%,uuid_texto.ilike.%${t}%`);
     if (estado) query = query.eq("estado", estado);
     if (comp) query = query.eq("complemento", comp);
     const { data, count, error: err } = await query;
@@ -50,7 +52,7 @@ export function FacturasPanel({ ordenInicial = "" }: { ordenInicial?: string }) 
     <div className="grid gap-4">
       <ImportExcel onDone={load} />
       <div className="flex flex-wrap gap-2">
-        <Input className="max-w-xs" placeholder="Buscar folio u orden" value={q} onChange={(e) => { setQ(e.target.value); setPagina(1); }} />
+        <Input className="max-w-xs" placeholder="Buscar folio, UUID u orden" value={q} onChange={(e) => { setQ(e.target.value); setPagina(1); }} />
         <select className={sel} value={estado} onChange={(e) => { setEstado(e.target.value); setPagina(1); }} aria-label="Estado">
           <option value="">Todos los estados</option><option value="activado">Activado</option>
           <option value="pagado">Pagado</option><option value="cancelado">Cancelado</option>
@@ -65,23 +67,24 @@ export function FacturasPanel({ ordenInicial = "" }: { ordenInicial?: string }) 
         <Table>
           <TableHeader>
             <TableRow className="hover:bg-transparent">
-              <TableHead>Folio</TableHead><TableHead>Emisión</TableHead><TableHead>Estado</TableHead>
+              <TableHead>Folio</TableHead><TableHead>Folio fiscal (UUID)</TableHead><TableHead>Emisión</TableHead><TableHead>Estado</TableHead>
               <TableHead>Complemento</TableHead><TableHead>Orden de compra</TableHead>
               <TableHead>Pago</TableHead><TableHead className="text-right">Total</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {loading ? (
-              <TableRow><TableCell colSpan={7} className="py-10 text-center text-muted-foreground">Cargando facturas…</TableCell></TableRow>
+              <TableRow><TableCell colSpan={8} className="py-10 text-center text-muted-foreground">Cargando facturas…</TableCell></TableRow>
             ) : rows.length === 0 ? (
-              <TableRow><TableCell colSpan={7} className="py-10 text-center text-muted-foreground">Sin facturas. Importa el Excel de administración de fletes.</TableCell></TableRow>
+              <TableRow><TableCell colSpan={8} className="py-10 text-center text-muted-foreground">Sin facturas. Importa el Excel de administración de fletes.</TableCell></TableRow>
             ) : rows.map((f) => (
-              <TableRow key={f.id} className="border-0 even:bg-secondary/70">
+              <TableRow key={f.id} className="cursor-pointer border-0 even:bg-secondary/70" onClick={() => setSelected(f)}>
                 <TableCell className="font-medium">{f.folio}</TableCell>
+                <TableCell className="whitespace-nowrap font-mono text-xs" title={f.uuid ?? undefined}>{f.uuid ? f.uuid.toUpperCase() : <span className="font-sans text-muted-foreground">Sin UUID</span>}</TableCell>
                 <TableCell className="whitespace-nowrap">{f.fecha_emision ? fechaMx(f.fecha_emision) : "—"}</TableCell>
                 <TableCell><Badge variant={f.estado === "cancelado" ? "rojo" : f.estado === "pagado" ? "verde" : "default"}>{f.estado ?? "—"}</Badge></TableCell>
                 <TableCell><Badge variant={f.complemento === "COMPLEMENTO LISTO" ? "verde" : "amarillo"}>{f.complemento === "COMPLEMENTO LISTO" ? "Listo" : "Sin complemento"}</Badge></TableCell>
-                <TableCell>{f.orden_compra ? <Link className="font-medium text-highlight hover:underline" href={`/ordenes?q=${f.orden_compra}`}>{f.orden_compra}</Link> : <span className="text-muted-foreground">Sin orden</span>}</TableCell>
+                <TableCell>{f.orden_compra ? <Link onClick={(e) => e.stopPropagation()} className="font-medium text-highlight hover:underline" href={`/ordenes?q=${f.orden_compra}`}>{f.orden_compra}</Link> : <span className="text-muted-foreground">Sin orden</span>}</TableCell>
                 <TableCell className="whitespace-nowrap">{f.fecha_pago ? fechaMx(f.fecha_pago) : "—"}</TableCell>
                 <TableCell className="whitespace-nowrap text-right">{mxn(f.total)}</TableCell>
               </TableRow>
@@ -97,6 +100,7 @@ export function FacturasPanel({ ordenInicial = "" }: { ordenInicial?: string }) 
           </div>
         </div>
       </Card>
+      <FacturaModal factura={selected} onClose={() => setSelected(null)} />
     </div>
   );
 }
