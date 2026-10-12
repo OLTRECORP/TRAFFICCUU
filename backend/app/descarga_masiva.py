@@ -356,13 +356,35 @@ def _rango_mes(anio: int, mes: int) -> tuple[datetime, datetime]:
     return ini, min(fin, datetime.now() - timedelta(minutes=1))
 
 
+def _contadores() -> dict:
+    return {"xml_recibidos": 0, "ignorados": 0, "facturas_asignadas": 0, "complementos": 0, "uuid_recuperados": 0,
+            "sin_asignar": [], "sin_asignar_total": 0, "viajes": 0, "viajes_existentes": 0, "sin_carta_porte": 0,
+            "viajes_error": 0, "zip_aceptados": 0, "zip_rechazados": 0}
+
+
+def _reprocesar(db, empresa_id: str, ctx: dict, acu: dict) -> None:
+    """Registra la Carta Porte de los XML que ya están guardados en `facturas_sat` (p. ej. los bajados uno por uno)."""
+    avisar, parar = ctx["log"], ctx["parar"]
+    filas = _leer_todo(lambda a, b: db.table("facturas_sat").select("factura_id").eq("empresa_id", empresa_id)
+                       .eq("estado", "ok").not_.is_("xml", "null").order("factura_id").range(a, b))
+    avisar(f"{len(filas)} factura(s) con XML guardado; registrando su Carta Porte…")
+    folios = {f["id"]: f["folio"] for f in _leer_todo(lambda a, b: db.table("facturas").select("id, folio")
+                                                       .eq("empresa_id", empresa_id).order("id").range(a, b))}
+    for fila in filas:
+        if parar():
+            raise Cancelado()
+        xml = db.table("facturas_sat").select("xml").eq("factura_id", fila["factura_id"]).limit(1).execute().data[0]["xml"]
+        acu["xml_recibidos"] += 1
+        _carta_porte(db, ctx["cp"], xml.encode(), {"id": fila["factura_id"], "folio": folios.get(fila["factura_id"], "?")}, acu, avisar)
+
+
 def ejecutar(empresa_id: str, job_id: str, anio: int, meses: list[int], zip_bytes: bytes | None = None) -> None:
     """Tarea de fondo: toda excepción termina con la corrida en un estado final (ok, error o cancelado) y un mensaje."""
     try:
         _ejecutar(empresa_id, job_id, anio, meses, zip_bytes)
     except Exception as exc:
         log.exception("Descarga masiva %s falló", job_id)
-        marcar_error(job_id, f"Error inesperado: {type(exc).__name__}")
+        marcar_error(job_id, f"Error inesperado: {type(exc).__name__}: {str(exc)[:200]}")
 
 
 def _ejecutar(empresa_id: str, job_id: str, anio: int, meses: list[int], zip_bytes: bytes | None = None) -> None:
