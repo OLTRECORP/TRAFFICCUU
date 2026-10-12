@@ -72,10 +72,14 @@ export function DashboardView() {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h2 className="text-2xl font-bold text-primary dark:text-foreground">Bienvenido{empresa ? `, ${empresa}` : ""}</h2>
         <UploadXml
-          onResult={({ ok, fallos }) => {
-            setNotice(ok ? `${ok} XML procesado(s) correctamente.` : null);
+          onResult={({ ok, zips, fallos }) => {
+            const partes = [
+              ok ? `${ok} XML procesado(s) correctamente.` : "",
+              zips ? `${zips} .zip enviado(s): se procesan en segundo plano; el detalle de cada archivo está en la bitácora de Facturas.` : "",
+            ].filter(Boolean);
+            setNotice(partes.length ? partes.join(" ") : null);
             setError(fallos.length ? fallos.join("\n") : null);
-            if (ok) load();
+            if (ok || zips) load();
           }}
         />
       </div>

@@ -36,10 +36,12 @@ const vigencias = [{ key: "seguro_vigencia", label: "Seguro" }];
 
 const tractos: CatalogoConfig = {
   tabla: "tractocamiones", relacion: "tracto_id", singular: "tracto", orden: "placa", buscar, vigencias,
-  campos: [...comunes.slice(0, 6), { key: "config_vehicular", label: "Config. vehicular (ej. T3S2)", upper: true }, ...comunes.slice(6)],
+  campos: [...comunes.slice(0, 6), { key: "config_vehicular", label: "Config. vehicular (ej. T3S2)", upper: true },
+    { key: "capacidad_kg", label: "Capacidad de carga (kg)", type: "number" }, ...comunes.slice(6)],
   extra: [{ key: "kilometraje_inicial", label: "Kilometraje inicial", type: "number" }],
   columnas: columnasComunes,
-  detalle: [...detalleComun.slice(0, 6), { label: "Config. vehicular", key: "config_vehicular" }, ...detalleComun.slice(6),
+  detalle: [...detalleComun.slice(0, 6), { label: "Config. vehicular", key: "config_vehicular" },
+    { label: "Capacidad de carga (kg)", key: "capacidad_kg" }, ...detalleComun.slice(6),
     { label: "Kilometraje actual", key: "kilometraje_actual" }],
 };
 

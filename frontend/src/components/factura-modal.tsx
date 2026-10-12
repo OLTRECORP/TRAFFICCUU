@@ -6,12 +6,13 @@ import { descargarXml } from "@/lib/descarga";
 import { createClient } from "@/lib/supabase/client";
 import { ApiError, postBackend } from "@/lib/api";
 import { ubicacionLabel } from "@/lib/format";
-import type { Factura, FacturaSat } from "@/lib/types";
+import type { Factura, FacturaSat, ViajeSobrepeso } from "@/lib/types";
 import { fechaMx, mxn } from "@/lib/utils";
 import { ErrorAlert } from "@/components/error-alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
+import { Alert } from "@/components/ui/alert";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 const UUID_RE = /^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i;
@@ -35,6 +36,7 @@ export function FacturaModal({ factura, onClose }: { factura: Factura | null; on
   const [cargado, setCargado] = useState(false);
   const [pidiendo, setPidiendo] = useState(false);
   const [error, setError] = useState<{ where: string; message: string; status?: number; path?: string } | null>(null);
+  const [sobrepeso, setSobrepeso] = useState<ViajeSobrepeso | null>(null);
   const idActual = useRef<string | null>(null);
 
   const leer = useCallback(async (id: string) => {
@@ -61,9 +63,11 @@ export function FacturaModal({ factura, onClose }: { factura: Factura | null; on
 
   // Al abrir: lee lo que ya hay; solo si nunca se consultó al SAT lo pide automáticamente.
   useEffect(() => {
-    setSat(null); setCargado(false); setError(null);
+    setSat(null); setCargado(false); setError(null); setSobrepeso(null);
     idActual.current = factura?.id ?? null;
     if (!factura) return;
+    void createClient().from("viajes_sobrepeso").select("*").eq("factura_id", factura.id).limit(1)
+      .then(({ data }) => { if (idActual.current === factura.id) setSobrepeso(((data ?? [])[0] as ViajeSobrepeso | undefined) ?? null); });
     void (async () => {
       const previo = await leer(factura.id);
       if (idActual.current === factura.id && !previo && factura.uuid && UUID_RE.test(factura.uuid)) void pedir(factura.id, false);
@@ -132,6 +136,12 @@ export function FacturaModal({ factura, onClose }: { factura: Factura | null; on
               </TabsList>
 
               <TabsContent value="factura">
+                {sobrepeso && (
+                  <Alert variant="error" className="mb-3">
+                    Posible sobrepeso: se facturaron {Number(sobrepeso.toneladas_facturadas).toLocaleString("es-MX")} t y el tracto {sobrepeso.tracto_placa} tiene
+                    capacidad de {(Number(sobrepeso.capacidad_kg) / 1000).toLocaleString("es-MX")} t (excede {Number(sobrepeso.exceso_kg).toLocaleString("es-MX")} kg).
+                  </Alert>
+                )}
                 <dl className="grid gap-4 sm:grid-cols-2">
                   <div className="sm:col-span-2"><Field label="Folio fiscal (UUID)" value={factura.uuid} mono /></div>
                   <Field label="Estado" value={factura.estado} />
@@ -178,7 +188,7 @@ export function FacturaModal({ factura, onClose }: { factura: Factura | null; on
                       <Field label="Placa tractocamión" value={cp.vehiculo.placa} />
                       <Field label="Configuración vehicular" value={cp.vehiculo.config} />
                       <Field label="Remolques" value={cp.remolques.map((r) => r.placa).filter(Boolean).join(", ")} />
-                      <Field label="Peso bruto total" value={cp.peso_bruto_total ? `${cp.peso_bruto_total} kg` : null} />
+                      <Field label="Peso bruto total (capacidad del tracto)" value={cp.peso_bruto_total ? `${cp.peso_bruto_total} kg` : null} />
                     </dl>
                     <Lista titulo="Ubicaciones" items={cp.ubicaciones.map((u) =>
                       `${u.tipo}: ${ubicacionLabel({ id: "", id_ubicacion: u.id ?? "", nombre: u.nombre, municipio: u.municipio, estado: u.estado })}${u.distancia ? ` · ${u.distancia} km` : ""}`)} />
