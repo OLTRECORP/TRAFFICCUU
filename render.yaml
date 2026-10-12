@@ -19,3 +19,5 @@ services:
         sync: false
       - key: CORS_ORIGINS        # URL de Vercel, ej. https://mi-erp.vercel.app
         sync: false
+      - key: MAPS_USER_AGENT     # opcional: identifica tu app ante OpenStreetMap, ej. "ERP-Logistico/1.0 (tu@correo.com)"
+        sync: false

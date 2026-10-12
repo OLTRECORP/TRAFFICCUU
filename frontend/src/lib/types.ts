@@ -39,6 +39,10 @@ export interface Viaje {
   chofer: Chofer | null;
   tracto: Pick<Tracto, "id" | "placa"> | null;
   gondola: Gondola | null;
+  lugar_origen_id: string | null;
+  lugar_destino_id: string | null;
+  distancia_mapa_km: number | null;   // ida por mapa; km_operativos = ida x 2
+  km_operativos: number | null;
 }
 
 export interface Regla { id: string; tipo_servicio: string; intervalo_km: number }
@@ -51,6 +55,7 @@ export interface EmpresaConfig {
 }
 
 export interface Factura {
+  sat?: { estado: string; actualizado_en: string | null } | null;   // embebido desde facturas_sat
   id: string; folio: string; uuid: string | null; tipo_comprobante: string | null; estado: string | null;
   fecha_emision: string | null; total: number; complemento: string | null;
   orden_referida: string | null; orden_compra: string | null; fecha_creacion: string | null; fecha_pago: string | null;
@@ -69,7 +74,7 @@ export interface ImportExcelResult {
 
 export interface FacturaSat {
   factura_id: string; uuid: string; estado: "pendiente" | "ok" | "error"; error: string | null;
-  datos: CfdiResumen | null; actualizado_en: string | null; updated_at: string;
+  datos: CfdiResumen | null; xml?: string | null; actualizado_en: string | null; updated_at: string;
 }
 export interface CfdiResumen {
   uuid: string; version: string | null; tipo_comprobante: string | null; serie: string | null; folio: string | null;
@@ -87,5 +92,28 @@ export interface CfdiResumen {
   } | null;
 }
 
-export interface FacturaEstadistica { estado: string; complemento: string; con_orden: boolean; n: number; total: number }
+export interface FacturaEstadistica { estado: string; complemento: string; con_orden: boolean; con_complemento: boolean; n: number; total: number }
+export interface FacturaDia { dia: string; n: number; total: number }
 export interface FacturaMes { mes: string; n: number; total: number }
+
+export interface FacturaXmlMes { anio: number; mes: number; total: number; con_xml: number }
+export interface SatDescarga {
+  id: string; modo: "anio" | "faltantes"; anio: number; meses: number[];
+  estado: "pendiente" | "en_proceso" | "ok" | "error";
+  detalle: { mes: number; estado: "ok" | "error"; xml: number; mensaje: string | null }[];
+  xml_recibidos: number; facturas_asignadas: number; complementos: number;
+  sin_asignar: { uuid: string; folio: string; total: string | null; fecha: string; motivo: string }[];
+  error: string | null; created_at: string; updated_at: string;
+}
+export interface ComplementoPago {
+  id: string; uuid: string; serie: string | null; folio: string | null; fecha_pago: string | null;
+  monto: number | null; xml: string | null;
+}
+export interface Lugar {
+  id: string; nombre: string; tipo: "origen" | "destino" | "ambos"; direccion: string | null;
+  referencia: string | null; lat: number | null; lng: number | null; activo: boolean;
+}
+export interface Ruta {
+  id: string; origen_id: string; destino_id: string; distancia_km: number; calculada_en: string;
+  origen: { nombre: string } | null; destino: { nombre: string } | null;
+}

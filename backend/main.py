@@ -1,4 +1,5 @@
 import logging
+from typing import Literal
 import uuid as uuidlib
 from datetime import date
 
@@ -11,6 +12,9 @@ from app.cfdi_parser import CFDIError, parse_cfdi
 from app.config import get_settings
 from app.crypto import encrypt
 from app.db import get_admin_client
+from app.descarga_masiva import ejecutar as descarga_ejecutar, iniciar as descarga_iniciar
+from app.mapas import MapaError, geocodificar
+from app.rutas_service import asignar_viaje, calcular_km_viajes, calcular_ruta
 from app.facturas_sat import ejecutar as sat_ejecutar, preparar as sat_preparar
 from app.excel_import import ExcelError, guardar, parse_workbook
 from app.sat import descargar_cfdis
@@ -140,3 +144,60 @@ def guardar_password_sat(body: PasswordSat, user: CurrentUser = Depends(current_
     )
     if not res.data:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Guarda primero los datos fiscales de la empresa")
+
+
+class DescargaMasivaRequest(BaseModel):
+    anio: int = Field(ge=2014, le=2100)
+    # "anio" = los 12 meses; "faltantes" = solo los meses (por fecha de emisión) con facturas sin XML
+    modo: Literal["anio", "faltantes"] = "faltantes"
+
+
+@app.post("/api/sat/descarga-masiva", status_code=status.HTTP_202_ACCEPTED)
+def descarga_masiva(body: DescargaMasivaRequest, background: BackgroundTasks, tenant: Tenant = Depends(current_tenant)) -> dict:
+    """Descarga del SAT los XML de las facturas emitidas (y sus complementos de pago), los asigna por UUID o
+    folio+total y los guarda. Corre en segundo plano; el avance se lee de la tabla `sat_descargas`."""
+    job = descarga_iniciar(tenant.empresa_id, body.anio, body.modo)
+    background.add_task(descarga_ejecutar, tenant.empresa_id, job["id"], body.anio, job["meses"])
+    return {"id": job["id"], "meses": job["meses"]}
+
+
+class GeocodificarRequest(BaseModel):
+    direccion: str = Field(min_length=3, max_length=300)
+
+
+@app.post("/api/mapas/geocodificar")
+def mapas_geocodificar(body: GeocodificarRequest, _: Tenant = Depends(current_tenant)) -> dict:
+    try:
+        return geocodificar(body.direccion)
+    except MapaError as exc:
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, str(exc))
+
+
+class RutaRequest(BaseModel):
+    origen_id: uuidlib.UUID
+    destino_id: uuidlib.UUID
+    forzar: bool = False   # True = vuelve a consultar el mapa aunque la distancia ya esté guardada
+
+
+@app.post("/api/rutas/calcular")
+def rutas_calcular(body: RutaRequest, tenant: Tenant = Depends(current_tenant)) -> dict:
+    """Distancia por carretera (ida) entre dos lugares; la guarda en `rutas` y actualiza los viajes que la usan."""
+    return calcular_ruta(tenant.empresa_id, str(body.origen_id), str(body.destino_id), body.forzar)
+
+
+class ViajeLugaresRequest(BaseModel):
+    origen_id: uuidlib.UUID | None = None
+    destino_id: uuidlib.UUID | None = None
+
+
+@app.post("/api/viajes/{viaje_id}/lugares")
+def viaje_lugares(viaje_id: uuidlib.UUID, body: ViajeLugaresRequest, tenant: Tenant = Depends(current_tenant)) -> dict:
+    """Asigna origen y destino a un viaje y calcula sus km operativos (ida por mapa x 2)."""
+    o, d = (str(x) if x else None for x in (body.origen_id, body.destino_id))
+    return asignar_viaje(tenant.empresa_id, str(viaje_id), o, d)
+
+
+@app.post("/api/viajes/calcular-km")
+def viajes_calcular_km(tenant: Tenant = Depends(current_tenant)) -> dict:
+    """Asigna origen/destino por nombre a los viajes sin lugares y calcula los km operativos faltantes."""
+    return calcular_km_viajes(tenant.empresa_id)

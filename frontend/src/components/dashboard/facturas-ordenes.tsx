@@ -1,10 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
-import { FileText, FileWarning, HandCoins, Receipt, ShoppingCart, Scale } from "lucide-react";
-import { createClient } from "@/lib/supabase/client";
-import type { Punto, Rebanada } from "@/lib/dashboard";
+import { useMemo } from "react";
+import { CircleCheck, FileText, FileWarning, HandCoins, ShoppingCart, Scale } from "lucide-react";
+import { resumenFacturas, type Punto, type Rebanada } from "@/lib/dashboard";
 import type { FacturaEstadistica, FacturaMes, OrdenResumen } from "@/lib/types";
 import { mxn } from "@/lib/utils";
 import { Alert } from "@/components/ui/alert";
@@ -15,49 +14,25 @@ import { KpiCard } from "./kpi-card";
 const mesCorto = (iso: string) => new Intl.DateTimeFormat("es-MX", { month: "short", year: "2-digit", timeZone: "UTC" }).format(new Date(iso));
 const suma = (xs: { total: number }[]) => xs.reduce((a, x) => a + Number(x.total), 0);
 
-export function FacturasOrdenes() {
-  const [est, setEst] = useState<FacturaEstadistica[]>([]);
-  const [meses, setMeses] = useState<FacturaMes[]>([]);
-  const [ordenes, setOrdenes] = useState<OrdenResumen[]>([]);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    const sb = createClient();
-    void (async () => {
-      const [e, m, o] = await Promise.all([
-        sb.from("facturas_estadisticas").select("estado, complemento, con_orden, n, total"),
-        sb.from("facturas_por_mes").select("mes, n, total").order("mes", { ascending: false }).limit(12),
-        sb.from("ordenes_compra_resumen").select("*").limit(1000),
-      ]);
-      const err = e.error ?? m.error ?? o.error;
-      if (err) { setError(err.message); return; }
-      setEst((e.data ?? []) as FacturaEstadistica[]);
-      setMeses(((m.data ?? []) as FacturaMes[]).reverse());
-      setOrdenes((o.data ?? []) as OrdenResumen[]);
-    })();
-  }, []);
-
+export function FacturasOrdenes({ est, meses, ordenes, error }: {
+  est: FacturaEstadistica[]; meses: FacturaMes[]; ordenes: OrdenResumen[]; error: string | null;
+}) {
+  const f = useMemo(() => resumenFacturas(est), [est]);
   const k = useMemo(() => {
-    const vigentes = est.filter((r) => r.estado !== "cancelado");
-    const por = (f: (r: FacturaEstadistica) => boolean) => vigentes.filter(f);
-    const sinComp = por((r) => r.complemento !== "COMPLEMENTO LISTO");
-    const porCobrar = por((r) => r.estado !== "pagado");
-    const cancel = est.filter((r) => r.estado === "cancelado");
     const conDif = ordenes.filter((o) => Math.abs(o.diferencia) > 1);
     return {
-      n: vigentes.reduce((a, r) => a + Number(r.n), 0), total: suma(vigentes),
-      porCobrarN: porCobrar.reduce((a, r) => a + Number(r.n), 0), porCobrar: suma(porCobrar),
-      sinCompN: sinComp.reduce((a, r) => a + Number(r.n), 0), sinComp: suma(sinComp),
-      canceladas: cancel.reduce((a, r) => a + Number(r.n), 0),
-      sinOrden: por((r) => !r.con_orden).reduce((a, r) => a + Number(r.n), 0),
       ordenesMonto: suma(ordenes.map((o) => ({ total: o.monto }))), conDif: conDif.length,
       difAbs: conDif.reduce((a, o) => a + Math.abs(o.diferencia), 0),
     };
-  }, [est, ordenes]);
+  }, [ordenes]);
 
+  // Estado "visible": con complemento = pagado, aunque el Excel diga activado.
   const porEstado = useMemo<Rebanada[]>(() => {
     const m = new Map<string, number>();
-    for (const r of est) m.set(r.estado, (m.get(r.estado) ?? 0) + Number(r.n));
+    for (const r of est) {
+      const nombre = r.estado !== "cancelado" && r.con_complemento ? "pagado" : r.estado;
+      m.set(nombre, (m.get(nombre) ?? 0) + Number(r.n));
+    }
     return [...m].map(([nombre, valor]) => ({ nombre, valor })).sort((a, b) => b.valor - a.valor);
   }, [est]);
   const serie = useMemo<Punto[]>(() => meses.map((x) => ({ label: mesCorto(x.mes), valor: Number(x.total) })), [meses]);
@@ -74,12 +49,12 @@ export function FacturasOrdenes() {
       {error && <Alert variant="error">No se pudieron cargar las estadísticas: {error}</Alert>}
 
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-        <KpiCard icon={FileText} label="Facturas vigentes" value={String(k.n)} hint={`${mxn(k.total)} · ${k.canceladas} canceladas`} />
-        <KpiCard icon={HandCoins} label="Por cobrar" value={mxn(k.porCobrar)} hint={`${k.porCobrarN} facturas sin pagar`} />
-        <KpiCard icon={FileWarning} label="Sin complemento de pago" value={String(k.sinCompN)} hint={`${mxn(k.sinComp)} · ${k.sinOrden} sin orden`} />
+        <KpiCard icon={FileText} label="Facturas vigentes" value={String(f.n)} hint={`${mxn(f.total)} · ${f.canceladas} canceladas`} />
+        <KpiCard icon={CircleCheck} label="Pagadas" value={mxn(f.pagadas)} hint={`${f.pagadasN} facturas pagadas o con complemento`} />
+        <KpiCard icon={HandCoins} label="Por cobrar" value={mxn(f.porCobrar)} hint={`${f.porCobrarN} facturas sin pagar ni complemento`} />
+        <KpiCard icon={FileWarning} label="Sin complemento de pago" value={String(f.sinCompN)} hint={`${mxn(f.sinComp)} · ${f.sinOrden} sin orden`} />
         <KpiCard icon={ShoppingCart} label="Órdenes de compra" value={String(ordenes.length)} hint={`Monto ${mxn(k.ordenesMonto)}`} />
         <KpiCard icon={Scale} label="Órdenes con diferencia" value={String(k.conDif)} hint={`${mxn(k.difAbs)} de diferencia acumulada`} />
-        <KpiCard icon={Receipt} label="Facturado (sin canceladas)" value={mxn(k.total)} hint="Todas las facturas importadas" />
       </div>
 
       <div className="grid gap-4 lg:grid-cols-[1.7fr_1fr]">

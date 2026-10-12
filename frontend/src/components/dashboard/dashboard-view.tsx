@@ -3,9 +3,9 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Banknote, MapPin, Route, Truck } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
-import { agrupar, kpis, RANGOS, serieFacturacion, type Rango } from "@/lib/dashboard";
+import { agrupar, kpis, RANGOS, resumenFacturas, serieFacturacion, type Rango } from "@/lib/dashboard";
 import { ubicacionLabel } from "@/lib/format";
-import type { Viaje } from "@/lib/types";
+import type { FacturaDia, FacturaEstadistica, FacturaMes, OrdenResumen, Viaje } from "@/lib/types";
 import { cn, km, mxn } from "@/lib/utils";
 import { Alert } from "@/components/ui/alert";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -28,6 +28,11 @@ export function DashboardView() {
   const [notice, setNotice] = useState<string | null>(null);
   const [selected, setSelected] = useState<Viaje | null>(null);
   const [rango, setRango] = useState<Rango>("1M");
+  const [est, setEst] = useState<FacturaEstadistica[]>([]);
+  const [meses, setMeses] = useState<FacturaMes[]>([]);
+  const [dias, setDias] = useState<FacturaDia[]>([]);
+  const [ordenes, setOrdenes] = useState<OrdenResumen[]>([]);
+  const [errorFacturas, setErrorFacturas] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     const { data, error } = await createClient().from("viajes").select(SELECT).order("fecha", { ascending: false }).limit(1000);
@@ -37,8 +42,28 @@ export function DashboardView() {
   }, []);
   useEffect(() => { load(); }, [load]);
 
+  useEffect(() => {
+    const sb = createClient();
+    const desde = new Date(Date.now() - 366 * 86_400_000).toISOString().slice(0, 10);
+    void (async () => {
+      const [e, m, d, o] = await Promise.all([
+        sb.from("facturas_estadisticas").select("estado, complemento, con_orden, con_complemento, n, total"),
+        sb.from("facturas_por_mes").select("mes, n, total").order("mes", { ascending: false }).limit(12),
+        sb.from("facturas_por_dia").select("dia, n, total").gte("dia", desde).limit(1000),
+        sb.from("ordenes_compra_resumen").select("*").limit(1000),
+      ]);
+      const err = e.error ?? m.error ?? d.error ?? o.error;
+      if (err) { setErrorFacturas(err.message); return; }
+      setEst((e.data ?? []) as FacturaEstadistica[]);
+      setMeses(((m.data ?? []) as FacturaMes[]).reverse());
+      setDias((d.data ?? []) as FacturaDia[]);
+      setOrdenes((o.data ?? []) as OrdenResumen[]);
+    })();
+  }, []);
+
   const k = useMemo(() => kpis(viajes), [viajes]);
-  const serie = useMemo(() => serieFacturacion(viajes, rango), [viajes, rango]);
+  const fact = useMemo(() => resumenFacturas(est), [est]);
+  const serie = useMemo(() => serieFacturacion(dias.map((x) => ({ fecha: x.dia, total: Number(x.total) })), rango), [dias, rango]);
   const porChofer = useMemo(() => agrupar(viajes, (v) => v.chofer?.nombre ?? "Sin chofer"), [viajes]);
   const porDestino = useMemo(() => agrupar(viajes, (v) => ubicacionLabel(v.destino)), [viajes]);
 
@@ -60,11 +85,11 @@ export function DashboardView() {
       <section aria-label="Indicadores" className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <KpiCard icon={Truck} label="Viajes realizados" value={String(k.viajes)} hint="Últimos 30 días" />
         <KpiCard icon={Route} label="Km operativos (redondo)" value={km(k.km)} hint="Últimos 30 días" />
-        <KpiCard icon={Banknote} label="Facturación total" value={mxn(k.facturacion)} hint="Últimos 30 días" />
+        <KpiCard icon={Banknote} label="Facturación total" value={mxn(fact.total)} hint={`Suma de ${fact.n} facturas vigentes`} />
         <KpiCard icon={MapPin} label="Destino más frecuente" value={k.destinoTop} hint="Últimos 30 días" />
       </section>
 
-      <FacturasOrdenes />
+      <FacturasOrdenes est={est} meses={meses} ordenes={ordenes} error={errorFacturas} />
 
       <section className="grid gap-4 xl:grid-cols-[1.7fr_1fr]" aria-label="Viajes">
         <div className="grid content-start gap-2">
@@ -100,7 +125,7 @@ export function DashboardView() {
         </Card>
       </section>
 
-      <ViajeModal viaje={selected} onClose={() => setSelected(null)} />
+      <ViajeModal viaje={selected} onClose={() => setSelected(null)} onChanged={() => void load()} />
     </div>
   );
 }
