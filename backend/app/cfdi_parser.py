@@ -269,3 +269,27 @@ def resumen_cfdi(xml_bytes: bytes) -> dict:
         "conceptos": conceptos,
         "carta_porte": carta_porte,
     }
+
+
+def pagos_cfdi(xml_bytes: bytes) -> list[dict]:
+    """Pagos de un complemento de pago (CFDI tipo P, Pagos 1.0 y 2.0): fecha, monto y los documentos
+    (facturas) que cubre, con el UUID de cada uno en `uuid_documento`."""
+    root = _check_xml(xml_bytes)
+    complemento = _child(root, "Complemento")
+    pagos_node = _child(complemento, "Pagos")
+    if pagos_node is None:
+        return []
+    pagos = []
+    for pago in _children(pagos_node, "Pago"):
+        fecha = (pago.get("FechaPago") or "")[:10] or None
+        pagos.append({
+            "fecha_pago": fecha,
+            "monto": pago.get("Monto"),
+            "moneda": pago.get("MonedaP"),
+            "documentos": [
+                {"uuid_documento": (d.get("IdDocumento") or "").upper(), "serie": d.get("Serie"), "folio": d.get("Folio"),
+                 "parcialidad": d.get("NumParcialidad"), "imp_pagado": d.get("ImpPagado")}
+                for d in _children(pago, "DoctoRelacionado")
+            ],
+        })
+    return pagos

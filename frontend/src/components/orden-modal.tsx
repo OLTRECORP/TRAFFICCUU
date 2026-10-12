@@ -2,7 +2,10 @@
 
 import { useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
-import type { Factura, OrdenResumen } from "@/lib/types";
+import { Download } from "lucide-react";
+import { descargarXml } from "@/lib/descarga";
+import type { ComplementoPago, Factura, OrdenResumen } from "@/lib/types";
+import { Button } from "@/components/ui/button";
 import { fechaMx, mxn } from "@/lib/utils";
 import { ErrorAlert } from "@/components/error-alert";
 import { Badge } from "@/components/ui/badge";
@@ -22,11 +25,12 @@ function Resumen({ label, value, tono }: { label: string; value: string; tono?: 
 
 export function OrdenModal({ orden, onClose }: { orden: OrdenResumen | null; onClose: () => void }) {
   const [facturas, setFacturas] = useState<Fila[]>([]);
+  const [complementos, setComplementos] = useState<ComplementoPago[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    setFacturas([]); setError(null);
+    setFacturas([]); setComplementos([]); setError(null);
     if (!orden) return;
     let vigente = true;
     setLoading(true);
@@ -38,6 +42,13 @@ export function OrdenModal({ orden, onClose }: { orden: OrdenResumen | null; onC
         .limit(1000);
       if (!vigente) return;
       if (err) setError(err.message); else setFacturas((data ?? []) as Fila[]);
+      // Complementos de pago (XML del SAT) que cubren las facturas de esta orden
+      const ligas = await createClient().from("complementos_pago_facturas").select("complemento_id").eq("orden_compra", orden.numero);
+      const ids = [...new Set((ligas.data ?? []).map((l) => l.complemento_id as string))];
+      if (ids.length && vigente) {
+        const comp = await createClient().from("complementos_pago").select("id, uuid, serie, folio, fecha_pago, monto, xml").in("id", ids).order("fecha_pago");
+        if (vigente && !comp.error) setComplementos((comp.data ?? []) as ComplementoPago[]);
+      }
       setLoading(false);
     })();
     return () => { vigente = false; };
@@ -100,6 +111,26 @@ export function OrdenModal({ orden, onClose }: { orden: OrdenResumen | null; onC
                 </TableBody>
               </Table>
             </div>
+            {complementos.length > 0 && (
+              <div className="grid gap-1">
+                <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Complementos de pago</h4>
+                <ul className="divide-y rounded-md border text-sm">
+                  {complementos.map((c) => (
+                    <li key={c.id} className="flex items-center justify-between gap-3 px-3 py-2">
+                      <span>
+                        <span className="font-medium">{[c.serie, c.folio].filter(Boolean).join(" ") || "Complemento"}</span>
+                        <span className="ml-2 font-mono text-xs text-muted-foreground">{c.uuid.slice(0, 8).toUpperCase()}…</span>
+                        <span className="ml-2 text-muted-foreground">{c.fecha_pago ? fechaMx(c.fecha_pago) : ""}</span>
+                      </span>
+                      <span className="flex items-center gap-2 whitespace-nowrap">
+                        {c.monto != null ? mxn(Number(c.monto)) : ""}
+                        {c.xml && <Button variant="ghost" size="icon" aria-label="Descargar XML" onClick={() => descargarXml(c.uuid, c.xml!)}><Download className="h-4 w-4" /></Button>}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
           </>
         )}
       </DialogContent>

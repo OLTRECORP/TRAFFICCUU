@@ -12,6 +12,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { FacturaModal } from "@/components/factura-modal";
+import { DescargaMasiva } from "@/components/descarga-masiva";
 import { ImportExcel } from "@/components/import-excel";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 
@@ -31,7 +32,7 @@ export function FacturasPanel({ ordenInicial = "" }: { ordenInicial?: string }) 
 
   const load = useCallback(async () => {
     setLoading(true);
-    let query = createClient().from("facturas").select("*", { count: "exact" })
+    let query = createClient().from("facturas").select("*, sat:facturas_sat(estado, actualizado_en)", { count: "exact" })
       .order("fecha_emision", { ascending: false, nullsFirst: false }).order("folio", { ascending: false })
       .range((pagina - 1) * TAM, pagina * TAM - 1);
     const t = q.trim().replace(/[,()%]/g, "");
@@ -51,6 +52,7 @@ export function FacturasPanel({ ordenInicial = "" }: { ordenInicial?: string }) 
   return (
     <div className="grid gap-4">
       <ImportExcel onDone={load} />
+      <DescargaMasiva onDone={load} />
       <div className="flex flex-wrap gap-2">
         <Input className="max-w-xs" placeholder="Buscar folio, UUID u orden" value={q} onChange={(e) => { setQ(e.target.value); setPagina(1); }} />
         <select className={sel} value={estado} onChange={(e) => { setEstado(e.target.value); setPagina(1); }} aria-label="Estado">
@@ -69,14 +71,14 @@ export function FacturasPanel({ ordenInicial = "" }: { ordenInicial?: string }) 
             <TableRow className="hover:bg-transparent">
               <TableHead>Folio</TableHead><TableHead>Folio fiscal (UUID)</TableHead><TableHead>Emisión</TableHead><TableHead>Estado</TableHead>
               <TableHead>Complemento</TableHead><TableHead>Orden de compra</TableHead>
-              <TableHead>Pago</TableHead><TableHead className="text-right">Total</TableHead>
+              <TableHead>XML</TableHead><TableHead>Pago</TableHead><TableHead className="text-right">Total</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {loading ? (
-              <TableRow><TableCell colSpan={8} className="py-10 text-center text-muted-foreground">Cargando facturas…</TableCell></TableRow>
+              <TableRow><TableCell colSpan={9} className="py-10 text-center text-muted-foreground">Cargando facturas…</TableCell></TableRow>
             ) : rows.length === 0 ? (
-              <TableRow><TableCell colSpan={8} className="py-10 text-center text-muted-foreground">Sin facturas. Importa el Excel de administración de fletes.</TableCell></TableRow>
+              <TableRow><TableCell colSpan={9} className="py-10 text-center text-muted-foreground">Sin facturas. Importa el Excel de administración de fletes.</TableCell></TableRow>
             ) : rows.map((f) => (
               <TableRow key={f.id} className="cursor-pointer border-0 even:bg-secondary/70" onClick={() => setSelected(f)}>
                 <TableCell className="font-medium">{f.folio}</TableCell>
@@ -85,6 +87,7 @@ export function FacturasPanel({ ordenInicial = "" }: { ordenInicial?: string }) 
                 <TableCell><Badge variant={f.estado === "cancelado" ? "rojo" : f.estado === "pagado" ? "verde" : "default"}>{f.estado ?? "—"}</Badge></TableCell>
                 <TableCell><Badge variant={f.complemento === "COMPLEMENTO LISTO" ? "verde" : "amarillo"}>{f.complemento === "COMPLEMENTO LISTO" ? "Listo" : "Sin complemento"}</Badge></TableCell>
                 <TableCell>{f.orden_compra ? <Link onClick={(e) => e.stopPropagation()} className="font-medium text-highlight hover:underline" href={`/ordenes?q=${f.orden_compra}`}>{f.orden_compra}</Link> : <span className="text-muted-foreground">Sin orden</span>}</TableCell>
+                <TableCell><Badge variant={f.sat?.estado === "ok" && f.sat.actualizado_en ? "verde" : "default"}>{f.sat?.estado === "ok" && f.sat.actualizado_en ? "Descargado" : "Pendiente"}</Badge></TableCell>
                 <TableCell className="whitespace-nowrap">{f.fecha_pago ? fechaMx(f.fecha_pago) : "—"}</TableCell>
                 <TableCell className="whitespace-nowrap text-right">{mxn(f.total)}</TableCell>
               </TableRow>

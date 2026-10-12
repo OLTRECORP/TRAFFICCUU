@@ -1,7 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Loader2, RefreshCw } from "lucide-react";
+import { Download, Loader2, RefreshCw } from "lucide-react";
+import { descargarXml } from "@/lib/descarga";
 import { createClient } from "@/lib/supabase/client";
 import { ApiError, postBackend } from "@/lib/api";
 import { ubicacionLabel } from "@/lib/format";
@@ -105,6 +106,12 @@ export function FacturaModal({ factura, onClose }: { factura: Factura | null; on
                   <>Sin datos del SAT todavía</>
                 )}
               </span>
+              {sat?.xml && (
+                <Button variant="outline" size="sm" className="h-7 px-2 text-xs"
+                  onClick={() => descargarXml(factura.uuid ?? factura.folio, sat.xml!)}>
+                  <Download className="mr-1 h-3 w-3" /> Descargar XML
+                </Button>
+              )}
               <Button variant="outline" size="sm" className="h-7 px-2 text-xs" disabled={enCurso || !uuidValido}
                 onClick={() => void pedir(factura.id, true)} title="Volver a descargar el CFDI desde el SAT">
                 <RefreshCw className="mr-1 h-3 w-3" /> Actualizar desde SAT

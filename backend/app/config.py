@@ -12,6 +12,11 @@ class Settings(BaseSettings):
     cors_origins: str = "http://localhost:3000"
     max_xml_bytes: int = 5 * 1024 * 1024
     max_excel_bytes: int = 15 * 1024 * 1024
+    # Mapa: OpenStreetMap (Nominatim para direcciones, OSRM para distancia por carretera). Sin llave.
+    # Apunta a tu propio servidor o a otro proveedor compatible si el uso público no alcanza.
+    nominatim_url: str = "https://nominatim.openstreetmap.org"
+    osrm_url: str = "https://router.project-osrm.org"
+    maps_user_agent: str = "ERP-Logistico/1.0 (contacto: configura MAPS_USER_AGENT)"
 
     @property
     def cors_list(self) -> list[str]:

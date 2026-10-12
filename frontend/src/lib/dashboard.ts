@@ -1,4 +1,4 @@
-import type { Viaje } from "@/lib/types";
+import type { FacturaEstadistica, Viaje } from "@/lib/types";
 import { ubicacionLabel } from "@/lib/format";
 
 export type Rango = "1S" | "1M" | "3M" | "1A";
@@ -12,7 +12,10 @@ export const RANGOS: { id: Rango; dias: number; label: string }[] = [
 const DAY = 86_400_000;
 const startOfDay = (d: Date) => new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
 
-export interface Kpis { viajes: number; km: number; facturacion: number; destinoTop: string }
+export interface Kpis { viajes: number; km: number; destinoTop: string }
+
+/** Km operativos de un viaje: por mapa (ida x 2) cuando está calculado; si no, los del XML (ida x 2). */
+export const kmOperativos = (v: Viaje) => Number(v.km_operativos ?? v.distancia_operativa);
 
 /** Indicadores de los últimos 30 días. */
 export function kpis(viajes: Viaje[], ahora = new Date()): Kpis {
@@ -26,16 +29,17 @@ export function kpis(viajes: Viaje[], ahora = new Date()): Kpis {
   const top = [...cuenta.entries()].sort((a, b) => b[1] - a[1])[0];
   return {
     viajes: mes.length,
-    km: mes.reduce((s, v) => s + Number(v.distancia_operativa), 0),
-    facturacion: mes.reduce((s, v) => s + Number(v.total), 0),
+    km: mes.reduce((s, v) => s + kmOperativos(v), 0),
     destinoTop: top ? top[0] : "—",
   };
 }
 
 export interface Punto { label: string; valor: number }
 
+export interface Facturado { fecha: string; total: number }
+
 /** Facturación por día (1S/1M), semana (3M) o mes (1A), con huecos rellenados en cero. */
-export function serieFacturacion(viajes: Viaje[], rango: Rango, ahora = new Date()): Punto[] {
+export function serieFacturacion(facturado: Facturado[], rango: Rango, ahora = new Date()): Punto[] {
   const dias = RANGOS.find((r) => r.id === rango)!.dias;
   const paso = rango === "1A" ? "mes" : rango === "3M" ? "semana" : "dia";
   const fin = startOfDay(ahora);
@@ -49,7 +53,7 @@ export function serieFacturacion(viajes: Viaje[], rango: Rango, ahora = new Date
   };
   const buckets = new Map<number, number>();
   for (let t = inicio.getTime(); t <= fin.getTime(); t += DAY) buckets.set(llave(new Date(t)), 0);
-  for (const v of viajes) {
+  for (const v of facturado) {
     const f = new Date(v.fecha);
     if (f < inicio || f.getTime() >= fin.getTime() + DAY) continue;
     const k = llave(f);
@@ -74,4 +78,25 @@ export function agrupar(viajes: Viaje[], clave: (v: Viaje) => string, top = 4): 
   const cabeza = orden.slice(0, top).map(([nombre, valor]) => ({ nombre, valor }));
   const resto = orden.slice(top).reduce((s, [, v]) => s + v, 0);
   return resto ? [...cabeza, { nombre: "Otros", valor: resto }] : cabeza;
+}
+
+export interface ResumenFacturas {
+  n: number; total: number;              // facturación total = suma de las facturas vigentes
+  pagadasN: number; pagadas: number;     // estado "pagado" o con complemento de pago
+  porCobrarN: number; porCobrar: number; // vigentes que no están pagadas
+  sinCompN: number; sinComp: number; canceladas: number; sinOrden: number;
+}
+
+/** Una factura con complemento (Excel o XML del SAT) cuenta como pagada, no como por cobrar. Las canceladas no suman. */
+export function resumenFacturas(est: FacturaEstadistica[]): ResumenFacturas {
+  const vigentes = est.filter((r) => r.estado !== "cancelado");
+  const sumar = (rows: FacturaEstadistica[]) => ({ n: rows.reduce((a, r) => a + Number(r.n), 0), total: rows.reduce((a, r) => a + Number(r.total), 0) });
+  const pagada = (r: FacturaEstadistica) => r.estado === "pagado" || r.con_complemento;
+  const todas = sumar(vigentes), pag = sumar(vigentes.filter(pagada)), cob = sumar(vigentes.filter((r) => !pagada(r)));
+  const sinC = sumar(vigentes.filter((r) => !r.con_complemento));
+  return {
+    n: todas.n, total: todas.total, pagadasN: pag.n, pagadas: pag.total, porCobrarN: cob.n, porCobrar: cob.total,
+    sinCompN: sinC.n, sinComp: sinC.total, canceladas: sumar(est.filter((r) => r.estado === "cancelado")).n,
+    sinOrden: sumar(vigentes.filter((r) => !r.con_orden)).n,
+  };
 }
