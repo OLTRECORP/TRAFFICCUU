@@ -29,3 +29,20 @@ export interface EmpresaConfig {
   cer_path: string | null; key_path: string | null;
   logo_path: string | null; color_primario: string; color_base: string; color_acento: string;
 }
+
+export interface Factura {
+  id: string; folio: string; uuid: string | null; tipo_comprobante: string | null; estado: string | null;
+  fecha_emision: string | null; total: number; complemento: string | null;
+  orden_referida: string | null; orden_compra: string | null; fecha_creacion: string | null; fecha_pago: string | null;
+}
+
+export interface OrdenResumen {
+  id: string; numero: string; monto: number; fecha_creacion: string | null; fecha_pago: string | null;
+  comp_pago: number | null; n_facturas: number; suma_facturas: number; diferencia: number;
+}
+
+export interface ImportExcelResult {
+  facturas: { total: number; nuevas: number; actualizadas: number };
+  ordenes_compra: { total: number; nuevas: number; actualizadas: number };
+  omitidas: number; uuid_danados: number;
+}
