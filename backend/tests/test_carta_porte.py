@@ -34,7 +34,7 @@ def test_lugares_se_crean_una_vez_y_se_reusan_sin_importar_acentos():
     cat = LugaresCatalogo(db, "e1")
     u = UbicacionData("OR1", nombre="PLANTA CHIHUÁHUA", domicilio="Calle 1, Chihuahua")
     assert cat.asegurar(u, "destino") == "L1"                       # reusa
-    assert ("lugares", {"tipo": "ambos", "direccion": "Calle 1, Chihuahua"}) in db.updates
+    assert ("lugares", {"tipo": "ambos", "direccion": "Calle 1, Chihuahua", "cliente": "PLANTA CHIHUÁHUA"}) in db.updates
     nuevo = cat.asegurar(UbicacionData("DE1", municipio="Monterrey", estado="NLE"), "destino")
     assert nuevo and db.tables["lugares"][-1]["nombre"] == "Monterrey, NLE"
     assert cat.asegurar(UbicacionData("DE9", municipio="Monterrey", estado="NLE"), "destino") == nuevo
@@ -89,7 +89,26 @@ def test_precio_tonelada_del_xml_sobrescribe_y_deja_aviso():
     cat = LugaresCatalogo(db, "e1")
     u = UbicacionData("DE1", nombre="CLIENTE", calle="PLANTA SAN PEDRO")
     assert cat.asegurar(u, "destino", 85) == "L1"
-    assert ("lugares", {"precio_tonelada": 85.0}) in db.updates
+    assert ("lugares", {"cliente": "CLIENTE", "precio_tonelada": 85.0}) in db.updates
     assert "80.0 → 85.0" in cat.avisos[0]
     nuevo = cat.asegurar(UbicacionData("DE2", nombre="OTRO", calle="P2"), "destino", 70)
     assert db.tables["lugares"][-1]["precio_tonelada"] == 70.0 and nuevo
+
+
+def test_cliente_con_varios_destinos_no_se_mezcla_y_conserva_el_cliente():
+    db = DB(lugares=[])
+    cat = LugaresCatalogo(db, "e1")
+    a = cat.asegurar(UbicacionData("D1", nombre="TRITURADOS ROCA", calle="PLANTA UNO", domicilio="PLANTA UNO, BCN"), "destino")
+    b = cat.asegurar(UbicacionData("D1", nombre="TRITURADOS ROCA", calle="PLANTA DOS", domicilio="PLANTA DOS, BCN"), "destino")
+    assert a != b and len(db.tables["lugares"]) == 2
+    assert {l["nombre"] for l in db.tables["lugares"]} == {"TRITURADOS ROCA - PLANTA UNO", "TRITURADOS ROCA - PLANTA DOS"}
+    assert all(l["cliente"] == "TRITURADOS ROCA" for l in db.tables["lugares"])
+    # el mismo lugar de entrega se reutiliza
+    assert cat.asegurar(UbicacionData("D9", nombre="TRITURADOS ROCA", calle="PLANTA UNO"), "destino") == a
+
+
+def test_resumen_cfdi_trae_referencia_del_destino():
+    from app.cfdi_parser import resumen_cfdi
+    r = resumen_cfdi(XML_TON.encode())
+    destino = [u for u in r["carta_porte"]["ubicaciones"] if u["tipo"] == "Destino"][0]
+    assert destino["referencia"] == "CLIENTE - PLANTA SAN PEDRO" and destino["calle"] == "PLANTA SAN PEDRO"

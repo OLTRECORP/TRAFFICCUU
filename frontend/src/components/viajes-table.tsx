@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import type { Viaje } from "@/lib/types";
-import { ubicacionLabel } from "@/lib/format";
+import { destinoLabel, origenLabel } from "@/lib/format";
 import { cn, fechaMx, km } from "@/lib/utils";
 import { Card } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -50,8 +50,8 @@ export function ViajesTable({ viajes, loading, onSelect }: { viajes: Viaje[]; lo
                 <TableCell className="whitespace-nowrap first:rounded-l-lg">{fechaMx(v.fecha)}</TableCell>
                 <TableCell className="whitespace-nowrap font-medium">{v.folio_factura ?? "—"}</TableCell>
                 <TableCell>{v.chofer?.nombre ?? "—"}</TableCell>
-                <TableCell>{ubicacionLabel(v.origen)}</TableCell>
-                <TableCell>{ubicacionLabel(v.destino)}</TableCell>
+                <TableCell>{origenLabel(v)}</TableCell>
+                <TableCell>{destinoLabel(v)}</TableCell>
                 <TableCell className="whitespace-nowrap text-right last:rounded-r-lg" title={v.km_operativos != null ? "Por mapa (ida x 2)" : "Del XML (ida x 2)"}>
                   {km(v.km_operativos ?? v.distancia_operativa)}
                 </TableCell>

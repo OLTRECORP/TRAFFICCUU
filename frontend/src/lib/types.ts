@@ -41,6 +41,7 @@ export interface Viaje {
   gondola: Gondola | null;
   lugar_origen_id: string | null;
   lugar_destino_id: string | null;
+  lugar_origen?: { nombre: string } | null; lugar_destino?: { nombre: string } | null;   // nombre de referencia del catálogo
   distancia_mapa_km: number | null;   // ida por mapa; km_operativos = ida x 2
   km_operativos: number | null;
   toneladas_facturadas?: number | null; precio_tonelada?: number | null; mercancia?: string | null;
@@ -91,7 +92,7 @@ export interface CfdiResumen {
   conceptos: { descripcion: string | null; cantidad: string | null; importe: string | null; clave_prod_serv: string | null }[];
   carta_porte: {
     version: string | null; id_ccp: string | null; total_dist_rec: string | null;
-    ubicaciones: { tipo: string | null; id: string | null; nombre: string | null; fecha: string | null; distancia: string | null; municipio: string | null; estado: string | null }[];
+    ubicaciones: { tipo: string | null; id: string | null; nombre: string | null; fecha: string | null; distancia: string | null; municipio: string | null; estado: string | null; calle?: string | null; referencia?: string | null }[];
     mercancias: { descripcion: string | null; cantidad: string | null; peso_kg: string | null; clave_unidad: string | null }[];
     peso_bruto_total: string | null;
     vehiculo: { placa: string | null; config: string | null; anio: string | null };
@@ -122,6 +123,7 @@ export interface Lugar {
   id: string; nombre: string; tipo: "origen" | "destino" | "ambos"; direccion: string | null;
   referencia: string | null; lat: number | null; lng: number | null; activo: boolean;
   precio_tonelada: number | null;
+  cliente?: string | null;   // un cliente puede tener varios destinos; cada lugar lleva su propio nombre
 }
 export interface Ruta {
   id: string; origen_id: string; destino_id: string; distancia_km: number; calculada_en: string;

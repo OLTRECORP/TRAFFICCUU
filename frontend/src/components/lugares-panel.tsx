@@ -36,7 +36,7 @@ export function LugaresPanel() {
 
   const filtradas = useMemo(() => {
     const t = q.trim().toLowerCase();
-    return t ? rows.filter((r) => [r.nombre, r.direccion, r.referencia].some((v) => (v ?? "").toLowerCase().includes(t))) : rows;
+    return t ? rows.filter((r) => [r.nombre, r.cliente, r.direccion, r.referencia].some((v) => (v ?? "").toLowerCase().includes(t))) : rows;
   }, [rows, q]);
 
   return (
@@ -50,20 +50,21 @@ export function LugaresPanel() {
         <Table>
           <TableHeader>
             <TableRow className="hover:bg-transparent">
-              <TableHead>Nombre</TableHead><TableHead>Tipo</TableHead><TableHead>Dirección</TableHead>
+              <TableHead>Nombre</TableHead><TableHead>Cliente</TableHead><TableHead>Tipo</TableHead><TableHead>Dirección</TableHead>
               <TableHead>Referencia</TableHead><TableHead className="text-right">Precio por tonelada</TableHead><TableHead>Mapa</TableHead><TableHead className="text-right">Acciones</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {loading ? (
-              <TableRow><TableCell colSpan={7} className="py-10 text-center text-muted-foreground">Cargando…</TableCell></TableRow>
+              <TableRow><TableCell colSpan={8} className="py-10 text-center text-muted-foreground">Cargando…</TableCell></TableRow>
             ) : filtradas.length === 0 ? (
-              <TableRow><TableCell colSpan={7} className="py-10 text-center text-muted-foreground">
+              <TableRow><TableCell colSpan={8} className="py-10 text-center text-muted-foreground">
                 {rows.length ? "Sin resultados." : "Aún no hay lugares. Agrega tus orígenes y destinos habituales."}
               </TableCell></TableRow>
             ) : filtradas.map((l) => (
               <TableRow key={l.id} className="border-0 even:bg-secondary/70">
                 <TableCell className="font-medium">{l.nombre}{!l.activo && <Badge className="ml-2">Inactivo</Badge>}</TableCell>
+                <TableCell>{l.cliente ?? "—"}</TableCell>
                 <TableCell>{TIPOS[l.tipo]}</TableCell>
                 <TableCell className="max-w-xs truncate" title={l.direccion ?? undefined}>{l.direccion ?? "—"}</TableCell>
                 <TableCell>{l.referencia ?? "—"}</TableCell>
@@ -86,7 +87,7 @@ export function LugaresPanel() {
 
 function Formulario({ editar, onClose, onSaved }: { editar: Lugar | "nuevo" | null; onClose: () => void; onSaved: () => void }) {
   const nuevo = editar === "nuevo";
-  const [v, setV] = useState({ nombre: "", tipo: "ambos", direccion: "", referencia: "", precio: "", lat: "", lng: "", activo: true });
+  const [v, setV] = useState({ nombre: "", cliente: "", tipo: "ambos", direccion: "", referencia: "", precio: "", lat: "", lng: "", activo: true });
   const [saving, setSaving] = useState(false);
   const [ubicando, setUbicando] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -94,7 +95,7 @@ function Formulario({ editar, onClose, onSaved }: { editar: Lugar | "nuevo" | nu
   useEffect(() => {
     if (!editar) return;
     const l = typeof editar === "string" ? null : editar;
-    setV({ nombre: l?.nombre ?? "", tipo: l?.tipo ?? "ambos", direccion: l?.direccion ?? "", referencia: l?.referencia ?? "", precio: l?.precio_tonelada != null ? String(l.precio_tonelada) : "",
+    setV({ nombre: l?.nombre ?? "", cliente: l?.cliente ?? "", tipo: l?.tipo ?? "ambos", direccion: l?.direccion ?? "", referencia: l?.referencia ?? "", precio: l?.precio_tonelada != null ? String(l.precio_tonelada) : "",
       lat: l?.lat != null ? String(l.lat) : "", lng: l?.lng != null ? String(l.lng) : "", activo: l?.activo ?? true });
     setError(null);
   }, [editar]);
@@ -119,7 +120,7 @@ function Formulario({ editar, onClose, onSaved }: { editar: Lugar | "nuevo" | nu
     setSaving(true); setError(null);
     const sb = createClient();
     const datos = {
-      nombre: v.nombre.trim(), tipo: v.tipo, direccion: v.direccion.trim() || null, referencia: v.referencia.trim() || null,
+      nombre: v.nombre.trim(), cliente: v.cliente.trim() || null, tipo: v.tipo, direccion: v.direccion.trim() || null, referencia: v.referencia.trim() || null,
       precio_tonelada: v.precio.trim() === "" ? null : Number(v.precio),
       lat: puntoValido ? lat : null, lng: puntoValido ? lng : null, activo: v.activo,
     };
@@ -158,6 +159,8 @@ function Formulario({ editar, onClose, onSaved }: { editar: Lugar | "nuevo" | nu
           <div className="grid gap-3 sm:grid-cols-2">
             <div className="grid gap-1.5"><Label htmlFor="l-nombre">Nombre o referencia *</Label>
               <Input id="l-nombre" required value={v.nombre} onChange={(e) => setV({ ...v, nombre: e.target.value })} /></div>
+            <div className="grid gap-1.5"><Label htmlFor="l-cliente">Cliente</Label>
+              <Input id="l-cliente" value={v.cliente} placeholder="Ej. Triturados Roca de BC (puede tener varios destinos)" onChange={(e) => setV({ ...v, cliente: e.target.value })} /></div>
             <div className="grid gap-1.5"><Label htmlFor="l-tipo">Tipo</Label>
               <select id="l-tipo" className={sel} value={v.tipo} onChange={(e) => setV({ ...v, tipo: e.target.value })}>
                 {Object.entries(TIPOS).map(([k, t]) => <option key={k} value={k}>{t}</option>)}
