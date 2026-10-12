@@ -27,6 +27,7 @@ from .carta_porte_service import registrar as registrar_carta_porte
 from .cfdi_parser import CFDIError, pagos_cfdi, resumen_cfdi
 from .config import get_settings
 from .db import get_admin_client
+from .keepalive import mantener_despierto
 from .rutas_service import LugaresCatalogo, calcular_km_viajes
 from .sat import Cancelado, SatError, descargar_emitidos_rango
 
@@ -350,6 +351,41 @@ def _guardar_complemento(db, empresa_id: str, indice: _Indice, r: dict, pagos: l
             f["complemento"] = "COMPLEMENTO LISTO"
 
 
+SOLICITUD_VIGENTE = timedelta(hours=72)   # el SAT conserva una solicitud terminada unos días
+
+
+def _solicitud_previa(db, empresa_id: str, anio: int, mes: int) -> str | None:
+    """Id de una solicitud al SAT de ese mes que se envió en una corrida anterior y no terminó (se detuvo, se
+    interrumpió o el SAT aún la procesaba), para retomarla en lugar de pedir otra."""
+    filas = (db.table("sat_descargas").select("detalle, created_at").eq("empresa_id", empresa_id).eq("anio", anio)
+             .order("created_at", desc=True).limit(10).execute().data)
+    for f in filas:
+        if _ahora() - _parse_ts(f["created_at"]) > SOLICITUD_VIGENTE:
+            break
+        for e in f.get("detalle") or []:
+            if e.get("mes") == mes and e.get("solicitud") and e.get("estado") != "ok":
+                return e["solicitud"]
+    return None
+
+
+def _xmls_mes(empresa_id: str, ini, fin, avisar, parar, previa: str | None, guardar_solicitud):
+    """XML de un mes. Si la solicitud anterior ya no sirve (el SAT la rechaza o venció), pide una nueva."""
+    if previa:
+        entregados = False
+        try:
+            for xml in descargar_emitidos_rango(empresa_id, ini, fin, log=avisar, parar=parar, id_existente=previa):
+                entregados = True
+                yield xml
+            return
+        except Cancelado:
+            raise
+        except SatError as exc:
+            if entregados:
+                raise
+            avisar(f"La solicitud anterior ya no sirve ({exc}); se pide una nueva", "aviso")
+    yield from descargar_emitidos_rango(empresa_id, ini, fin, on_solicitud=guardar_solicitud, log=avisar, parar=parar)
+
+
 def _rango_mes(anio: int, mes: int) -> tuple[datetime, datetime]:
     ini = datetime(anio, mes, 1, 0, 0, 0)
     fin = datetime(anio, mes, calendar.monthrange(anio, mes)[1], 23, 59, 59)
@@ -381,7 +417,8 @@ def _reprocesar(db, empresa_id: str, ctx: dict, acu: dict) -> None:
 def ejecutar(empresa_id: str, job_id: str, anio: int, meses: list[int], zip_bytes: bytes | None = None) -> None:
     """Tarea de fondo: toda excepción termina con la corrida en un estado final (ok, error o cancelado) y un mensaje."""
     try:
-        _ejecutar(empresa_id, job_id, anio, meses, zip_bytes)
+        with mantener_despierto():
+            _ejecutar(empresa_id, job_id, anio, meses, zip_bytes)
     except Exception as exc:
         log.exception("Descarga masiva %s falló", job_id)
         marcar_error(job_id, f"Error inesperado: {type(exc).__name__}: {str(exc)[:200]}")
@@ -440,13 +477,23 @@ def _ejecutar(empresa_id: str, job_id: str, anio: int, meses: list[int], zip_byt
                 if bit.cancelado():
                     raise Cancelado()
                 antes = acu["xml_recibidos"]
-                entrada = {"mes": mes, "estado": "ok", "xml": 0, "mensaje": None}
+                entrada = {"mes": mes, "estado": "en_proceso", "xml": 0, "mensaje": None, "solicitud": None}
                 detalle.append(entrada)
                 avisar(f"— Mes {mes:02d}/{anio} —")
+
+                def guardar_solicitud(id_solicitud: str, entrada=entrada) -> None:
+                    # Se anota completa para poder retomarla si el servidor se duerme o el usuario detiene la corrida.
+                    entrada["solicitud"] = id_solicitud
+                    guardar("en_proceso")
+
                 try:
                     ini, fin = _rango_mes(anio, mes)
+                    previa = _solicitud_previa(db, empresa_id, anio, mes)
+                    if previa:
+                        entrada["solicitud"] = previa
                     procesar_xmls(db, empresa_id, indice,
-                                  descargar_emitidos_rango(empresa_id, ini, fin, log=avisar, parar=bit.cancelado), None, acu, ctx)
+                                  _xmls_mes(empresa_id, ini, fin, avisar, bit.cancelado, previa, guardar_solicitud), None, acu, ctx)
+                    entrada["estado"] = "ok"
                     avisar(f"Mes {mes:02d}: {acu['xml_recibidos'] - antes} XML recibidos", "ok")
                 except (SatError, Cancelado) as exc:
                     if isinstance(exc, Cancelado):
