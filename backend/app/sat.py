@@ -196,27 +196,34 @@ def descargar_emitidos_rango(
     intervalo: int = 20,
     log=None,
     parar=None,
+    id_existente: str | None = None,
 ) -> Iterator[bytes]:
     """Descarga masiva de los CFDI EMITIDOS por la empresa entre `desde` y `hasta` (facturas y
     complementos de pago, solo vigentes). Un generador de XML en bytes; vacío si el SAT no tiene
-    comprobantes en el rango. Lanza SatError si el SAT rechaza la solicitud."""
+    comprobantes en el rango. Lanza SatError si el SAT rechaza la solicitud. Con `id_existente` no pide una
+    solicitud nueva: retoma la que se hizo antes (el SAT la conserva varios días) y solo espera su resultado."""
     from cfdiclient import Autenticacion, SolicitaDescargaEmitidos
 
     rfc, fiel = _cargar_fiel(empresa_id, log)
-    _avisar(log, "Autenticando con el SAT…")
-    token = Autenticacion(fiel).obtener_token()
-    _avisar(log, "Autenticado. Enviando solicitud de CFDI emitidos "
-                 f"{desde:%Y-%m-%d} a {hasta:%Y-%m-%d}…")
-    res = SolicitaDescargaEmitidos(fiel).solicitar_descarga(
-        token, rfc, desde, hasta, rfc_emisor=rfc, tipo_solicitud="CFDI", estado_comprobante="Vigente"
-    )
-    _avisar(log, f"SAT respondió a la solicitud: código {res.get('cod_estatus')} — {res.get('mensaje')}")
-    if res.get("cod_estatus") != "5000" or not res.get("id_solicitud"):
-        raise SatError(f"El SAT no aceptó la solicitud (código {res.get('cod_estatus')}): {res.get('mensaje') or 'sin respuesta'}")
-    if on_solicitud:
-        on_solicitud(res["id_solicitud"])
+    if id_existente:
+        id_solicitud = id_existente
+        _avisar(log, f"Retomando la solicitud {id_solicitud[:8]}… que ya se había enviado al SAT", "aviso")
+    else:
+        _avisar(log, "Autenticando con el SAT…")
+        token = Autenticacion(fiel).obtener_token()
+        _avisar(log, "Autenticado. Enviando solicitud de CFDI emitidos "
+                     f"{desde:%Y-%m-%d} a {hasta:%Y-%m-%d}…")
+        res = SolicitaDescargaEmitidos(fiel).solicitar_descarga(
+            token, rfc, desde, hasta, rfc_emisor=rfc, tipo_solicitud="CFDI", estado_comprobante="Vigente"
+        )
+        _avisar(log, f"SAT respondió a la solicitud: código {res.get('cod_estatus')} — {res.get('mensaje')}")
+        if res.get("cod_estatus") != "5000" or not res.get("id_solicitud"):
+            raise SatError(f"El SAT no aceptó la solicitud (código {res.get('cod_estatus')}): {res.get('mensaje') or 'sin respuesta'}")
+        id_solicitud = res["id_solicitud"]
+        if on_solicitud:
+            on_solicitud(id_solicitud)
     try:
-        paquetes = _verificar(fiel, rfc, res["id_solicitud"], espera_max, intervalo, log, parar)
+        paquetes = _verificar(fiel, rfc, id_solicitud, espera_max, intervalo, log, parar)
     except SatSinResultados:
         _avisar(log, "El SAT no tiene CFDI emitidos en ese periodo", "aviso")
         return

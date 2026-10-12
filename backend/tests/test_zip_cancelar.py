@@ -129,3 +129,67 @@ def test_ejecutar_reprocesar_no_truena(monkeypatch):
     dm.ejecutar("e1", "job2", 2026, [])
     finales = [p for t, p in db.updates if t == "sat_descargas"]
     assert finales and finales[-1]["estado"] == "ok"
+
+
+def test_keepalive_hace_ping_mientras_corre_y_se_detiene(monkeypatch):
+    import time
+    from app import keepalive
+    llamadas = []
+    monkeypatch.setattr(keepalive, "_ping", lambda url: llamadas.append(url))
+    with keepalive.mantener_despierto(intervalo=0.01, url="https://api.example.com/") as activo:
+        assert activo
+        time.sleep(0.15)
+    n = len(llamadas)
+    assert n >= 2 and llamadas[0] == "https://api.example.com/health"
+    time.sleep(0.1)
+    assert len(llamadas) == n   # al terminar la corrida deja de hacer ping
+    monkeypatch.delenv("RENDER_EXTERNAL_URL", raising=False)
+    with keepalive.mantener_despierto() as activo:
+        assert activo is False
+
+
+def test_retoma_la_solicitud_anterior_en_lugar_de_pedir_otra(monkeypatch):
+    ahora = datetime.now(timezone.utc).isoformat()
+    db = ChainDB(sat_descargas=[
+        {"id": "j0", "anio": 2026, "created_at": ahora, "detalle": [
+            {"mes": 6, "estado": "ok", "solicitud": "SOL-OK"},
+            {"mes": 7, "estado": "en_proceso", "solicitud": "38ab88e5-1111"},
+            {"mes": 8, "estado": "error", "solicitud": None}]}])
+    assert dm._solicitud_previa(db, "e1", 2026, 7) == "38ab88e5-1111"
+    assert dm._solicitud_previa(db, "e1", 2026, 6) is None
+    assert dm._solicitud_previa(db, "e1", 2026, 8) is None
+    vieja = (datetime.now(timezone.utc) - timedelta(hours=100)).isoformat()
+    db2 = ChainDB(sat_descargas=[{"id": "j", "anio": 2026, "created_at": vieja, "detalle": [{"mes": 7, "estado": "error", "solicitud": "X"}]}])
+    assert dm._solicitud_previa(db2, "e1", 2026, 7) is None
+
+
+def test_xmls_mes_usa_la_previa_y_si_el_sat_la_rechaza_pide_una_nueva(monkeypatch):
+    visto = []
+
+    def falso(empresa_id, ini, fin, on_solicitud=None, log=None, parar=None, id_existente=None):
+        visto.append(id_existente)
+        if id_existente:
+            raise dm.SatError("solicitud vencida")
+        on_solicitud("NUEVA")
+        yield b"<xml/>"
+
+    monkeypatch.setattr(dm, "descargar_emitidos_rango", falso)
+    guardadas = []
+    salida = list(dm._xmls_mes("e1", None, None, lambda *a: None, lambda: False, "VIEJA", guardadas.append))
+    assert salida == [b"<xml/>"] and visto == ["VIEJA", None] and guardadas == ["NUEVA"]
+
+
+def test_ejecutar_por_meses_guarda_la_solicitud_y_termina_ok(monkeypatch):
+    db = ChainDB(empresa_configuracion=[{"id": "e1", "rfc": "AAA010101AAA"}], facturas=facturas(), sat_descargas=[])
+    monkeypatch.setattr(dm, "get_admin_client", lambda: db)
+    monkeypatch.setattr(dm, "get_settings", lambda: type("S", (), {"max_xml_bytes": 5 * 1024 * 1024})())
+
+    def falso(empresa_id, ini, fin, on_solicitud=None, log=None, parar=None, id_existente=None):
+        on_solicitud("SOL-1")
+        yield cfdi(U1)
+
+    monkeypatch.setattr(dm, "descargar_emitidos_rango", falso)
+    dm.ejecutar("e1", "job3", 2026, [1])
+    finales = [p for t, p in db.updates if t == "sat_descargas"]
+    assert finales[-1]["estado"] == "ok" and finales[-1]["facturas_asignadas"] == 1
+    assert finales[-1]["detalle"][0]["estado"] == "ok" and finales[-1]["detalle"][0]["solicitud"] == "SOL-1"
