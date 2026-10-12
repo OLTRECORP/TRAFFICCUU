@@ -36,4 +36,5 @@ Inicia sesión → espera "Conectando al motor logístico..." → **Empresa**: c
 - *Se queda en "Conectando..."*: revisa `RENDER_API_URL` y que `/health` abra en el navegador (el plan gratuito tarda ~1 min en despertar).
 - *Error al subir XML*: guarda primero la empresa; el RFC emisor/receptor del XML debe ser el de tu empresa.
 - *CORS / 401*: `CORS_ORIGINS` y *Site URL* deben ser exactamente la URL de Vercel (sin `/` final).
-- Base creada antes del logo/colores: ejecuta en orden `supabase/migrations/002_branding.sql` y `003_acento_y_paleta.sql`.
+- Base creada antes del logo/colores: ejecuta en orden `supabase/migrations/002_branding.sql`, `003_acento_y_paleta.sql`, `004_facturas_ordenes.sql` y `005_fix_rls_empresa.sql`.
+- *new row violates row-level security policy al guardar la empresa*: ejecuta `supabase/migrations/005_fix_rls_empresa.sql`; si persiste, cierra sesión y vuelve a entrar (sesión expirada).
