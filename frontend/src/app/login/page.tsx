@@ -1,10 +1,9 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Loader2, Truck } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
-import { useBackendHealth } from "@/hooks/useBackendHealth";
 import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -17,15 +16,6 @@ export default function LoginPage() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-  const [authenticated, setAuthenticated] = useState(false);
-
-  // Tras autenticar NO se redirige: se espera a que el backend de Render despierte.
-  const { status, attempts } = useBackendHealth(authenticated, 5000);
-
-  useEffect(() => {
-    if (status === "online") router.replace("/dashboard");
-  }, [status, router]);
-
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
@@ -36,22 +26,7 @@ export default function LoginPage() {
       setError(error.message === "Invalid login credentials" ? "Correo o contraseña incorrectos" : error.message);
       return;
     }
-    setAuthenticated(true);
-  }
-
-  if (authenticated) {
-    return (
-      <main className="flex min-h-screen items-center justify-center px-4">
-        <div className="flex flex-col items-center gap-4 text-center" role="status" aria-live="polite">
-          <Loader2 className="h-10 w-10 animate-spin text-primary" />
-          <h1 className="text-xl font-semibold">Conectando al motor logístico...</h1>
-          <p className="max-w-sm text-sm text-muted-foreground">
-            El servidor puede tardar hasta un minuto en despertar. Te llevaremos al dashboard en cuanto esté listo.
-          </p>
-          {attempts > 0 && <p className="text-xs text-muted-foreground">Reintentando conexión (intento {attempts + 1})…</p>}
-        </div>
-      </main>
-    );
+    router.replace("/dashboard"); // el BackendGate del portal espera al backend si está dormido
   }
 
   return (

@@ -39,8 +39,10 @@ create index if not exists facturas_empresa_fecha_idx on public.facturas (empres
 create unique index if not exists facturas_uuid_idx on public.facturas (empresa_id, uuid) where uuid is not null;
 create index if not exists facturas_orden_idx on public.facturas (empresa_id, orden_compra);
 
+drop trigger if exists trg_ordenes_updated_at on public.ordenes_compra;
 create trigger trg_ordenes_updated_at before update on public.ordenes_compra
 for each row execute function public.fn_set_updated_at();
+drop trigger if exists trg_facturas_updated_at on public.facturas;
 create trigger trg_facturas_updated_at before update on public.facturas
 for each row execute function public.fn_set_updated_at();
 
@@ -48,8 +50,10 @@ alter table public.ordenes_compra enable row level security;
 alter table public.facturas       enable row level security;
 
 -- Lectura por empresa desde el navegador; la escritura la hace solo el backend (service_role).
+drop policy if exists tenant_ordenes_select on public.ordenes_compra;
 create policy tenant_ordenes_select on public.ordenes_compra
   for select to authenticated using (empresa_id = public.mi_empresa_id());
+drop policy if exists tenant_facturas_select on public.facturas;
 create policy tenant_facturas_select on public.facturas
   for select to authenticated using (empresa_id = public.mi_empresa_id());
 
@@ -68,3 +72,6 @@ left join (
 ) f on f.empresa_id = o.empresa_id and f.orden_compra = o.numero;
 
 grant select on public.ordenes_compra, public.facturas, public.ordenes_compra_resumen to authenticated;
+
+-- Refresca el caché de esquema de la API (evita "Could not find the table ... in the schema cache").
+notify pgrst, 'reload schema';

@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import { FileText, LayoutDashboard, LogOut, ReceiptText, Moon, Settings, Sun, Truck, Wrench } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
@@ -66,7 +66,6 @@ export function Sidebar() {
 
 export function Topbar() {
   const pathname = usePathname();
-  const router = useRouter();
   const { mode, toggleMode, empresa } = useTheme();
   const [email, setEmail] = useState<string>("");
   const title = links.find((l) => pathname.startsWith(l.href))?.title ?? "ERP Logístico";
@@ -76,8 +75,12 @@ export function Topbar() {
   }, []);
 
   async function logout() {
-    await createClient().auth.signOut();
-    router.replace("/login");
+    try {
+      await createClient().auth.signOut({ scope: "local" });
+    } finally {
+      // Recarga completa: limpia caché del router y estado en memoria; el middleware ya no ve sesión.
+      window.location.assign("/login");
+    }
   }
 
   const initial = (empresa ?? email ?? "?").trim().charAt(0).toUpperCase() || "?";
