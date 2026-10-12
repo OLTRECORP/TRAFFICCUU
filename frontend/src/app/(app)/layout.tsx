@@ -1,8 +1,10 @@
 import { Sidebar, Topbar } from "@/components/app-shell";
+import { BackendGate } from "@/components/backend-gate";
 import { ThemeProvider } from "@/components/theme-provider";
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   return (
+    <BackendGate>
     <ThemeProvider>
       <div className="flex min-h-screen">
         <Sidebar />
@@ -12,5 +14,6 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         </div>
       </div>
     </ThemeProvider>
+    </BackendGate>
   );
 }
