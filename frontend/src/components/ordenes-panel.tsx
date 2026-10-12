@@ -1,5 +1,6 @@
 "use client";
 
+import { ErrorAlert } from "@/components/error-alert";
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
@@ -43,7 +44,7 @@ export function OrdenesPanel({ qInicial = "" }: { qInicial?: string }) {
     <div className="grid gap-4">
       <ImportExcel onDone={load} />
       <Input className="max-w-xs" placeholder="Buscar N° de orden" value={q} onChange={(e) => { setQ(e.target.value); setPagina(1); }} />
-      {error && <p className="text-sm text-red-600">{error}</p>}
+      {error && <ErrorAlert where="ordenes" message={error} />}
       <Card className="rounded-xl">
         <Table>
           <TableHeader>

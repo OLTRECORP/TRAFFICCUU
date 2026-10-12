@@ -2,15 +2,16 @@
 
 import { useRef, useState } from "react";
 import { FileSpreadsheet, Loader2 } from "lucide-react";
-import { postBackend } from "@/lib/api";
+import { ApiError, postBackend } from "@/lib/api";
 import type { ImportExcelResult } from "@/lib/types";
 import { Alert } from "@/components/ui/alert";
+import { ErrorAlert } from "@/components/error-alert";
 import { Button } from "@/components/ui/button";
 
 /** Sube el Excel de administración de fletes; el backend crea o actualiza sin duplicar. */
 export function ImportExcel({ onDone }: { onDone: () => void }) {
   const [busy, setBusy] = useState(false);
-  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const [msg, setMsg] = useState<{ ok: boolean; text: string; status?: number; path?: string } | null>(null);
   const ref = useRef<HTMLInputElement>(null);
 
   async function onFile(files: FileList | null) {
@@ -30,7 +31,8 @@ export function ImportExcel({ onDone }: { onDone: () => void }) {
       });
       onDone();
     } catch (e) {
-      setMsg({ ok: false, text: (e as Error).message });
+      const a = e as ApiError;
+      setMsg({ ok: false, text: a.message, status: a.status, path: a.path });
     } finally {
       setBusy(false);
       if (ref.current) ref.current.value = "";
@@ -46,7 +48,7 @@ export function ImportExcel({ onDone }: { onDone: () => void }) {
           Importar Excel
         </Button>
       </div>
-      {msg && <Alert variant={msg.ok ? "success" : "error"}>{msg.text}</Alert>}
+      {msg && (msg.ok ? <Alert variant="success">{msg.text}</Alert> : <ErrorAlert where="importar-excel" message={msg.text} status={msg.status} path={msg.path} />)}
     </div>
   );
 }

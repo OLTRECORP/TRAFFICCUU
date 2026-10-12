@@ -1,5 +1,6 @@
 "use client";
 
+import { ErrorAlert } from "@/components/error-alert";
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
@@ -59,7 +60,7 @@ export function FacturasPanel({ ordenInicial = "" }: { ordenInicial?: string }) 
           <option value="SIN COMPLEMENTO">Sin complemento</option>
         </select>
       </div>
-      {error && <p className="text-sm text-red-600">{error}</p>}
+      {error && <ErrorAlert where="facturas" message={error} />}
       <Card className="rounded-xl">
         <Table>
           <TableHeader>
