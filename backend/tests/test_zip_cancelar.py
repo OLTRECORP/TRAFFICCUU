@@ -80,3 +80,52 @@ def test_cancelar_marca_interrumpidas_y_avisa_a_las_vivas(monkeypatch):
     por_id = {f["id"]: p for f, p in db.updates}
     assert por_id["viva"] == {"cancelar": True}
     assert por_id["muerta"]["estado"] == "cancelado"
+
+
+class Chain:
+    """Fake de supabase permisivo: cualquier método encadenable devuelve el mismo objeto; execute() devuelve filas."""
+    def __init__(self, db, name): self.db, self.name, self.op, self.p, self.single_ = db, name, "select", None, False
+    def __getattr__(self, _): return lambda *a, **k: self
+    @property
+    def not_(self): return self
+    def single(self): self.single_ = True; return self
+    def insert(self, row): self.op, self.p = "insert", row; return self
+    def upsert(self, row, **_): self.op, self.p = "upsert", row; return self
+    def update(self, row): self.op, self.p = "update", row; return self
+
+    def execute(self):
+        t = self.db.tables.setdefault(self.name, [])
+        if self.op in ("insert", "upsert"):
+            filas = self.p if isinstance(self.p, list) else [self.p]
+            t.extend(dict(f, id=f.get("id", f"{self.name}{len(t)}")) for f in filas)
+            return type("R", (), {"data": t[-len(filas):]})()
+        if self.op == "update":
+            self.db.updates.append((self.name, self.p))
+            return type("R", (), {"data": t})()
+        data = t[0] if self.single_ and t else t
+        return type("R", (), {"data": data})()
+
+
+class ChainDB:
+    def __init__(self, **t): self.tables, self.updates = t, []
+    def table(self, n): return Chain(self, n)
+
+
+def test_ejecutar_un_zip_de_punta_a_punta_no_truena(monkeypatch):
+    """Regresión: _ejecutar usaba _contadores/_reprocesar que no existían (NameError al subir un .zip)."""
+    db = ChainDB(empresa_configuracion=[{"id": "e1", "rfc": "AAA010101AAA"}], facturas=facturas())
+    monkeypatch.setattr(dm, "get_admin_client", lambda: db)
+    monkeypatch.setattr(dm, "get_settings", lambda: type("S", (), {"max_xml_bytes": 5 * 1024 * 1024})())
+    dm.ejecutar("e1", "job1", 2026, [], hacer_zip({"a.xml": cfdi(U1), "roto.xml": b"<no"}))
+    finales = [p for t, p in db.updates if t == "sat_descargas"]
+    assert finales and finales[-1]["estado"] in ("ok", "error")
+    assert not any("NameError" in str(p.get("error")) for p in finales)
+    assert finales[-1]["estado"] == "ok" and finales[-1]["facturas_asignadas"] == 1
+
+
+def test_ejecutar_reprocesar_no_truena(monkeypatch):
+    db = ChainDB(empresa_configuracion=[{"id": "e1", "rfc": "AAA010101AAA"}], facturas=facturas())
+    monkeypatch.setattr(dm, "get_admin_client", lambda: db)
+    dm.ejecutar("e1", "job2", 2026, [])
+    finales = [p for t, p in db.updates if t == "sat_descargas"]
+    assert finales and finales[-1]["estado"] == "ok"
