@@ -4,6 +4,7 @@ from fastapi import HTTPException, status
 from .auth import Tenant
 from .cfdi_parser import CFDIViaje, UbicacionData
 from .db import get_admin_client
+from .depuracion import unidad_por_alias
 from .rutas_service import LugaresCatalogo, _norm
 
 
@@ -56,7 +57,13 @@ def guardar_viaje(tenant: Tenant, v: CFDIViaje, factura_id: str | None = None, c
             if col != "empresa_id":
                 found = found.eq(col, row[col])
         hit = found.eq("empresa_id", eid).limit(1).execute().data
-        return hit[0]["id"] if hit else _upsert_id(table, conflict, row)
+        if hit:
+            return hit[0]["id"]
+        # una placa que se unificó a otra unidad (dato erróneo en el XML) no debe crear una unidad nueva
+        tipo = {"tractocamiones": "tracto", "gondolas": "gondola"}.get(table)
+        if tipo and (alias := unidad_por_alias(db, eid, tipo, row["placa"])):
+            return alias
+        return _upsert_id(table, conflict, row)
 
     tracto_id = ensure("tractocamiones", "empresa_id,placa", {
         "empresa_id": eid, "placa": v.placa_vehiculo, "modelo": v.modelo_vehiculo,

@@ -20,6 +20,7 @@ from app.facturas_sat import ejecutar as sat_ejecutar, preparar as sat_preparar
 from app.excel_import import ExcelError, guardar, parse_workbook
 from app.sat import descargar_cfdis
 from app.viajes_service import guardar_viaje
+from app import depuracion
 
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger("api")
@@ -232,3 +233,44 @@ def viaje_lugares(viaje_id: uuidlib.UUID, body: ViajeLugaresRequest, tenant: Ten
 def viajes_calcular_km(tenant: Tenant = Depends(current_tenant)) -> dict:
     """Asigna origen/destino por nombre a los viajes sin lugares y calcula los km operativos faltantes."""
     return calcular_km_viajes(tenant.empresa_id)
+
+
+class EliminarFacturasRequest(BaseModel):
+    ids: list[uuidlib.UUID] = Field(min_length=1, max_length=depuracion.MAX_FACTURAS)
+    motivo: str | None = Field(default=None, max_length=300)
+    confirmar: bool = False
+
+
+class UnificarRequest(BaseModel):
+    tipo: Literal["tracto", "gondola"]
+    origen_id: uuidlib.UUID      # el duplicado, que desaparece
+    destino_id: uuidlib.UUID     # la unidad correcta, que conserva todo
+    confirmar: bool = False
+
+
+@app.post("/api/facturas/eliminar-vista-previa")
+def facturas_eliminar_vista_previa(body: EliminarFacturasRequest, tenant: Tenant = Depends(current_tenant)) -> dict:
+    """Qué se borraría al eliminar esas facturas (viajes, XML, km), sin borrar nada."""
+    return depuracion.vista_previa_eliminar(tenant.empresa_id, body.ids)
+
+
+@app.post("/api/facturas/eliminar")
+def facturas_eliminar(body: EliminarFacturasRequest, tenant: Tenant = Depends(current_tenant)) -> dict:
+    """Elimina facturas con su viaje y XML, dejando el respaldo completo en la auditoría. Exige confirmar=true."""
+    if not body.confirmar:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Falta la confirmación")
+    return depuracion.eliminar_facturas(tenant.empresa_id, tenant.user_id, body.ids, body.motivo)
+
+
+@app.post("/api/unidades/unificar-vista-previa")
+def unidades_unificar_vista_previa(body: UnificarRequest, tenant: Tenant = Depends(current_tenant)) -> dict:
+    """Qué se movería del duplicado al destino, sin cambiar nada."""
+    return depuracion.vista_previa_unificar(tenant.empresa_id, body.tipo, str(body.origen_id), str(body.destino_id))
+
+
+@app.post("/api/unidades/unificar")
+def unidades_unificar(body: UnificarRequest, tenant: Tenant = Depends(current_tenant)) -> dict:
+    """Unifica un tracto/góndola duplicado con el correcto. Exige confirmar=true."""
+    if not body.confirmar:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Falta la confirmación")
+    return depuracion.unificar(tenant.empresa_id, tenant.user_id, body.tipo, str(body.origen_id), str(body.destino_id))

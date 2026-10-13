@@ -2,6 +2,7 @@
 
 import { CatalogoPanel, Vigencia, type CatalogoConfig } from "@/components/catalogo-panel";
 import type { Campo } from "@/components/ficha-campos";
+import { UnificarUnidades } from "@/components/unificar-unidades";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 const comunes: Campo[] = [
@@ -59,8 +60,8 @@ export function UnidadesPanel() {
         <TabsTrigger value="tractos">Tractos</TabsTrigger>
         <TabsTrigger value="gondolas">Góndolas</TabsTrigger>
       </TabsList>
-      <TabsContent value="tractos"><CatalogoPanel cfg={tractos} /></TabsContent>
-      <TabsContent value="gondolas"><CatalogoPanel cfg={gondolas} /></TabsContent>
+      <TabsContent value="tractos"><div className="grid gap-4"><UnificarUnidades tipo="tracto" /><CatalogoPanel cfg={tractos} /></div></TabsContent>
+      <TabsContent value="gondolas"><div className="grid gap-4"><UnificarUnidades tipo="gondola" /><CatalogoPanel cfg={gondolas} /></div></TabsContent>
     </Tabs>
   );
 }
