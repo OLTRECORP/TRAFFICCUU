@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Loader2, Pencil, Plus, Trash2 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
+import { todo } from "@/lib/paginar";
 import { rendimientoPorChofer, type Carga, type RendChofer, type ViajeRend } from "@/lib/combustible";
 import type { Chofer, Tracto } from "@/lib/types";
 import { fechaMx, km, mxn } from "@/lib/utils";
@@ -23,16 +24,6 @@ const litros = (n: number) => `${num(n, 2)} L`;
 
 type TractoOp = Pick<Tracto, "id" | "empresa_id" | "placa">;
 type ChoferOp = Pick<Chofer, "id" | "nombre"> & { tracto_asignado_id: string | null };
-
-async function todo<T>(q: (d: number, h: number) => PromiseLike<{ data: unknown[] | null; error: { message: string } | null }>): Promise<T[]> {
-  const acum: T[] = [];
-  for (let d = 0; ; d += PAG) {
-    const { data, error } = await q(d, d + PAG - 1);
-    if (error) throw new Error(error.message);
-    acum.push(...((data ?? []) as T[]));
-    if ((data?.length ?? 0) < PAG) return acum;
-  }
-}
 
 function Kpi({ label, value }: { label: string; value: string }) {
   return (

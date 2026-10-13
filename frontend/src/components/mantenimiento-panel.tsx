@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Loader2, Search, User, Wrench } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
+import { todo } from "@/lib/paginar";
 import { calcularAlertas, peorNivel, type Alerta, type Nivel } from "@/lib/mantenimiento";
 import { tramos, type Carga, type ViajeRend } from "@/lib/combustible";
 import type { Bitacora, Chofer, Regla, ServicioMant, Tracto } from "@/lib/types";
@@ -51,16 +52,6 @@ function Anillo({ valor, nivel, etiqueta, detalle, vacio }: { valor: number | nu
       {detalle && <span className="text-xs text-muted-foreground">{detalle}</span>}
     </div>
   );
-}
-
-async function todo<T>(q: (d: number, h: number) => PromiseLike<{ data: unknown[] | null; error: { message: string } | null }>): Promise<T[]> {
-  const out: T[] = [];
-  for (let d = 0; ; d += 1000) {
-    const { data, error } = await q(d, d + 999);
-    if (error) throw new Error(error.message);
-    out.push(...((data ?? []) as T[]));
-    if ((data ?? []).length < 1000) return out;
-  }
 }
 
 type ChoferAsig = Pick<Chofer, "id" | "nombre" | "licencia"> & { tracto_asignado_id: string | null };
