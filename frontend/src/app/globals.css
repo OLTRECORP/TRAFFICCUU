@@ -50,3 +50,11 @@
   * { @apply border-border; }
   body { @apply bg-background text-foreground antialiased; }
 }
+
+/* Mapa Leaflet: en modo oscuro se invierten los mosaicos y las etiquetas toman los colores del tema. */
+.dark .mapa-tema .leaflet-tile-pane { filter: invert(1) hue-rotate(180deg) brightness(0.95) contrast(0.9); }
+.mapa-tema .leaflet-tooltip.mapa-etiqueta {
+  background: hsl(var(--card)); color: hsl(var(--card-foreground)); border-color: hsl(var(--border));
+  font-weight: 600; box-shadow: 0 1px 3px rgb(0 0 0 / 0.25);
+}
+.mapa-tema .leaflet-tooltip-top.mapa-etiqueta::before { border-top-color: hsl(var(--card)); }
