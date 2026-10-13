@@ -403,7 +403,12 @@ def _reprocesar(db, empresa_id: str, ctx: dict, acu: dict) -> None:
     avisar, parar = ctx["log"], ctx["parar"]
     filas = _leer_todo(lambda a, b: db.table("facturas_sat").select("factura_id").eq("empresa_id", empresa_id)
                        .eq("estado", "ok").not_.is_("xml", "null").order("factura_id").range(a, b))
-    avisar(f"{len(filas)} factura(s) con XML guardado; registrando su Carta Porte…")
+    # Solo las que todavía no tienen viaje: un reproceso o una descarga nueva no repasa lo que ya está registrado.
+    con_viaje = {v["factura_id"] for v in _leer_todo(lambda a, b: db.table("viajes").select("factura_id").eq("empresa_id", empresa_id)
+                                                      .not_.is_("factura_id", "null").order("id").range(a, b))}
+    total = len(filas)
+    filas = [f for f in filas if f["factura_id"] not in con_viaje]
+    avisar(f"{total} factura(s) con XML guardado, {len(filas)} sin viaje; registrando su Carta Porte…")
     folios = {f["id"]: f["folio"] for f in _leer_todo(lambda a, b: db.table("facturas").select("id, folio")
                                                        .eq("empresa_id", empresa_id).order("id").range(a, b))}
     for fila in filas:
@@ -510,6 +515,15 @@ def _ejecutar(empresa_id: str, job_id: str, anio: int, meses: list[int], zip_byt
                 entrada["xml"] = acu["xml_recibidos"] - antes
                 guardar("en_proceso")
             ok = not all(e["estado"] == "error" for e in detalle)
+            # Los XML que ya estaban guardados de corridas anteriores (o bajados uno por uno) y aún no tienen viaje
+            # no se vuelven a descargar, así que su Carta Porte se registra aquí para que el dashboard los cuente.
+            try:
+                _reprocesar(db, empresa_id, ctx, acu)
+            except Cancelado:
+                raise
+            except Exception as exc:
+                log.exception("Descarga masiva %s: no se pudo registrar la Carta Porte pendiente", job_id)
+                avisar(f"No se pudo registrar la Carta Porte de los XML guardados: {type(exc).__name__}: {str(exc)[:150]}", "error")
     except Cancelado:
         cancelado = True
         avisar("Proceso detenido por el usuario. Lo ya asignado se conservó; puedes volver a iniciarlo y continuará con lo que falte.", "aviso")
