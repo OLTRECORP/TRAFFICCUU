@@ -23,16 +23,11 @@ export const CATEGORIAS_SERVICIO = [
   { value: "motor", label: "Motor" },
   { value: "electrico", label: "Eléctrico" },
   { value: "mecanico", label: "Mecánico" },
+  { value: "soldadura", label: "Soldaduras" },
   { value: "hidraulico", label: "Hidráulico" },
-  { value: "soldadura", label: "Soldadura" },
-  { value: "carroceria", label: "Carrocería" },
-  { value: "suspension", label: "Suspensión" },
-  { value: "frenos", label: "Frenos" },
-  { value: "llantas", label: "Llantas" },
-  { value: "transmision", label: "Transmisión" },
   { value: "otro", label: "Otro" },
 ] as const;
-export const etiquetaCategoria = (v: string | null) => CATEGORIAS_SERVICIO.find((c) => c.value === v)?.label;
+const etiquetaCategoria = (v: string | null) => CATEGORIAS_SERVICIO.find((c) => c.value === v)?.label;
 
 const hoy = () => new Date().toISOString().slice(0, 10);
 

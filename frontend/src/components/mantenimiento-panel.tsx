@@ -7,7 +7,7 @@ import { calcularAlertas, peorNivel, type Alerta, type Nivel } from "@/lib/mante
 import { tramos, type Carga, type ViajeRend } from "@/lib/combustible";
 import type { Bitacora, Chofer, Regla, ServicioMant, Tracto } from "@/lib/types";
 import { cn, fechaMx, km, mxn } from "@/lib/utils";
-import { FichaServicios, etiquetaCategoria } from "@/components/ficha-servicios";
+import { CATEGORIAS_SERVICIO, FichaServicios } from "@/components/ficha-servicios";
 import { Alert } from "@/components/ui/alert";
 import { ErrorAlert } from "@/components/error-alert";
 import { Badge } from "@/components/ui/badge";
@@ -252,7 +252,7 @@ function Detalle({ tracto, alertas, chofer, servicios, cargas, kmViajes, onServi
 function CostoOperacion({ servicios, cargas, kmViajes }: { servicios: ServicioMant[]; cargas: Carga[]; kmViajes: number }) {
   const porTipo = new Map<string, number>();
   for (const s of servicios) {
-    const k = etiquetaCategoria(s.categoria) ?? "Sin tipo";
+    const k = CATEGORIAS_SERVICIO.find((c) => c.value === s.categoria)?.label ?? "Sin tipo";
     porTipo.set(k, (porTipo.get(k) ?? 0) + Number(s.costo));
   }
   const filas = [...porTipo.entries()].sort((a, b) => b[1] - a[1]);

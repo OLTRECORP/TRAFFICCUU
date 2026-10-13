@@ -20,18 +20,6 @@ import { UploadXml } from "./upload-xml";
 const SELECT =
   "*, origen:ubicaciones!origen_id(*), destino:ubicaciones!destino_id(*), chofer:choferes(*), lugar_origen:lugares!lugar_origen_id(nombre), lugar_destino:lugares!lugar_destino_id(nombre), tracto:tractocamiones(id,placa), gondola:gondolas(*)";
 
-const PAG = 1000;   // PostgREST entrega como máximo 1000 filas por consulta: se pide por páginas hasta traer todo
-
-async function todas<T>(q: (d: number, h: number) => PromiseLike<{ data: unknown[] | null; error: { message: string } | null }>): Promise<T[]> {
-  const out: T[] = [];
-  for (let d = 0; ; d += PAG) {
-    const { data, error } = await q(d, d + PAG - 1);
-    if (error) throw new Error(error.message);
-    out.push(...((data ?? []) as T[]));
-    if ((data?.length ?? 0) < PAG) return out;
-  }
-}
-
 export function DashboardView() {
   const { empresa } = useTheme();
   const [viajes, setViajes] = useState<Viaje[]>([]);
@@ -47,14 +35,9 @@ export function DashboardView() {
   const [errorFacturas, setErrorFacturas] = useState<string | null>(null);
 
   const load = useCallback(async () => {
-    try {
-      const sb = createClient();
-      // id como desempate: sin orden estable, las páginas podrían repetir o saltar viajes con la misma fecha
-      setViajes(await todas<Viaje>((d, h) => sb.from("viajes").select(SELECT).order("fecha", { ascending: false }).order("id").range(d, h)));
-      setError(null);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    }
+    const { data, error } = await createClient().from("viajes").select(SELECT).order("fecha", { ascending: false }).limit(1000);
+    if (error) setError(error.message);
+    else setViajes((data ?? []) as unknown as Viaje[]);
     setLoading(false);
   }, []);
   useEffect(() => { load(); }, [load]);
@@ -66,9 +49,7 @@ export function DashboardView() {
       sb.from("facturas_estadisticas").select("estado, complemento, con_orden, con_complemento, n, total"),
       sb.from("facturas_por_mes").select("mes, n, total").order("mes", { ascending: false }).limit(12),
       sb.from("facturas_por_dia").select("dia, n, total").gte("dia", desde).limit(1000),
-      todas<OrdenResumen>((a, b) => sb.from("ordenes_compra_resumen").select("*").order("id").range(a, b)).then(
-        (data) => ({ data, error: null }), (x: Error) => ({ data: null, error: x }),
-      ),
+      sb.from("ordenes_compra_resumen").select("*").limit(1000),
     ]);
     const err = e.error ?? m.error ?? d.error ?? o.error;
     if (err) { setErrorFacturas(err.message); return; }
