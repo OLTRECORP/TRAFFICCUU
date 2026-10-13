@@ -24,6 +24,11 @@ export const CATEGORIAS_SERVICIO = [
   { value: "mecanico", label: "Mecánico" },
   { value: "soldadura", label: "Soldaduras" },
   { value: "hidraulico", label: "Hidráulico" },
+  { value: "carroceria", label: "Carrocería" },
+  { value: "suspension", label: "Suspensión" },
+  { value: "llantas", label: "Llantas" },
+  { value: "frenos", label: "Frenos" },
+  { value: "transmision", label: "Transmisión" },
   { value: "otro", label: "Otro" },
 ] as const;
 const etiquetaCategoria = (v: string | null) => CATEGORIAS_SERVICIO.find((c) => c.value === v)?.label;
