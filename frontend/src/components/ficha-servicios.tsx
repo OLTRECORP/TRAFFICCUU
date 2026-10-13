@@ -17,6 +17,17 @@ interface Props {
   kmActual?: number | null;   // sugerencia de odómetro (tractos)
 }
 
+// Tipos de servicio; aplican igual a tractos y góndolas.
+export const CATEGORIAS_SERVICIO = [
+  { value: "motor", label: "Motor" },
+  { value: "electrico", label: "Eléctrico" },
+  { value: "mecanico", label: "Mecánico" },
+  { value: "soldadura", label: "Soldaduras" },
+  { value: "hidraulico", label: "Hidráulico" },
+  { value: "otro", label: "Otro" },
+] as const;
+const etiquetaCategoria = (v: string | null) => CATEGORIAS_SERVICIO.find((c) => c.value === v)?.label;
+
 const hoy = () => new Date().toISOString().slice(0, 10);
 
 // Bitácora de mantenimiento de una unidad. Tracto: fecha + km + servicio + costo. Góndola: fecha + servicio + costo.
@@ -27,7 +38,7 @@ export function FichaServicios({ tipo, unidadId, empresaId, kmActual }: Props) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [editar, setEditar] = useState<ServicioMant | "nuevo" | null>(null);
-  const [f, setF] = useState({ fecha: hoy(), km: "", servicio: "", costo: "", notas: "" });
+  const [f, setF] = useState({ fecha: hoy(), km: "", servicio: "", categoria: "", costo: "", notas: "" });
   const [saving, setSaving] = useState(false);
 
   const load = useCallback(async () => {
@@ -41,8 +52,8 @@ export function FichaServicios({ tipo, unidadId, empresaId, kmActual }: Props) {
   function abrir(s: ServicioMant | "nuevo") {
     setError(null);
     setF(s === "nuevo"
-      ? { fecha: hoy(), km: kmActual != null ? String(Math.round(Number(kmActual))) : "", servicio: "", costo: "", notas: "" }
-      : { fecha: s.fecha, km: s.kilometraje != null ? String(s.kilometraje) : "", servicio: s.servicio, costo: String(s.costo), notas: s.notas ?? "" });
+      ? { fecha: hoy(), km: kmActual != null ? String(Math.round(Number(kmActual))) : "", servicio: "", categoria: "", costo: "", notas: "" }
+      : { fecha: s.fecha, km: s.kilometraje != null ? String(s.kilometraje) : "", servicio: s.servicio, categoria: s.categoria ?? "", costo: String(s.costo), notas: s.notas ?? "" });
     setEditar(s);
   }
 
@@ -54,7 +65,7 @@ export function FichaServicios({ tipo, unidadId, empresaId, kmActual }: Props) {
     if (!Number.isFinite(costo) || costo < 0) return setError("Costo inválido");
     if (esTracto && (f.km === "" || !Number.isFinite(kilometraje) || (kilometraje as number) < 0)) return setError("Kilometraje inválido");
     setSaving(true); setError(null);
-    const datos = { fecha: f.fecha, kilometraje, servicio: f.servicio.trim(), costo, notas: f.notas.trim() || null };
+    const datos = { fecha: f.fecha, kilometraje, servicio: f.servicio.trim(), categoria: f.categoria || null, costo, notas: f.notas.trim() || null };
     const sb = createClient();
     const { error: err } = editar === "nuevo"
       ? await sb.from("servicios_mantenimiento").insert({ ...datos, empresa_id: empresaId, [col]: unidadId })
@@ -94,6 +105,13 @@ export function FichaServicios({ tipo, unidadId, empresaId, kmActual }: Props) {
             </div>
           </div>
           <div className="grid gap-1.5">
+            <Label htmlFor="sv-cat">Tipo de servicio</Label>
+            <select id="sv-cat" className="h-10 rounded-md border bg-background px-3 text-sm" value={f.categoria} onChange={(e) => setF({ ...f, categoria: e.target.value })}>
+              <option value="">Sin categoría</option>
+              {CATEGORIAS_SERVICIO.map((c) => <option key={c.value} value={c.value}>{c.label}</option>)}
+            </select>
+          </div>
+          <div className="grid gap-1.5">
             <Label htmlFor="sv-serv">Servicio realizado</Label>
             <Input id="sv-serv" required value={f.servicio} onChange={(e) => setF({ ...f, servicio: e.target.value })} placeholder={esTracto ? "Cambio de aceite y filtros" : "Cambio de balatas"} />
           </div>
@@ -121,7 +139,7 @@ export function FichaServicios({ tipo, unidadId, empresaId, kmActual }: Props) {
                 <div>
                   <p className="font-medium">{s.servicio}</p>
                   <p className="text-xs text-muted-foreground">
-                    {fechaMx(s.fecha)}{s.kilometraje != null && ` · ${km(s.kilometraje)}`}{s.notas && ` · ${s.notas}`}
+                    {etiquetaCategoria(s.categoria) && `${etiquetaCategoria(s.categoria)} · `}{fechaMx(s.fecha)}{s.kilometraje != null && ` · ${km(s.kilometraje)}`}{s.notas && ` · ${s.notas}`}
                   </p>
                 </div>
                 <div className="flex items-center gap-1 whitespace-nowrap">
