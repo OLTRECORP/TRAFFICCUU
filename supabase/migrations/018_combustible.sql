@@ -2,7 +2,8 @@
 --  * litros: litros de diésel de la carga (> 0). costo: monto total pagado en MXN (IVA incluido), opcional.
 --  * kilometraje: odómetro del tracto al momento de la carga, opcional. Sin odómetro la carga cuenta para
 --    litros y costo, pero no para km/l (el portal no adivina kilómetros).
---  * chofer_id: opcional; si se omite, el portal lo deduce del último viaje del tracto a esa fecha.
+--  * chofer_id: opcional; si se omite, el portal usa el chofer asignado al tracto (choferes.tracto_asignado_id)
+--    y, si no hay, el del último viaje del tracto a esa fecha.
 
 create table if not exists public.cargas_combustible (
   id          uuid primary key default gen_random_uuid(),
@@ -48,5 +49,11 @@ left join public.facturas f on f.id = v.factura_id
 where f.estado is distinct from 'cancelado';
 
 grant select on public.rendimiento_viajes to authenticated;
+
+-- Asignación fija chofer-tracto (un tracto, un chofer asignado a la vez; un chofer, un tracto).
+-- Se usa para atribuir cargas sin chofer capturado. No guarda historial: si se reasigna, aplica a cargas pasadas sin chofer.
+alter table public.choferes
+  add column if not exists tracto_asignado_id uuid references public.tractocamiones (id) on delete set null;
+create unique index if not exists choferes_tracto_asignado_uk on public.choferes (tracto_asignado_id) where tracto_asignado_id is not null;
 
 notify pgrst, 'reload schema';

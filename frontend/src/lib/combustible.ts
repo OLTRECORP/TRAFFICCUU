@@ -32,12 +32,17 @@ export interface RendChofer {
 const cmp = (a: Carga, b: Carga) =>
   a.fecha.localeCompare(b.fecha) || (a.kilometraje ?? 0) - (b.kilometraje ?? 0) || a.id.localeCompare(b.id);
 
+/** tracto_id -> chofer_id con asignación fija (choferes.tracto_asignado_id). */
+export type Asignaciones = Map<string, string>;
+
 /**
- * Chofer de una carga: el que se capturó; si no, el del último viaje del tracto con fecha <= la de la carga
+ * Chofer de una carga: el que se capturó; si no, el asignado al tracto; si no, el del último viaje del tracto con fecha <= la de la carga
  * (el tracto lo traía él); si no hay viajes previos, null ("sin chofer").
  */
-export function choferDeCarga(c: Carga, viajes: ViajeRend[]): string | null {
+export function choferDeCarga(c: Carga, viajes: ViajeRend[], asignados: Asignaciones = new Map()): string | null {
   if (c.chofer_id) return c.chofer_id;
+  const fijo = asignados.get(c.tracto_id);
+  if (fijo) return fijo;
   let mejor: ViajeRend | null = null;
   for (const v of viajes) {
     if (v.tracto_id !== c.tracto_id || !v.chofer_id || v.fecha_viaje > c.fecha) continue;
@@ -51,7 +56,7 @@ export function choferDeCarga(c: Carga, viajes: ViajeRend[]): string | null {
  * Se asume tanque lleno en cada carga: los litros del tramo son los de la carga que lo cierra. Un tramo con
  * odómetro que no avanza se descarta.
  */
-export function tramos(cargas: Carga[], viajes: ViajeRend[]): Tramo[] {
+export function tramos(cargas: Carga[], viajes: ViajeRend[], asignados: Asignaciones = new Map()): Tramo[] {
   const porTracto = new Map<string, Carga[]>();
   for (const c of cargas) if (c.kilometraje != null) porTracto.set(c.tracto_id, [...(porTracto.get(c.tracto_id) ?? []), c]);
   const out: Tramo[] = [];
@@ -64,7 +69,7 @@ export function tramos(cargas: Carga[], viajes: ViajeRend[]): Tramo[] {
       const kmCp = viajes
         .filter((v) => v.tracto_id === tractoId && v.fecha_viaje > a.fecha && v.fecha_viaje <= b.fecha)
         .reduce((s, v) => s + Number(v.km), 0);
-      out.push({ tractoId, choferId: choferDeCarga(b, viajes), desde: a.fecha, hasta: b.fecha, kmOdometro: kmOdo, kmCartaPorte: kmCp, litros: Number(b.litros) });
+      out.push({ tractoId, choferId: choferDeCarga(b, viajes, asignados), desde: a.fecha, hasta: b.fecha, kmOdometro: kmOdo, kmCartaPorte: kmCp, litros: Number(b.litros) });
     }
   }
   return out;
@@ -75,7 +80,7 @@ export function tramos(cargas: Carga[], viajes: ViajeRend[]): Tramo[] {
  * viajes: el rango filtra después, para que el primer tramo del periodo no pierda su carga de referencia.
  * Un tramo cuenta en el rango según la fecha de la carga que lo cierra.
  */
-export function rendimientoPorChofer(cargas: Carga[], viajes: ViajeRend[], desde: string, hasta: string): RendChofer[] {
+export function rendimientoPorChofer(cargas: Carga[], viajes: ViajeRend[], desde: string, hasta: string, asignados: Asignaciones = new Map()): RendChofer[] {
   const enRango = (f: string) => (!desde || f >= desde) && (!hasta || f <= hasta);
   const mapa = new Map<string | null, RendChofer>();
   const get = (id: string | null) => {
@@ -89,11 +94,11 @@ export function rendimientoPorChofer(cargas: Carga[], viajes: ViajeRend[], desde
   };
   for (const c of cargas) {
     if (!enRango(c.fecha)) continue;
-    const r = get(choferDeCarga(c, viajes));
+    const r = get(choferDeCarga(c, viajes, asignados));
     r.cargas += 1; r.litros += Number(c.litros); r.costo += Number(c.costo ?? 0);
     if (c.kilometraje == null) r.cargasSinOdometro += 1;
   }
-  for (const t of tramos(cargas, viajes)) {
+  for (const t of tramos(cargas, viajes, asignados)) {
     if (!enRango(t.hasta)) continue;
     const r = get(t.choferId);
     r.tramos.push(t); r.kmOdometro += t.kmOdometro; r.litrosTramos += t.litros; r.kmCartaPorte += t.kmCartaPorte;

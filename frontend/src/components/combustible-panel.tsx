@@ -22,7 +22,7 @@ const num = (n: number | null, d = 1) => n == null ? "—" : new Intl.NumberForm
 const litros = (n: number) => `${num(n, 2)} L`;
 
 type TractoOp = Pick<Tracto, "id" | "empresa_id" | "placa">;
-type ChoferOp = Pick<Chofer, "id" | "nombre">;
+type ChoferOp = Pick<Chofer, "id" | "nombre"> & { tracto_asignado_id: string | null };
 
 async function todo<T>(q: (d: number, h: number) => PromiseLike<{ data: unknown[] | null; error: { message: string } | null }>): Promise<T[]> {
   const acum: T[] = [];
@@ -60,7 +60,7 @@ export function CombustiblePanel() {
     try {
       const [t, c, cg, v] = await Promise.all([
         todo<TractoOp>((d, h) => sb.from("tractocamiones").select("id, empresa_id, placa").order("placa").range(d, h)),
-        todo<ChoferOp>((d, h) => sb.from("choferes").select("id, nombre").order("nombre").range(d, h)),
+        todo<ChoferOp>((d, h) => sb.from("choferes").select("id, nombre, tracto_asignado_id").order("nombre").range(d, h)),
         todo<Carga>((d, h) => sb.from("cargas_combustible").select("*").order("fecha", { ascending: false }).order("id").range(d, h)),
         todo<ViajeRend>((d, h) => sb.from("rendimiento_viajes").select("viaje_id, chofer_id, tracto_id, fecha_viaje, km").order("fecha_viaje").order("viaje_id").range(d, h)),
       ]);
@@ -80,7 +80,11 @@ export function CombustiblePanel() {
     () => cargas.filter((c) => (!tractoId || c.tracto_id === tractoId) && (!desde || c.fecha >= desde) && (!hasta || c.fecha <= hasta)),
     [cargas, tractoId, desde, hasta],
   );
-  const rend = useMemo(() => rendimientoPorChofer(cargas, viajes, desde, hasta), [cargas, viajes, desde, hasta]);
+  const asignados = useMemo(
+    () => new Map(choferes.filter((c) => c.tracto_asignado_id).map((c) => [c.tracto_asignado_id!, c.id])),
+    [choferes],
+  );
+  const rend = useMemo(() => rendimientoPorChofer(cargas, viajes, desde, hasta, asignados), [cargas, viajes, desde, hasta, asignados]);
 
   async function borrar(c: Carga) {
     if (!window.confirm(`¿Eliminar la carga de ${litros(c.litros)} del ${fechaMx(c.fecha)} (${placa.get(c.tracto_id) ?? "tracto"})?`)) return;
@@ -126,6 +130,7 @@ export function CombustiblePanel() {
         <TabsList>
           <TabsTrigger value="cargas">Cargas</TabsTrigger>
           <TabsTrigger value="rendimiento">Rendimiento por chofer</TabsTrigger>
+          <TabsTrigger value="asignacion">Chofer y tracto</TabsTrigger>
         </TabsList>
 
         <TabsContent value="cargas" className="grid gap-4">
@@ -176,12 +181,57 @@ export function CombustiblePanel() {
         <TabsContent value="rendimiento" className="grid gap-4">
           <Rendimiento filas={rend} nombre={nombre} placa={placa} />
         </TabsContent>
+
+        <TabsContent value="asignacion">
+          <Asignacion choferes={choferes} tractos={tractos} onError={setError} onSaved={load} />
+        </TabsContent>
       </Tabs>
 
       <FormCarga
         carga={editar} tractos={tractos} choferes={choferes} tractoInicial={tractoId}
         onClose={() => setEditar(null)} onSaved={() => { setEditar(null); void load(); }}
       />
+    </div>
+  );
+}
+
+function Asignacion({ choferes, tractos, onError, onSaved }: {
+  choferes: ChoferOp[]; tractos: TractoOp[]; onError: (m: string) => void; onSaved: () => Promise<void>;
+}) {
+  const [guardando, setGuardando] = useState<string | null>(null);
+  async function cambiar(c: ChoferOp, tractoId: string) {
+    setGuardando(c.id);
+    const { error: e } = await createClient().from("choferes").update({ tracto_asignado_id: tractoId || null }).eq("id", c.id);
+    if (e) onError(e.code === "23505" ? "Ese tracto ya está asignado a otro chofer; quítaselo primero." : e.message);
+    else await onSaved();
+    setGuardando(null);
+  }
+  return (
+    <div className="grid gap-3">
+      <Card>
+        <Table>
+          <TableHeader>
+            <TableRow className="hover:bg-transparent"><TableHead>Chofer</TableHead><TableHead>Tracto asignado</TableHead></TableRow>
+          </TableHeader>
+          <TableBody>
+            {choferes.length === 0 ? (
+              <TableRow><TableCell colSpan={2} className="py-8 text-center text-muted-foreground">Aún no hay choferes.</TableCell></TableRow>
+            ) : choferes.map((c) => (
+              <TableRow key={c.id}>
+                <TableCell className="font-medium">{c.nombre}</TableCell>
+                <TableCell>
+                  <select aria-label={`Tracto de ${c.nombre}`} className={sel} disabled={guardando === c.id}
+                    value={c.tracto_asignado_id ?? ""} onChange={(e) => void cambiar(c, e.target.value)}>
+                    <option value="">Sin tracto fijo</option>
+                    {tractos.map((t) => <option key={t.id} value={t.id}>{t.placa}</option>)}
+                  </select>
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </Card>
+      <p className="text-xs text-muted-foreground">Un tracto solo puede tener un chofer asignado. No guarda historial: al reasignar, las cargas pasadas sin chofer capturado se atribuyen al nuevo chofer.</p>
     </div>
   );
 }
@@ -220,7 +270,7 @@ function Rendimiento({ filas, nombre, placa }: { filas: RendChofer[]; nombre: Ma
       <div className="grid gap-1 text-xs text-muted-foreground">
         <p><b>km/l (odómetro)</b>: kilómetros del odómetro entre dos cargas consecutivas del mismo tracto ÷ litros de la carga que cierra el tramo (se asume tanque lleno en cada carga).</p>
         <p><b>km/l (Carta Porte)</b>: km (redondo) de los viajes del tracto con fecha de salida entre ambas cargas ÷ los mismos litros; es referencia, no cuenta viajes vacíos ni fechas del mismo día.</p>
-        <p>Las cargas sin odómetro cuentan en litros, costo y litros por viaje, pero no en km/l. La carga sin chofer se asigna al del último viaje de ese tracto a su fecha; si no hay, va en «Sin chofer». Solo se cuentan viajes de choferes con cargas en el rango; facturas canceladas excluidas.</p>
+        <p>Las cargas sin odómetro cuentan en litros, costo y litros por viaje, pero no en km/l. La carga sin chofer se atribuye al chofer asignado al tracto (pestaña «Chofer y tracto»); si no hay, al del último viaje de ese tracto a su fecha; si tampoco, va en «Sin chofer». Solo se cuentan viajes de choferes con cargas en el rango; facturas canceladas excluidas.</p>
       </div>
     </>
   );
@@ -341,7 +391,7 @@ function FormCarga({
           <div className="grid gap-2">
             <Label htmlFor="cf-chofer">Chofer (opcional)</Label>
             <select id="cf-chofer" className={sel} value={f.chofer} onChange={set("chofer")}>
-              <option value="">Deducir del último viaje del tracto</option>
+              <option value="">Usar el chofer asignado al tracto</option>
               {choferes.map((c) => <option key={c.id} value={c.id}>{c.nombre}</option>)}
             </select>
           </div>
