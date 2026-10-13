@@ -55,6 +55,7 @@ export interface ViajeSobrepeso {
 }
 
 export interface Regla { id: string; tipo_servicio: string; intervalo_km: number }
+export interface ServicioMant { id: string; empresa_id: string; tracto_id: string | null; gondola_id: string | null; fecha: string; kilometraje: number | null; servicio: string; costo: number; notas: string | null }
 export interface Bitacora { id: string; tracto_id: string; servicio_id: string; kilometraje_al_servicio: number; fecha: string; observaciones: string | null }
 
 export interface EmpresaConfig {

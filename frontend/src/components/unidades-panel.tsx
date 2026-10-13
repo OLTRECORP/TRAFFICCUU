@@ -35,7 +35,7 @@ const buscar = ["placa", "numero_economico", "marca", "modelo", "num_serie"];
 const vigencias = [{ key: "seguro_vigencia", label: "Seguro" }];
 
 const tractos: CatalogoConfig = {
-  tabla: "tractocamiones", relacion: "tracto_id", singular: "tracto", orden: "placa", buscar, vigencias,
+  tabla: "tractocamiones", relacion: "tracto_id", bitacora: "tracto", singular: "tracto", orden: "placa", buscar, vigencias,
   campos: [...comunes.slice(0, 6), { key: "config_vehicular", label: "Config. vehicular (ej. T3S2)", upper: true },
     { key: "capacidad_kg", label: "Capacidad de carga (kg)", type: "number" }, ...comunes.slice(6)],
   extra: [{ key: "kilometraje_inicial", label: "Kilometraje inicial", type: "number" }],
@@ -46,7 +46,7 @@ const tractos: CatalogoConfig = {
 };
 
 const gondolas: CatalogoConfig = {
-  tabla: "gondolas", relacion: "gondola_id", singular: "góndola", orden: "placa", buscar, vigencias,
+  tabla: "gondolas", relacion: "gondola_id", bitacora: "gondola", singular: "góndola", orden: "placa", buscar, vigencias,
   campos: [...comunes.slice(0, 6), { key: "subtipo", label: "Subtipo de remolque (ej. CTR_011)", upper: true }, ...comunes.slice(6)],
   columnas: columnasComunes,
   detalle: [...detalleComun.slice(0, 6), { label: "Subtipo de remolque", key: "subtipo" }, ...detalleComun.slice(6)],

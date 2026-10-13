@@ -11,6 +11,7 @@ import { Card } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Campos, aPayload, aValores, nivelVigencia, type Campo, type Valores } from "@/components/ficha-campos";
+import { FichaServicios } from "@/components/ficha-servicios";
 import { FichaViajes, type Relacion } from "@/components/ficha-viajes";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 
@@ -26,6 +27,7 @@ export interface CatalogoConfig {
   orden: string;
   vigencias?: { key: string; label: string }[];   // se muestran con semáforo en el detalle
   detalle: { label: string; key: string }[];
+  bitacora?: "tracto" | "gondola";       // muestra la bitácora de mantenimiento en la ficha
   extra?: Campo[];                       // campos solo al crear (ej. kilometraje inicial)
 }
 
@@ -115,6 +117,13 @@ export function CatalogoPanel({ cfg }: { cfg: CatalogoConfig }) {
                   </div>
                 ))}
               </dl>
+              {cfg.bitacora && (
+                <div>
+                  <h3 className="mb-2 text-sm font-semibold">Bitácora de mantenimiento</h3>
+                  <FichaServicios tipo={cfg.bitacora} unidadId={ver.id} empresaId={String(ver.empresa_id)}
+                    kmActual={cfg.bitacora === "tracto" ? Number(ver.kilometraje_actual ?? 0) : null} />
+                </div>
+              )}
               <div>
                 <h3 className="mb-2 text-sm font-semibold">Viajes, Carta Porte y facturas</h3>
                 <FichaViajes relacion={cfg.relacion} id={ver.id} />
