@@ -29,7 +29,7 @@ from .config import get_settings
 from .db import get_admin_client
 from .keepalive import mantener_despierto
 from .rutas_service import LugaresCatalogo, calcular_km_viajes
-from .sat import Cancelado, SatError, descargar_emitidos_rango
+from .sat import Cancelado, SatError, SatLimite, SatPendiente, descargar_emitidos_rango
 
 log = logging.getLogger("descarga_masiva")
 
@@ -375,19 +375,27 @@ def _solicitud_previa(db, empresa_id: str, anio: int, mes: int) -> str | None:
 
 
 def _meses_guardados(db, empresa_id: str, anio: int, job_id: str) -> set[int]:
-    """Meses que una corrida anterior de ese año guardó completos (descargados, asignados y con su Carta Porte) y que
-    no terminó: al reanudar no se vuelven a pedir al SAT. Solo cuenta lo reciente (72 h)."""
+    """Meses de ese año que ya quedaron guardados completos (descargados, asignados y con su Carta Porte) y no se
+    vuelven a pedir al SAT: los de una corrida que no terminó (solo lo reciente, 72 h) y los meses ya cerrados de
+    cualquier corrida anterior. El mes en curso siempre se vuelve a pedir porque sigue cambiando."""
     filas = (db.table("sat_descargas").select("id, estado, detalle, created_at").eq("empresa_id", empresa_id).eq("anio", anio)
-             .order("created_at", desc=True).limit(10).execute().data)
+             .order("created_at", desc=True).limit(30).execute().data)
+    hoy = _ahora()
     hechos: set[int] = set()
     for f in filas:
-        if f.get("id") == job_id or f.get("estado") == "ok":   # una corrida terminada no se reanuda: se vuelve a pedir lo nuevo
+        if f.get("id") == job_id:
             continue
-        if _ahora() - _parse_ts(f["created_at"]) > SOLICITUD_VIGENTE:
-            break
+        terminada = f.get("estado") == "ok"
+        reciente = hoy - _parse_ts(f["created_at"]) <= SOLICITUD_VIGENTE
+        if not terminada and not reciente:
+            continue
         for e in f.get("detalle") or []:
-            if e.get("estado") == "ok" and e.get("guardado") and e.get("mes"):
-                hechos.add(e["mes"])
+            mes = e.get("mes")
+            if not (mes and e.get("estado") == "ok" and e.get("guardado")):
+                continue
+            cerrado = anio < hoy.year or (anio == hoy.year and mes < hoy.month)
+            if not terminada or cerrado:
+                hechos.add(mes)
     return hechos
 
 
@@ -400,12 +408,12 @@ def _xmls_mes(empresa_id: str, ini, fin, avisar, parar, previa: str | None, guar
                 entregados = True
                 yield xml
             return
-        except Cancelado:
-            raise
+        except (Cancelado, SatLimite, SatPendiente):
+            raise   # el SAT aún la procesa o ya no da más cupo: no se pide otra, se vuelve a preguntar por esta
         except SatError as exc:
             if entregados:
                 raise
-            avisar(f"La solicitud anterior ya no sirve ({exc}); se pide una nueva", "aviso")
+            avisar(f"La solicitud anterior ya no sirve ({exc}); se pide una nueva (máximo una por mes)", "aviso")
     yield from descargar_emitidos_rango(empresa_id, ini, fin, on_solicitud=guardar_solicitud, log=avisar, parar=parar)
 
 
@@ -418,7 +426,8 @@ def _rango_mes(anio: int, mes: int) -> tuple[datetime, datetime]:
 def _contadores() -> dict:
     return {"xml_recibidos": 0, "ignorados": 0, "facturas_asignadas": 0, "complementos": 0, "uuid_recuperados": 0,
             "sin_asignar": [], "sin_asignar_total": 0, "viajes": 0, "viajes_existentes": 0, "sin_carta_porte": 0,
-            "viajes_error": 0, "zip_aceptados": 0, "zip_rechazados": 0}
+            "viajes_error": 0, "zip_aceptados": 0, "zip_rechazados": 0,
+            "solicitudes_nuevas": 0, "solicitudes_retomadas": 0}
 
 
 def _reprocesar(db, empresa_id: str, ctx: dict, acu: dict) -> None:
@@ -529,6 +538,7 @@ def _ejecutar(empresa_id: str, job_id: str, anio: int, meses: list[int], zip_byt
                 def guardar_solicitud(id_solicitud: str, entrada=entrada) -> None:
                     # Se anota completa para poder retomarla si el servidor se duerme o el usuario detiene la corrida.
                     entrada["solicitud"] = id_solicitud
+                    acu["solicitudes_nuevas"] += 1
                     guardar("en_proceso")
 
                 try:
@@ -536,11 +546,15 @@ def _ejecutar(empresa_id: str, job_id: str, anio: int, meses: list[int], zip_byt
                     previa = _solicitud_previa(db, empresa_id, anio, mes)
                     if previa:
                         entrada["solicitud"] = previa
+                        acu["solicitudes_retomadas"] += 1
                     procesar_xmls(db, empresa_id, indice,
                                   _xmls_mes(empresa_id, ini, fin, avisar, bit.cancelado, previa, guardar_solicitud), None, acu, ctx)
                     entrada.update(estado="ok", guardado=True)   # punto de control: el mes quedó descargado, asignado y guardado
                     avisar(f"Mes {mes:02d} guardado: {acu['xml_recibidos'] - antes} XML recibidos, "
                            f"{acu['facturas_asignadas']} facturas asignadas en total", "ok")
+                except SatLimite as exc:
+                    entrada.update(estado="error", mensaje=str(exc)[:300])
+                    raise   # se detiene toda la corrida: seguir pidiendo solicitudes solo agrava el bloqueo
                 except (SatError, Cancelado) as exc:
                     if isinstance(exc, Cancelado):
                         entrada.update(estado="error", mensaje="Detenido por el usuario")
@@ -586,6 +600,8 @@ def _ejecutar(empresa_id: str, job_id: str, anio: int, meses: list[int], zip_byt
         except Exception as exc:
             avisar(f"No se pudieron calcular los km por mapa: {type(exc).__name__}: {str(exc)[:200]}", "aviso")
 
+    avisar(f"Solicitudes al SAT en esta corrida: {acu['solicitudes_nuevas']} nuevas, {acu['solicitudes_retomadas']} retomadas "
+           "(las de meses ya guardados no se piden otra vez)")
     avisar(f"{'Detenido' if cancelado else 'Terminado'}: {acu['xml_recibidos']} XML, {acu['facturas_asignadas']} facturas asignadas, "
            f"{acu['complementos']} complementos, {acu['viajes']} viajes nuevos desde Carta Porte, {acu['sin_asignar_total']} XML sin factura, "
            f"{acu['viajes_error']} viajes con error", "aviso" if cancelado else ("ok" if ok else "error"))

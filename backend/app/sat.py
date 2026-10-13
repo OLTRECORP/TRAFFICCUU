@@ -92,6 +92,24 @@ def _revisar(parar) -> None:
         raise Cancelado()
 
 
+class SatLimite(SatError):
+    """El SAT agotó el cupo de solicitudes (código 5002, por ejemplo); reintentar solo empeora el bloqueo."""
+
+
+class SatPendiente(SatError):
+    """La solicitud ya existe y el SAT aún la procesa: hay que volver a preguntar por ella, no pedir otra."""
+
+
+def _es_limite(codigo, mensaje) -> bool:
+    return str(codigo) == "5002" or "agotad" in str(mensaje or "").lower()
+
+
+MENSAJE_LIMITE = ("El SAT no aceptó la solicitud (código {codigo}): {mensaje}. Es un límite del SAT: solo permite repetir la misma "
+                  "consulta (mismo RFC, tipo y fechas) un número limitado de veces y no se puede reiniciar desde el sistema. "
+                  "Se detuvo la descarga para no pedir más. Los XML ya guardados no se pierden; para ese mes, súbelos desde "
+                  "el portal del SAT con «Subir XML» (.xml o .zip)")
+
+
 class SatSinResultados(SatError):
     """El SAT atendió la solicitud pero no hay CFDI en el rango pedido."""
 
@@ -116,7 +134,7 @@ def _verificar(fiel, rfc: str, id_solicitud: str, espera_max: int, intervalo: in
         if estado not in _EN_ESPERA:
             raise SatError(f"El SAT respondió: {v.get('mensaje') or 'solicitud rechazada o sin resultados'} (estado {estado})")
         if time.monotonic() > limite:
-            raise SatError("El SAT sigue procesando la solicitud; vuelve a intentarlo en unos minutos")
+            raise SatPendiente("El SAT sigue procesando la solicitud; vuelve a intentarlo en unos minutos")
         _avisar(log, f"Esperando {intervalo}s para volver a preguntar al SAT…")
         for _ in range(max(1, intervalo // 5)):   # dormir en tramos para poder detenerse pronto
             time.sleep(min(5, intervalo))
@@ -169,6 +187,8 @@ def descargar_cfdi_por_uuid(
         if res.get("cod_estatus") == "5000" and res.get("id_solicitud"):
             id_solicitud = res["id_solicitud"]
             break
+        if _es_limite(res.get("cod_estatus"), res.get("mensaje")):
+            raise SatLimite(MENSAJE_LIMITE.format(codigo=res.get("cod_estatus"), mensaje=res.get("mensaje") or "sin mensaje"))
         mensajes.append(res.get("mensaje") or res.get("cod_estatus") or "sin respuesta")
     if not id_solicitud:
         raise SatError(f"El SAT no aceptó la solicitud: {'; '.join(mensajes)}")
@@ -217,6 +237,8 @@ def descargar_emitidos_rango(
             token, rfc, desde, hasta, rfc_emisor=rfc, tipo_solicitud="CFDI", estado_comprobante="Vigente"
         )
         _avisar(log, f"SAT respondió a la solicitud: código {res.get('cod_estatus')} — {res.get('mensaje')}")
+        if _es_limite(res.get("cod_estatus"), res.get("mensaje")):
+            raise SatLimite(MENSAJE_LIMITE.format(codigo=res.get("cod_estatus"), mensaje=res.get("mensaje") or "sin mensaje"))
         if res.get("cod_estatus") != "5000" or not res.get("id_solicitud"):
             raise SatError(f"El SAT no aceptó la solicitud (código {res.get('cod_estatus')}): {res.get('mensaje') or 'sin respuesta'}")
         id_solicitud = res["id_solicitud"]

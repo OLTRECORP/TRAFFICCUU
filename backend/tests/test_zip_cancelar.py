@@ -252,3 +252,49 @@ def test_el_avance_se_guarda_en_lotes_mientras_se_recorre_el_mes(monkeypatch):
     with pytest.raises(dm.SatError):
         dm.procesar_xmls(db, "e1", dm._Indice(fs), xmls(), None, dm._contadores(), {})
     assert guardados_a_media == [2]
+
+
+def test_limite_5002_detiene_la_corrida_sin_pedir_mas_meses(monkeypatch):
+    db = ChainDB(empresa_configuracion=[{"id": "e1", "rfc": "AAA010101AAA"}], facturas=facturas(), sat_descargas=[])
+    monkeypatch.setattr(dm, "get_admin_client", lambda: db)
+    monkeypatch.setattr(dm, "get_settings", lambda: type("S", (), {"max_xml_bytes": 5 * 1024 * 1024})())
+    pedidos = []
+
+    def falso(empresa_id, ini, fin, on_solicitud=None, log=None, parar=None, id_existente=None):
+        pedidos.append(ini.month)
+        raise dm.SatLimite("El SAT no aceptó la solicitud (código 5002): Se han agotado las solicitudes de por vida")
+        yield
+
+    monkeypatch.setattr(dm, "descargar_emitidos_rango", falso)
+    dm.ejecutar("e1", "job6", 2026, [1, 2, 3])
+    final = [p for t, p in db.updates if t == "sat_descargas"][-1]
+    assert pedidos == [1]                                   # no se intentó el 2 ni el 3, ni se reintentó el 1
+    assert final["estado"] == "error" and "5002" in final["error"]
+
+
+def test_xmls_mes_no_pide_otra_si_la_previa_sigue_en_proceso_o_hay_limite(monkeypatch):
+    for exc in (dm.SatPendiente("sigue procesando"), dm.SatLimite("agotado")):
+        visto = []
+
+        def falso(empresa_id, ini, fin, on_solicitud=None, log=None, parar=None, id_existente=None, exc=exc):
+            visto.append(id_existente)
+            raise exc
+            yield
+
+        monkeypatch.setattr(dm, "descargar_emitidos_rango", falso)
+        try:
+            list(dm._xmls_mes("e1", None, None, lambda *a: None, lambda: False, "VIEJA", lambda i: None))
+            assert False, "debía propagar el error"
+        except (dm.SatPendiente, dm.SatLimite):
+            pass
+        assert visto == ["VIEJA"]   # nunca se pidió una solicitud nueva
+
+
+def test_meses_cerrados_de_corridas_terminadas_no_se_vuelven_a_pedir():
+    vieja = (datetime.now(timezone.utc) - timedelta(days=30)).isoformat()
+    hoy = datetime.now(timezone.utc)
+    db = ChainDB(sat_descargas=[{"id": "j0", "estado": "ok", "anio": hoy.year, "created_at": vieja, "detalle": [
+        {"mes": 1, "estado": "ok", "guardado": True}, {"mes": hoy.month, "estado": "ok", "guardado": True}]}])
+    hechos = dm._meses_guardados(db, "e1", hoy.year, "otro")
+    assert 1 in hechos or hoy.month == 1
+    assert hoy.month not in hechos   # el mes en curso sigue cambiando: se vuelve a pedir
