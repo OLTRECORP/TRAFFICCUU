@@ -206,3 +206,49 @@ def test_reprocesar_solo_registra_las_facturas_con_xml_que_aun_no_tienen_viaje(m
     acu = dm._contadores()
     dm._reprocesar(db, "e1", {"log": lambda *a: None, "parar": lambda: False, "cp": (None, None)}, acu)
     assert registradas == ["f2"]   # f1 ya tiene viaje y no se repasa
+
+
+def test_cada_mes_es_un_punto_de_control_y_la_siguiente_corrida_omite_los_guardados(monkeypatch):
+    ahora = datetime.now(timezone.utc).isoformat()
+    db = ChainDB(empresa_configuracion=[{"id": "e1", "rfc": "AAA010101AAA"}], facturas=facturas(), sat_descargas=[])
+    monkeypatch.setattr(dm, "get_admin_client", lambda: db)
+    monkeypatch.setattr(dm, "get_settings", lambda: type("S", (), {"max_xml_bytes": 5 * 1024 * 1024})())
+    pedidos = []
+
+    def falso(empresa_id, ini, fin, on_solicitud=None, log=None, parar=None, id_existente=None):
+        pedidos.append(ini.month)
+        if ini.month == 2:
+            raise dm.SatError("el SAT se cayó")
+        yield cfdi(U1)
+
+    monkeypatch.setattr(dm, "descargar_emitidos_rango", falso)
+    dm.ejecutar("e1", "job4", 2026, [1, 2])
+    finales = [p for t, p in db.updates if t == "sat_descargas"]
+    detalle = finales[-1]["detalle"]
+    assert detalle[0]["mes"] == 1 and detalle[0]["guardado"] is True       # el mes 1 quedó guardado
+    assert detalle[1]["estado"] == "error" and not detalle[1]["guardado"]   # el 2 falló pero no tumbó al 1
+    assert finales[-1]["facturas_asignadas"] == 1
+    assert any(r["factura_id"] == "f1" for r in db.tables["facturas_sat"])
+
+    # la siguiente corrida (la anterior no terminó bien) omite el mes 1 y solo pide el 2
+    db.tables["sat_descargas"] = [{"id": "job4", "estado": "error", "anio": 2026, "created_at": ahora, "detalle": detalle}]
+    pedidos.clear()
+    dm.ejecutar("e1", "job5", 2026, [1, 2])
+    assert pedidos == [2]
+
+
+def test_el_avance_se_guarda_en_lotes_mientras_se_recorre_el_mes(monkeypatch):
+    fs = [{"id": f"f{i}", "folio": str(i), "uuid": None, "total": "1", "estado": "vigente", "complemento": None} for i in range(1, 4)]
+    db = ChainDB(facturas_sat=[])
+    monkeypatch.setattr(dm, "LOTE_GUARDADO", 2)
+    guardados_a_media = []
+
+    def xmls():
+        yield cfdi(U1, folio="1", total="1")
+        yield cfdi(U2, folio="2", total="1")
+        guardados_a_media.append(len(db.tables["facturas_sat"]))   # al llegar al 3.º ya se guardaron los 2 primeros
+        raise dm.SatError("se cortó")
+
+    with pytest.raises(dm.SatError):
+        dm.procesar_xmls(db, "e1", dm._Indice(fs), xmls(), None, dm._contadores(), {})
+    assert guardados_a_media == [2]

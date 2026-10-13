@@ -229,6 +229,9 @@ class _Indice:
         return None, "varias facturas coinciden en folio y total" if candidatas else "ninguna factura coincide en UUID, folio y total"
 
 
+LOTE_GUARDADO = 20   # XML asignados que se guardan juntos mientras se recorre un mes
+
+
 def _lote(tabla, filas: list[dict], conflicto: str) -> None:
     for i in range(0, len(filas), LOTE):
         tabla.upsert(filas[i:i + LOTE], on_conflict=conflicto).execute()
@@ -297,6 +300,9 @@ def _recorrer(db, empresa_id, indice, xmls, id_solicitud, acumulado, sat_rows, a
         })
         acumulado["facturas_asignadas"] += 1
         avisar(f"XML {r['uuid'][:8]}… asignado a la factura {factura['folio']}", "ok")
+        if len(sat_rows) >= LOTE_GUARDADO:   # guardar sobre la marcha: si el servidor muere a media descarga no se pierde el avance
+            _lote(db.table("facturas_sat"), sat_rows, "factura_id")
+            sat_rows.clear()
         if ctx.get("cp"):
             _carta_porte(db, ctx["cp"], xml, factura, acumulado, avisar)
 
@@ -366,6 +372,23 @@ def _solicitud_previa(db, empresa_id: str, anio: int, mes: int) -> str | None:
             if e.get("mes") == mes and e.get("solicitud") and e.get("estado") != "ok":
                 return e["solicitud"]
     return None
+
+
+def _meses_guardados(db, empresa_id: str, anio: int, job_id: str) -> set[int]:
+    """Meses que una corrida anterior de ese año guardó completos (descargados, asignados y con su Carta Porte) y que
+    no terminó: al reanudar no se vuelven a pedir al SAT. Solo cuenta lo reciente (72 h)."""
+    filas = (db.table("sat_descargas").select("id, estado, detalle, created_at").eq("empresa_id", empresa_id).eq("anio", anio)
+             .order("created_at", desc=True).limit(10).execute().data)
+    hechos: set[int] = set()
+    for f in filas:
+        if f.get("id") == job_id or f.get("estado") == "ok":   # una corrida terminada no se reanuda: se vuelve a pedir lo nuevo
+            continue
+        if _ahora() - _parse_ts(f["created_at"]) > SOLICITUD_VIGENTE:
+            break
+        for e in f.get("detalle") or []:
+            if e.get("estado") == "ok" and e.get("guardado") and e.get("mes"):
+                hechos.add(e["mes"])
+    return hechos
 
 
 def _xmls_mes(empresa_id: str, ini, fin, avisar, parar, previa: str | None, guardar_solicitud):
@@ -467,6 +490,13 @@ def _ejecutar(empresa_id: str, job_id: str, anio: int, meses: list[int], zip_byt
         guardar("error", f"No se pudo preparar la descarga: {type(exc).__name__}")
         return
 
+    ya_guardados: set[int] = set()
+    if meses:
+        try:
+            ya_guardados = _meses_guardados(db, empresa_id, anio, job_id) & set(meses)
+        except Exception as exc:   # no es crítico: sin esto simplemente se repiten esos meses
+            log.warning("No se pudo leer los meses ya guardados: %s", exc)
+
     ok = True
     try:
         if zip_bytes is not None:
@@ -482,8 +512,13 @@ def _ejecutar(empresa_id: str, job_id: str, anio: int, meses: list[int], zip_byt
                 if bit.cancelado():
                     raise Cancelado()
                 antes = acu["xml_recibidos"]
-                entrada = {"mes": mes, "estado": "en_proceso", "xml": 0, "mensaje": None, "solicitud": None}
+                entrada = {"mes": mes, "estado": "en_proceso", "xml": 0, "mensaje": None, "solicitud": None, "guardado": False}
                 detalle.append(entrada)
+                if mes in ya_guardados:
+                    entrada.update(estado="ok", guardado=True, mensaje="Ya guardado en la corrida anterior")
+                    avisar(f"— Mes {mes:02d}/{anio} — ya se había guardado completo en la corrida anterior; se omite", "ok")
+                    guardar("en_proceso")
+                    continue
                 avisar(f"— Mes {mes:02d}/{anio} —")
 
                 def guardar_solicitud(id_solicitud: str, entrada=entrada) -> None:
@@ -498,8 +533,9 @@ def _ejecutar(empresa_id: str, job_id: str, anio: int, meses: list[int], zip_byt
                         entrada["solicitud"] = previa
                     procesar_xmls(db, empresa_id, indice,
                                   _xmls_mes(empresa_id, ini, fin, avisar, bit.cancelado, previa, guardar_solicitud), None, acu, ctx)
-                    entrada["estado"] = "ok"
-                    avisar(f"Mes {mes:02d}: {acu['xml_recibidos'] - antes} XML recibidos", "ok")
+                    entrada.update(estado="ok", guardado=True)   # punto de control: el mes quedó descargado, asignado y guardado
+                    avisar(f"Mes {mes:02d} guardado: {acu['xml_recibidos'] - antes} XML recibidos, "
+                           f"{acu['facturas_asignadas']} facturas asignadas en total", "ok")
                 except (SatError, Cancelado) as exc:
                     if isinstance(exc, Cancelado):
                         entrada.update(estado="error", mensaje="Detenido por el usuario")
