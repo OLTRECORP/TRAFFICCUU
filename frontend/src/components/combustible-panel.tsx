@@ -68,8 +68,8 @@ export function CombustiblePanel() {
   const rangoInvalido = !!desde && !!hasta && desde > hasta;
 
   const filtradas = useMemo(
-    () => cargas.filter((c) => (!tractoId || c.tracto_id === tractoId) && (!desde || c.fecha >= desde) && (!hasta || c.fecha <= hasta)),
-    [cargas, tractoId, desde, hasta],
+    () => cargas.filter((c) => !tractoId || c.tracto_id === tractoId),
+    [cargas, tractoId],
   );
   const asignados = useMemo(
     () => new Map(choferes.filter((c) => c.tracto_asignado_id).map((c) => [c.tracto_asignado_id!, c.id])),
@@ -93,7 +93,7 @@ export function CombustiblePanel() {
       {error && <ErrorAlert where="combustible" message={error} />}
 
       <Card>
-        <CardContent className="grid gap-3 p-4 sm:grid-cols-4">
+        <CardContent className="grid gap-3 p-4 sm:grid-cols-2">
           <div className="grid gap-1.5">
             <Label htmlFor="cb-tracto">Tracto</Label>
             <select id="cb-tracto" className={sel} value={tractoId} onChange={(e) => setTractoId(e.target.value)}>
@@ -101,20 +101,11 @@ export function CombustiblePanel() {
               {tractos.map((t) => <option key={t.id} value={t.id}>{t.placa}</option>)}
             </select>
           </div>
-          <div className="grid gap-1.5">
-            <Label htmlFor="cb-desde">Desde</Label>
-            <Input id="cb-desde" type="date" value={desde} max={hasta || undefined} onChange={(e) => setDesde(e.target.value)} />
-          </div>
-          <div className="grid gap-1.5">
-            <Label htmlFor="cb-hasta">Hasta</Label>
-            <Input id="cb-hasta" type="date" value={hasta} min={desde || undefined} onChange={(e) => setHasta(e.target.value)} />
-          </div>
           <div className="flex items-end">
             <Button className="w-full" onClick={() => setEditar("nueva")} disabled={!tractos.length}><Plus className="h-4 w-4" /> Registrar carga</Button>
           </div>
         </CardContent>
       </Card>
-      {rangoInvalido && <Alert variant="error">La fecha inicial es posterior a la final.</Alert>}
       {!tractos.length && <Alert variant="info">No hay tractocamiones. Se crean al procesar el primer XML con Carta Porte o desde Tractos y góndolas.</Alert>}
 
       <Tabs defaultValue="cargas">
@@ -145,7 +136,7 @@ export function CombustiblePanel() {
               </TableHeader>
               <TableBody>
                 {filtradas.length === 0 ? (
-                  <TableRow><TableCell colSpan={7} className="py-8 text-center text-muted-foreground">Sin cargas en el filtro seleccionado.</TableCell></TableRow>
+                  <TableRow><TableCell colSpan={7} className="py-8 text-center text-muted-foreground">Sin cargas registradas.</TableCell></TableRow>
                 ) : filtradas.map((c) => (
                   <TableRow key={c.id}>
                     <TableCell className="whitespace-nowrap">{fechaMx(c.fecha)}</TableCell>
@@ -168,6 +159,18 @@ export function CombustiblePanel() {
         </TabsContent>
 
         <TabsContent value="rendimiento" className="grid gap-4">
+          <div className="flex flex-wrap items-end gap-3">
+            <div className="grid gap-1.5">
+              <Label htmlFor="cb-desde">Periodo desde (opcional)</Label>
+              <Input id="cb-desde" type="date" value={desde} max={hasta || undefined} onChange={(e) => setDesde(e.target.value)} />
+            </div>
+            <div className="grid gap-1.5">
+              <Label htmlFor="cb-hasta">Hasta (opcional)</Label>
+              <Input id="cb-hasta" type="date" value={hasta} min={desde || undefined} onChange={(e) => setHasta(e.target.value)} />
+            </div>
+            <p className="pb-2 text-xs text-muted-foreground">Sin periodo se muestran todas las cargas; el cálculo entre cargas es automático.</p>
+          </div>
+          {rangoInvalido && <Alert variant="error">La fecha inicial es posterior a la final.</Alert>}
           <Rendimiento filas={rend} nombre={nombre} placa={placa} />
         </TabsContent>
 
