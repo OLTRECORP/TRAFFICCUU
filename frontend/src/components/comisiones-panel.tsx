@@ -63,6 +63,33 @@ export function ComisionesPanel() {
     return () => { vigente = false; };
   }, [choferId]);
 
+  // Viajes sin chofer asignado: se listan aparte y no generan comisión hasta asignarles chofer.
+  const [sinChofer, setSinChofer] = useState<ViajeComision[]>([]);
+  useEffect(() => {
+    let vigente = true;
+    (async () => {
+      const sb = createClient();
+      const acum: ViajeComision[] = [];
+      for (let d = 0; ; d += PAG) {
+        const { data, error: e } = await sb.from("comisiones_viajes")
+          .select("viaje_id, chofer_id, folio, fecha_viaje, subtotal, origen, destino, cliente")
+          .is("chofer_id", null)
+          .order("fecha_viaje", { ascending: false }).order("viaje_id")
+          .range(d, d + PAG - 1);
+        if (!vigente) return;
+        if (e) { setError(e.message); return; }
+        acum.push(...((data ?? []) as ViajeComision[]));
+        if ((data?.length ?? 0) < PAG) break;
+      }
+      setSinChofer(acum);
+    })();
+    return () => { vigente = false; };
+  }, []);
+  const sinChoferRango = useMemo(
+    () => sinChofer.filter((v) => (!desde || v.fecha_viaje >= desde) && (!hasta || v.fecha_viaje <= hasta)),
+    [sinChofer, desde, hasta],
+  );
+
   const enRango = useMemo(
     () => viajes.filter((v) => (!desde || v.fecha_viaje >= desde) && (!hasta || v.fecha_viaje <= hasta)),
     [viajes, desde, hasta],
@@ -155,6 +182,37 @@ export function ComisionesPanel() {
             <Historial viajes={viajes} />
           </TabsContent>
         </Tabs>
+      )}
+
+      {sinChoferRango.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Viajes sin chofer asignado ({sinChoferRango.length})</CardTitle>
+            <p className="text-sm text-muted-foreground">Sin comisión hasta que se les asigne un chofer. Respetan el rango de fechas.</p>
+          </CardHeader>
+          <Table>
+            <TableHeader>
+              <TableRow className="hover:bg-transparent">
+                <TableHead>Fecha de salida</TableHead>
+                <TableHead>Factura</TableHead>
+                <TableHead>Origen</TableHead>
+                <TableHead>Destino</TableHead>
+                <TableHead className="text-right">Subtotal</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {sinChoferRango.map((v) => (
+                <TableRow key={v.viaje_id}>
+                  <TableCell className="whitespace-nowrap">{fechaMx(v.fecha_viaje)}</TableCell>
+                  <TableCell className="whitespace-nowrap font-medium">{v.folio ?? "—"}</TableCell>
+                  <TableCell>{v.origen ?? "—"}</TableCell>
+                  <TableCell>{v.destino ?? "—"}</TableCell>
+                  <TableCell className="whitespace-nowrap text-right">{mxn(v.subtotal)}</TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </Card>
       )}
     </div>
   );

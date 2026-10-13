@@ -2,7 +2,7 @@
 export const TASA_COMISION = 0.12;
 
 export interface ViajeComision {
-  viaje_id: string; chofer_id: string; folio: string | null; fecha_viaje: string;   // YYYY-MM-DD
+  viaje_id: string; chofer_id: string | null; folio: string | null; fecha_viaje: string;   // YYYY-MM-DD
   subtotal: number; origen: string | null; destino: string | null; cliente: string | null;
 }
 

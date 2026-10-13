@@ -3,7 +3,7 @@
 -- Fecha del viaje = fecha de salida del Origen en la Carta Porte (FechaHoraSalidaLlegada, viajes.fecha_salida);
 -- si el viaje aún no la tiene, se usa la fecha del CFDI. La fecha se guarda sin zona horaria en el XML,
 -- por eso se toma tal cual (UTC) para no recorrer el día.
--- Las facturas canceladas no generan comisión.
+-- Las facturas canceladas no generan comisión. Los viajes sin chofer salen en la vista para poder asignarlos después.
 
 create or replace view public.comisiones_viajes with (security_invoker = true) as
 select v.id                                   as viaje_id,
@@ -24,8 +24,7 @@ left join public.lugares    lo on lo.id = v.lugar_origen_id
 left join public.lugares    ld on ld.id = v.lugar_destino_id
 left join public.ubicaciones uo on uo.id = v.origen_id
 left join public.ubicaciones ud on ud.id = v.destino_id
-where v.chofer_id is not null
-  and f.estado is distinct from 'cancelado';
+where f.estado is distinct from 'cancelado';   -- incluye viajes sin chofer (chofer_id null): se muestran aparte, sin comisión
 
 grant select on public.comisiones_viajes to authenticated;
 
