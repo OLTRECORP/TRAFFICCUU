@@ -35,9 +35,17 @@ export function DashboardView() {
   const [errorFacturas, setErrorFacturas] = useState<string | null>(null);
 
   const load = useCallback(async () => {
-    const { data, error } = await createClient().from("viajes").select(SELECT).order("fecha", { ascending: false }).limit(1000);
-    if (error) setError(error.message);
-    else setViajes((data ?? []) as unknown as Viaje[]);
+    // PostgREST devuelve máx. 1000 filas por consulta: se pagina hasta traer todos los viajes.
+    const sb = createClient();
+    const todos: Viaje[] = [];
+    for (let d = 0; ; d += 1000) {
+      const { data, error } = await sb.from("viajes").select(SELECT)
+        .order("fecha", { ascending: false }).order("id").range(d, d + 999);
+      if (error) { setError(error.message); setLoading(false); return; }
+      todos.push(...((data ?? []) as unknown as Viaje[]));
+      if ((data?.length ?? 0) < 1000) break;
+    }
+    setViajes(todos);
     setLoading(false);
   }, []);
   useEffect(() => { load(); }, [load]);
