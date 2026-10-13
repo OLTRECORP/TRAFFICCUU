@@ -434,12 +434,17 @@ def _reprocesar(db, empresa_id: str, ctx: dict, acu: dict) -> None:
     avisar(f"{total} factura(s) con XML guardado, {len(filas)} sin viaje; registrando su Carta Porte…")
     folios = {f["id"]: f["folio"] for f in _leer_todo(lambda a, b: db.table("facturas").select("id, folio")
                                                        .eq("empresa_id", empresa_id).order("id").range(a, b))}
+    antes = {k: acu[k] for k in ("viajes", "viajes_existentes", "sin_carta_porte", "viajes_error")}
     for fila in filas:
         if parar():
             raise Cancelado()
         xml = db.table("facturas_sat").select("xml").eq("factura_id", fila["factura_id"]).limit(1).execute().data[0]["xml"]
         acu["xml_recibidos"] += 1
         _carta_porte(db, ctx["cp"], xml.encode(), {"id": fila["factura_id"], "folio": folios.get(fila["factura_id"], "?")}, acu, avisar)
+    d = {k: acu[k] - antes[k] for k in antes}
+    avisar(f"Resultado de la Carta Porte: {d['viajes']} viajes creados, {d['sin_carta_porte']} facturas cuyo XML no trae Carta Porte, "
+           f"{d['viajes_error']} con error" + (" (el motivo está en las líneas rojas de arriba)" if d["viajes_error"] else ""),
+           "error" if d["viajes_error"] else "ok")
 
 
 def ejecutar(empresa_id: str, job_id: str, anio: int, meses: list[int], zip_bytes: bytes | None = None) -> None:

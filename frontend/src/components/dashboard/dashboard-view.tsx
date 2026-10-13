@@ -71,7 +71,9 @@ export function DashboardView() {
     return () => { clearInterval(t); document.removeEventListener("visibilitychange", alVolver); window.removeEventListener("focus", alVolver); };
   }, [recargar]);
 
-  const k = useMemo(() => kpis(viajes), [viajes]);
+  const diasRango = RANGOS.find((r) => r.id === rango)!.dias;
+  const k = useMemo(() => kpis(viajes, diasRango), [viajes, diasRango]);
+  const hintRango = `Últimos ${diasRango} días`;
   const fact = useMemo(() => resumenFacturas(est), [est]);
   const serie = useMemo(() => serieFacturacion(dias.map((x) => ({ fecha: x.dia, total: Number(x.total) })), rango), [dias, rango]);
   const porChofer = useMemo(() => agrupar(viajes, (v) => v.chofer?.nombre ?? "Sin chofer"), [viajes]);
@@ -97,10 +99,10 @@ export function DashboardView() {
       {error && <Alert variant="error" className="whitespace-pre-line">{error}</Alert>}
 
       <section aria-label="Indicadores" className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <KpiCard icon={Truck} label="Viajes realizados" value={String(k.viajes)} hint="Últimos 30 días" />
-        <KpiCard icon={Route} label="Km operativos (redondo)" value={km(k.km)} hint="Últimos 30 días" />
+        <KpiCard icon={Truck} label="Viajes realizados" value={String(k.viajes)} hint={hintRango} />
+        <KpiCard icon={Route} label="Km operativos (redondo)" value={km(k.km)} hint={hintRango} />
         <KpiCard icon={Banknote} label="Facturación total" value={mxn(fact.total)} hint={`Suma de ${fact.n} facturas vigentes`} />
-        <KpiCard icon={MapPin} label="Destino más frecuente" value={k.destinoTop} hint="Últimos 30 días" />
+        <KpiCard icon={MapPin} label="Destino más frecuente" value={k.destinoTop} hint={hintRango} />
       </section>
 
       <FacturasOrdenes est={est} meses={meses} ordenes={ordenes} error={errorFacturas} />

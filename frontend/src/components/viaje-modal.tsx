@@ -90,7 +90,7 @@ export function ViajeModal({ viaje, onClose, onChanged }: { viaje: Viaje | null;
                   <Field label="Distancia operativa (redondo)" value={km(viaje.distancia_operativa)} />
                 </dl>
                 <div className="mt-4 grid gap-3 rounded-md border p-3">
-                  <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Km operativos por mapa</h4>
+                  <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Distancia por mapa (solo comparación; no afecta los km operativos)</h4>
                   {error && <Alert variant="error">{error}</Alert>}
                   <div className="grid gap-3 sm:grid-cols-2">
                     <label className="grid gap-1 text-xs font-medium">Origen
