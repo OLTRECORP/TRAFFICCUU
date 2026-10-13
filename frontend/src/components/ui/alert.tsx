@@ -1,7 +1,7 @@
 import { cva, type VariantProps } from "class-variance-authority";
 import { cn } from "@/lib/utils";
 
-const alertVariants = cva("rounded-md border px-4 py-3 text-sm", {
+const alertVariants = cva("rounded-2xl border px-4 py-3 text-sm", {
   variants: {
     variant: {
       error: "border-red-200 bg-red-50 text-red-800 dark:border-red-900 dark:bg-red-950 dark:text-red-200",

@@ -43,6 +43,44 @@ export function AreaChart({ puntos }: { puntos: Punto[] }) {
   );
 }
 
+/** Barras con esquinas redondeadas; el valor más alto se resalta con el color de acento. */
+export function BarChart({ puntos }: { puntos: Punto[] }) {
+  const W = 420, H = 240, L = 44, R = 10, T = 12, B = 28;
+  const max = Math.max(...puntos.map((p) => p.valor), 0);
+  if (!puntos.length || max === 0)
+    return <div className="flex h-64 items-center justify-center text-sm text-muted-foreground">Sin facturación en este periodo</div>;
+
+  const techo = niceMax(max);
+  const y = (v: number) => T + (1 - v / techo) * (H - T - B);
+  const paso = (W - L - R) / puntos.length;
+  const ancho = Math.min(28, paso * 0.62);
+  const cada = Math.ceil(puntos.length / 7);
+
+  return (
+    <svg viewBox={`0 0 ${W} ${H}`} className="h-64 w-full" role="img" aria-label="Facturación por periodo">
+      {[0, 0.25, 0.5, 0.75, 1].map((f) => (
+        <g key={f}>
+          <line x1={L} x2={W - R} y1={y(techo * f)} y2={y(techo * f)} stroke="hsl(var(--border))" strokeWidth="1" strokeDasharray="3 4" />
+          <text x={L - 6} y={y(techo * f) + 4} textAnchor="end" fontSize="11" fill="hsl(var(--muted-foreground))">${compacto(techo * f)}</text>
+        </g>
+      ))}
+      {puntos.map((p, i) => {
+        const h = Math.max(p.valor > 0 ? 4 : 0, H - B - y(p.valor));
+        const cx = L + paso * i + paso / 2;
+        return (
+          <g key={i}>
+            <rect x={cx - ancho / 2} y={H - B - h} width={ancho} height={h} rx={Math.min(8, ancho / 2)}
+              fill={p.valor === max ? "hsl(var(--highlight))" : "hsl(var(--primary))"} opacity={p.valor === max ? 1 : 0.35}>
+              <title>{`${p.label}: $${Math.round(p.valor).toLocaleString("es-MX")}`}</title>
+            </rect>
+            {i % cada === 0 && <text x={cx} y={H - 8} textAnchor="middle" fontSize="11" fill="hsl(var(--muted-foreground))">{p.label}</text>}
+          </g>
+        );
+      })}
+    </svg>
+  );
+}
+
 function niceMax(v: number) {
   const mag = 10 ** Math.floor(Math.log10(v));
   return Math.ceil(v / mag) * mag;
