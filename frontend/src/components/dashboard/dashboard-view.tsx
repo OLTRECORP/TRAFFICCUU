@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Banknote, MapPin, Route, Truck } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
+import { todo } from "@/lib/paginar";
 import { agrupar, kpis, RANGOS, resumenFacturas, serieFacturacion, type Rango } from "@/lib/dashboard";
 import { destinoLabel } from "@/lib/format";
 import type { FacturaDia, FacturaEstadistica, FacturaMes, OrdenResumen, Viaje } from "@/lib/types";
@@ -35,17 +36,19 @@ export function DashboardView() {
   const [errorFacturas, setErrorFacturas] = useState<string | null>(null);
 
   const load = useCallback(async () => {
-    // PostgREST devuelve máx. 1000 filas por consulta: se pagina hasta traer todos los viajes.
+    // Supabase corta en 1000 filas por consulta: se pagina hasta traer todos los viajes.
     const sb = createClient();
-    const todos: Viaje[] = [];
-    for (let d = 0; ; d += 1000) {
-      const { data, error } = await sb.from("viajes").select(SELECT)
-        .order("fecha", { ascending: false }).order("id").range(d, d + 999);
-      if (error) { setError(error.message); setLoading(false); return; }
-      todos.push(...((data ?? []) as unknown as Viaje[]));
-      if ((data?.length ?? 0) < 1000) break;
+    try {
+      const [rows, conteo] = await Promise.all([
+        todo<Viaje>((d, h) => sb.from("viajes").select(SELECT).order("fecha", { ascending: false }).order("id").range(d, h)),
+        sb.from("viajes").select("id", { count: "exact", head: true }),
+      ]);
+      setViajes(rows);
+      setError(conteo.count != null && conteo.count !== rows.length
+        ? `Se cargaron ${rows.length} de ${conteo.count} viajes; recarga la página para completar.` : null);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "No se pudieron cargar los viajes");
     }
-    setViajes(todos);
     setLoading(false);
   }, []);
   useEffect(() => { load(); }, [load]);
@@ -53,19 +56,23 @@ export function DashboardView() {
   const cargarFacturas = useCallback(async () => {
     const sb = createClient();
     const desde = new Date(Date.now() - 366 * 86_400_000).toISOString().slice(0, 10);
-    const [e, m, d, o] = await Promise.all([
-      sb.from("facturas_estadisticas").select("estado, complemento, con_orden, con_complemento, n, total"),
-      sb.from("facturas_por_mes").select("mes, n, total").order("mes", { ascending: false }).limit(12),
-      sb.from("facturas_por_dia").select("dia, n, total").gte("dia", desde).limit(1000),
-      sb.from("ordenes_compra_resumen").select("*").limit(1000),
-    ]);
-    const err = e.error ?? m.error ?? d.error ?? o.error;
-    if (err) { setErrorFacturas(err.message); return; }
-    setErrorFacturas(null);
-    setEst((e.data ?? []) as FacturaEstadistica[]);
-    setMeses(((m.data ?? []) as FacturaMes[]).reverse());
-    setDias((d.data ?? []) as FacturaDia[]);
-    setOrdenes((o.data ?? []) as OrdenResumen[]);
+    try {
+      const [e, m, d, o] = await Promise.all([
+        sb.from("facturas_estadisticas").select("estado, complemento, con_orden, con_complemento, n, total"),
+        sb.from("facturas_por_mes").select("mes, n, total").order("mes", { ascending: false }).limit(12),
+        todo<FacturaDia>((a, b) => sb.from("facturas_por_dia").select("dia, n, total").gte("dia", desde).order("dia").range(a, b)),
+        todo<OrdenResumen>((a, b) => sb.from("ordenes_compra_resumen").select("*").order("numero").range(a, b)),
+      ]);
+      const err = e.error ?? m.error;
+      if (err) { setErrorFacturas(err.message); return; }
+      setErrorFacturas(null);
+      setEst((e.data ?? []) as FacturaEstadistica[]);
+      setMeses(((m.data ?? []) as FacturaMes[]).reverse());
+      setDias(d);
+      setOrdenes(o);
+    } catch (x) {
+      setErrorFacturas(x instanceof Error ? x.message : "No se pudieron cargar las estadísticas");
+    }
   }, []);
   useEffect(() => { void cargarFacturas(); }, [cargarFacturas]);
 
