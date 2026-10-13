@@ -16,12 +16,14 @@ import { ImportExcel } from "@/components/import-excel";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 
 const TAM = 20;
+const sel = "h-10 rounded-md border bg-background px-3 text-sm";
 
 export function OrdenesPanel({ qInicial = "" }: { qInicial?: string }) {
   const [rows, setRows] = useState<OrdenResumen[]>([]);
   const [total, setTotal] = useState(0);
   const [pagina, setPagina] = useState(1);
   const [q, setQ] = useState(qInicial);
+  const [pago, setPago] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selected, setSelected] = useState<OrdenResumen | null>(null);
@@ -33,11 +35,12 @@ export function OrdenesPanel({ qInicial = "" }: { qInicial?: string }) {
       .range((pagina - 1) * TAM, pagina * TAM - 1);
     const t = q.trim().replace(/[,()%]/g, "");
     if (t) query = query.ilike("numero", `%${t}%`);
+    if (pago) query = query.eq("pagada", pago === "pagada");
     const { data, count, error: err } = await query;
     if (err) setError(err.message);
     else { setError(null); setRows((data ?? []) as OrdenResumen[]); setTotal(count ?? 0); }
     setLoading(false);
-  }, [pagina, q]);
+  }, [pagina, q, pago]);
 
   useEffect(() => { void load(); }, [load]);
   const paginas = Math.max(1, Math.ceil(total / TAM));
@@ -45,27 +48,33 @@ export function OrdenesPanel({ qInicial = "" }: { qInicial?: string }) {
   return (
     <div className="grid gap-4">
       <ImportExcel onDone={load} />
-      <Input className="max-w-xs" placeholder="Buscar N° de orden" value={q} onChange={(e) => { setQ(e.target.value); setPagina(1); }} />
+      <div className="flex flex-wrap gap-2">
+        <Input className="max-w-xs" placeholder="Buscar N° de orden" value={q} onChange={(e) => { setQ(e.target.value); setPagina(1); }} />
+        <select className={sel} value={pago} onChange={(e) => { setPago(e.target.value); setPagina(1); }} aria-label="Estatus de pago">
+          <option value="">Pagadas y no pagadas</option><option value="pagada">Pagadas</option><option value="no_pagada">No pagadas</option>
+        </select>
+      </div>
       {error && <ErrorAlert where="ordenes" message={error} />}
       <Card className="rounded-xl">
         <Table>
           <TableHeader>
             <TableRow className="hover:bg-transparent">
-              <TableHead>Orden</TableHead><TableHead>Creación</TableHead><TableHead>Pago</TableHead>
+              <TableHead>Orden</TableHead><TableHead>Creación</TableHead><TableHead>Estatus</TableHead><TableHead>Fecha de pago</TableHead>
               <TableHead className="text-right">Monto</TableHead><TableHead className="text-right">Facturas</TableHead>
               <TableHead className="text-right">Suma facturas</TableHead><TableHead className="text-right">Diferencia</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {loading ? (
-              <TableRow><TableCell colSpan={7} className="py-10 text-center text-muted-foreground">Cargando órdenes…</TableCell></TableRow>
+              <TableRow><TableCell colSpan={8} className="py-10 text-center text-muted-foreground">Cargando órdenes…</TableCell></TableRow>
             ) : rows.length === 0 ? (
-              <TableRow><TableCell colSpan={7} className="py-10 text-center text-muted-foreground">Sin órdenes. Importa el Excel de administración de fletes.</TableCell></TableRow>
+              <TableRow><TableCell colSpan={8} className="py-10 text-center text-muted-foreground">Sin órdenes. Importa el Excel de administración de fletes.</TableCell></TableRow>
             ) : rows.map((o) => (
               <TableRow key={o.id} className="cursor-pointer border-0 even:bg-secondary/70" onClick={() => setSelected(o)}>
                 <TableCell className="font-medium">{o.numero}</TableCell>
                 <TableCell className="whitespace-nowrap">{o.fecha_creacion ? fechaMx(o.fecha_creacion) : "—"}</TableCell>
-                <TableCell className="whitespace-nowrap">{o.fecha_pago ? fechaMx(o.fecha_pago) : "—"}</TableCell>
+                <TableCell><Badge variant={o.pagada ? "verde" : "amarillo"}>{o.pagada ? "Pagada" : "No pagada"}</Badge></TableCell>
+                <TableCell className="whitespace-nowrap">{o.fecha_pago_complemento ? fechaMx(o.fecha_pago_complemento) : "—"}</TableCell>
                 <TableCell className="whitespace-nowrap text-right">{mxn(o.monto)}</TableCell>
                 <TableCell className="text-right"><Link onClick={(e) => e.stopPropagation()} className="font-medium text-highlight hover:underline" href={`/facturas?q=${o.numero}`}>{o.n_facturas}</Link></TableCell>
                 <TableCell className="whitespace-nowrap text-right">{mxn(o.suma_facturas)}</TableCell>

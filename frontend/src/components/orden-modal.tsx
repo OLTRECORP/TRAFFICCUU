@@ -68,7 +68,7 @@ export function OrdenModal({ orden, onClose }: { orden: OrdenResumen | null; onC
               <DialogTitle className="text-lg font-semibold">Orden de compra {orden.numero}</DialogTitle>
               <DialogDescription className="text-sm text-muted-foreground">
                 {orden.fecha_creacion ? `Creada ${fechaMx(orden.fecha_creacion)}` : "Sin fecha de creación"}
-                {orden.fecha_pago ? ` · Pago ${fechaMx(orden.fecha_pago)}` : ""}
+                {orden.pagada && orden.fecha_pago_complemento ? ` · Pagada ${fechaMx(orden.fecha_pago_complemento)}` : " · No pagada"}
               </DialogDescription>
             </div>
 
@@ -76,7 +76,7 @@ export function OrdenModal({ orden, onClose }: { orden: OrdenResumen | null; onC
               <Resumen label="Monto de la orden" value={mxn(orden.monto)} />
               <Resumen label={`Suma facturas (${vigentes.length})`} value={mxn(suma)} />
               <Resumen label="Diferencia" value={mxn(diferencia)} tono={Math.abs(diferencia) <= 1 ? "verde" : "amarillo"} />
-              <Resumen label="Complemento de pago" value={orden.comp_pago != null ? mxn(orden.comp_pago) : "—"} />
+              <Resumen label="Pagado (complementos)" value={mxn(orden.monto_pagado)} tono={orden.pagada ? "verde" : "amarillo"} />
             </div>
 
             {error && <ErrorAlert where="orden-facturas" message={error} />}

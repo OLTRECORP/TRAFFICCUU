@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
-import type { Factura } from "@/lib/types";
+import type { Chofer, Factura, FacturaMes, Lugar } from "@/lib/types";
 import { fechaMx, mxn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -17,6 +17,8 @@ import { ImportExcel } from "@/components/import-excel";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 
 const TAM = 20;
+const MESES = ["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre"];
+const nombreMes = (m: string) => `${MESES[Number(m.slice(5, 7)) - 1]} ${m.slice(0, 4)}`;
 const sel = "h-10 rounded-md border bg-background px-3 text-sm";
 
 export function FacturasPanel({ ordenInicial = "" }: { ordenInicial?: string }) {
@@ -26,28 +28,54 @@ export function FacturasPanel({ ordenInicial = "" }: { ordenInicial?: string }) 
   const [q, setQ] = useState(ordenInicial);
   const [estado, setEstado] = useState("");
   const [comp, setComp] = useState("");
+  const [mes, setMes] = useState("");          // "YYYY-MM" (mes de emisión)
+  const [chofer, setChofer] = useState("");
+  const [lugar, setLugar] = useState("");        // origen o destino del viaje
+  const [meses, setMeses] = useState<string[]>([]);
+  const [choferes, setChoferes] = useState<Pick<Chofer, "id" | "nombre">[]>([]);
+  const [lugares, setLugares] = useState<Pick<Lugar, "id" | "nombre">[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selected, setSelected] = useState<Factura | null>(null);
 
+  // Opciones de los filtros: meses con facturas, choferes y lugares (catálogos de la Carta Porte)
+  useEffect(() => {
+    const sb = createClient();
+    void sb.from("facturas_por_mes").select("mes").order("mes", { ascending: false }).limit(120)
+      .then(({ data }) => setMeses(((data ?? []) as Pick<FacturaMes, "mes">[]).map((m) => m.mes.slice(0, 7))));
+    void sb.from("choferes").select("id, nombre").order("nombre").limit(1000)
+      .then(({ data }) => setChoferes((data ?? []) as Pick<Chofer, "id" | "nombre">[]));
+    void sb.from("lugares").select("id, nombre").order("nombre").limit(1000)
+      .then(({ data }) => setLugares((data ?? []) as Pick<Lugar, "id" | "nombre">[]));
+  }, []);
+
   const load = useCallback(async () => {
     setLoading(true);
-    let query = createClient().from("facturas").select("*, sat:facturas_sat(estado, actualizado_en)", { count: "exact" })
+    // El chofer y el origen/destino salen del viaje (Carta Porte) ligado a la factura: join interno solo si se filtra.
+    const porViaje = !!(chofer || lugar);
+    let query = createClient().from("facturas")
+      .select(`*, sat:facturas_sat(estado, actualizado_en)${porViaje ? ", viajes!inner(chofer_id, lugar_origen_id, lugar_destino_id)" : ""}`, { count: "exact" })
       .order("fecha_emision", { ascending: false, nullsFirst: false }).order("folio", { ascending: false })
       .range((pagina - 1) * TAM, pagina * TAM - 1);
     const t = q.trim().replace(/[,()%]/g, "");
     if (t) query = query.or(`folio.ilike.%${t}%,orden_compra.ilike.%${t}%,uuid_texto.ilike.%${t}%`);
     if (estado) query = query.eq("estado", estado);
     if (comp) query = query.eq("complemento", comp);
+    if (mes) {
+      const [a, m] = mes.split("-").map(Number);
+      const sig = m === 12 ? `${a + 1}-01` : `${a}-${String(m + 1).padStart(2, "0")}`;
+      query = query.gte("fecha_emision", `${mes}-01`).lt("fecha_emision", `${sig}-01`);
+    }
+    if (chofer) query = query.eq("viajes.chofer_id", chofer);
+    if (lugar) query = query.or(`lugar_origen_id.eq.${lugar},lugar_destino_id.eq.${lugar}`, { referencedTable: "viajes" });
     const { data, count, error: err } = await query;
     if (err) setError(err.message);
-    else { setError(null); setRows((data ?? []) as Factura[]); setTotal(count ?? 0); }
+    else { setError(null); setRows((data ?? []) as unknown as Factura[]); setTotal(count ?? 0); }
     setLoading(false);
-  }, [pagina, q, estado, comp]);
+  }, [pagina, q, estado, comp, mes, chofer, lugar]);
 
   useEffect(() => { void load(); }, [load]);
   const paginas = Math.max(1, Math.ceil(total / TAM));
-  const filtro = (fn: () => void) => () => { fn(); setPagina(1); };
 
   return (
     <div className="grid gap-4">
@@ -62,6 +90,18 @@ export function FacturasPanel({ ordenInicial = "" }: { ordenInicial?: string }) 
         <select className={sel} value={comp} onChange={(e) => { setComp(e.target.value); setPagina(1); }} aria-label="Complemento">
           <option value="">Todo complemento</option><option value="COMPLEMENTO LISTO">Complemento listo</option>
           <option value="SIN COMPLEMENTO">Sin complemento</option>
+        </select>
+        <select className={sel} value={mes} onChange={(e) => { setMes(e.target.value); setPagina(1); }} aria-label="Mes de emisión">
+          <option value="">Todos los meses</option>
+          {meses.map((m) => <option key={m} value={m}>{nombreMes(m)}</option>)}
+        </select>
+        <select className={sel} value={chofer} onChange={(e) => { setChofer(e.target.value); setPagina(1); }} aria-label="Chofer">
+          <option value="">Todos los choferes</option>
+          {choferes.map((c) => <option key={c.id} value={c.id}>{c.nombre}</option>)}
+        </select>
+        <select className={sel} value={lugar} onChange={(e) => { setLugar(e.target.value); setPagina(1); }} aria-label="Origen o destino">
+          <option value="">Todas las ubicaciones</option>
+          {lugares.map((l) => <option key={l.id} value={l.id}>{l.nombre}</option>)}
         </select>
       </div>
       {error && <ErrorAlert where="facturas" message={error} />}
