@@ -39,6 +39,11 @@ export function LugaresPanel() {
     return t ? rows.filter((r) => [r.nombre, r.cliente, r.direccion, r.referencia].some((v) => (v ?? "").toLowerCase().includes(t))) : rows;
   }, [rows, q]);
 
+  const puntosMapa = useMemo(
+    () => filtradas.filter((l) => l.lat != null && l.lng != null).map((l) => ({ lat: Number(l.lat), lng: Number(l.lng), etiqueta: l.nombre })),
+    [filtradas],
+  );
+
   return (
     <div className="grid gap-4">
       <div className="flex flex-wrap items-center gap-2">
@@ -46,6 +51,15 @@ export function LugaresPanel() {
         <Button className="ml-auto" onClick={() => setEditar("nuevo")}><Plus className="h-4 w-4" /> Agregar lugar</Button>
       </div>
       {error && <Alert variant="error">{error}</Alert>}
+      <Card className="grid gap-2 rounded-xl p-4">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h3 className="flex items-center gap-2 text-base font-semibold"><MapPin className="h-4 w-4" aria-hidden /> Mapa de orígenes y destinos</h3>
+          <span className="text-xs text-muted-foreground">
+            {puntosMapa.length} de {filtradas.length} lugares con ubicación{puntosMapa.length < filtradas.length && " · los demás aparecen como «Sin ubicar»"}
+          </span>
+        </div>
+        <Mapa puntos={puntosMapa} etiquetas alto={420} />
+      </Card>
       <Card className="rounded-xl">
         <Table>
           <TableHeader>
