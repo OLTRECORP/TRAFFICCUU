@@ -98,6 +98,18 @@ export function DashboardView() {
       {notice && <Alert variant="success">{notice}</Alert>}
       {error && <Alert variant="error" className="whitespace-pre-line">{error}</Alert>}
 
+      <div className="flex flex-wrap items-center gap-2 text-sm">
+        <span className="font-medium text-muted-foreground">Periodo:</span>
+        <div className="flex gap-1 rounded-lg border bg-card p-1 text-xs font-semibold" role="tablist" aria-label="Periodo">
+          {RANGOS.map((r) => (
+            <button key={r.id} role="tab" aria-selected={rango === r.id} onClick={() => setRango(r.id)}
+              className={cn("rounded px-3 py-1.5 text-muted-foreground hover:text-foreground", rango === r.id && "bg-highlight/15 text-highlight")}>
+              {r.label === "1S" ? "1 semana" : r.label === "1M" ? "1 mes" : r.label === "3M" ? "3 meses" : "1 año"}
+            </button>
+          ))}
+        </div>
+      </div>
+
       <section aria-label="Indicadores" className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <KpiCard icon={Truck} label="Viajes realizados" value={String(k.viajes)} hint={hintRango} />
         <KpiCard icon={Route} label="Km operativos (redondo)" value={km(k.km)} hint={hintRango} />
@@ -115,16 +127,6 @@ export function DashboardView() {
         <div className="grid content-start gap-2">
           <h3 className="text-sm font-semibold text-primary dark:text-foreground">Facturación</h3>
           <Card className="rounded-xl">
-            <CardHeader className="flex-row items-center justify-end pb-0">
-              <div className="flex gap-1 text-xs font-semibold" role="tablist" aria-label="Periodo">
-                {RANGOS.map((r) => (
-                  <button key={r.id} role="tab" aria-selected={rango === r.id} onClick={() => setRango(r.id)}
-                    className={cn("rounded px-2 py-1 text-muted-foreground hover:text-foreground", rango === r.id && "bg-highlight/15 text-highlight")}>
-                    {r.label}
-                  </button>
-                ))}
-              </div>
-            </CardHeader>
             <CardContent><AreaChart puntos={serie} /></CardContent>
           </Card>
         </div>
