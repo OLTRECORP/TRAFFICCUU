@@ -17,9 +17,9 @@ export interface Kpis { viajes: number; km: number; destinoTop: string }
 /** Km operativos de un viaje: por mapa (ida x 2) cuando está calculado; si no, los del XML (ida x 2). */
 export const kmOperativos = (v: Viaje) => Number(v.km_operativos ?? v.distancia_operativa);
 
-/** Indicadores de los últimos 30 días. */
-export function kpis(viajes: Viaje[], ahora = new Date()): Kpis {
-  const desde = ahora.getTime() - 30 * DAY;
+/** Indicadores de los últimos `dias` días (el rango elegido en el dashboard). */
+export function kpis(viajes: Viaje[], dias = 30, ahora = new Date()): Kpis {
+  const desde = ahora.getTime() - dias * DAY;
   const mes = viajes.filter((v) => new Date(v.fecha).getTime() >= desde);
   const cuenta = new Map<string, number>();
   for (const v of mes) {

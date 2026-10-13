@@ -231,6 +231,23 @@ def descargar_emitidos_rango(
     yield from _xmls_de_paquetes(fiel, rfc, paquetes, log, parar)
 
 
+# (migración, tabla o vista, columnas) que debe tener la base para que la descarga y los viajes funcionen
+_ESQUEMA = [
+    ("009", "sat_descargas", "id,modo,meses,detalle,sin_asignar"),
+    ("009", "complementos_pago", "id"),
+    ("009", "lugares", "id,nombre,lat,lng"),
+    ("009", "viajes", "lugar_origen_id,lugar_destino_id,distancia_mapa_km,km_operativos"),
+    ("010", "sat_descargas", "bitacora,viajes"),
+    ("010", "viajes", "factura_id"),
+    ("010", "lugares", "precio_tonelada"),
+    ("011", "sat_descargas", "cancelar"),
+    ("012", "viajes", "toneladas_facturadas,precio_tonelada,peso_bruto_total_kg,mercancia,fecha_salida,fecha_llegada"),
+    ("012", "tractocamiones", "capacidad_kg"),
+    ("012", "viajes_sobrepeso", "viaje_id"),
+    ("013", "lugares", "cliente"),
+]
+
+
 def diagnosticar(empresa_id: str) -> list[dict]:
     """Prueba paso a paso lo que necesita la descarga (tablas, FIEL, autenticación con el SAT) y dice
     cuál falla. Devuelve [{paso, ok, detalle}]; se detiene en el primer fallo."""
@@ -241,15 +258,25 @@ def diagnosticar(empresa_id: str) -> list[dict]:
         return ok
 
     db = get_admin_client()
-    try:
-        db.table("sat_descargas").select("id").limit(1).execute()
-        db.table("complementos_pago").select("id").limit(1).execute()
-        db.table("lugares").select("id").limit(1).execute()
-        db.table("sat_descargas").select("bitacora").limit(1).execute()
-    except Exception:
-        paso("Base de datos", False, "Faltan tablas o columnas: ejecuta en Supabase las migraciones 009 y 010")
+    faltan = []
+    for migracion, tabla, columnas in _ESQUEMA:
+        try:
+            db.table(tabla).select(columnas).limit(1).execute()
+        except Exception:
+            faltan.append(migracion)
+    if faltan:
+        unicas = sorted(set(faltan))
+        paso("Base de datos", False, "Faltan tablas o columnas: ejecuta en Supabase, en orden, las migraciones " + ", ".join(unicas))
         return pasos
-    paso("Base de datos", True, "Migraciones 009 y 010 aplicadas")
+    paso("Base de datos", True, "Migraciones 009 a 013 aplicadas")
+    try:
+        con_xml = db.table("facturas_sat").select("factura_id", count="exact").eq("empresa_id", empresa_id).eq("estado", "ok").limit(1).execute().count or 0
+        con_viaje = db.table("viajes").select("id", count="exact").eq("empresa_id", empresa_id).not_.is_("factura_id", "null").limit(1).execute().count or 0
+        total_viajes = db.table("viajes").select("id", count="exact").eq("empresa_id", empresa_id).limit(1).execute().count or 0
+        paso("Viajes", True, f"{con_xml} facturas con XML del SAT; {con_viaje} viajes ligados a una factura ({total_viajes} viajes en total). "
+                             "Si faltan viajes, usa «Procesar Carta Porte de XML guardados»")
+    except Exception as exc:
+        paso("Viajes", False, f"No se pudieron contar los viajes ({type(exc).__name__}: {str(exc)[:150]})")
     try:
         rfc, fiel = _cargar_fiel(empresa_id)
     except SatError as exc:
