@@ -15,6 +15,7 @@ interface Props {
   unidadId: string;
   empresaId: string;
   kmActual?: number | null;   // sugerencia de odómetro (tractos)
+  onChange?: () => void;      // se llama al agregar, editar o eliminar (para refrescar totales fuera de la bitácora)
 }
 
 // Tipos de servicio; aplican igual a tractos y góndolas.
@@ -36,7 +37,7 @@ const etiquetaCategoria = (v: string | null) => CATEGORIAS_SERVICIO.find((c) => 
 const hoy = () => new Date().toISOString().slice(0, 10);
 
 // Bitácora de mantenimiento de una unidad. Tracto: fecha + km + servicio + costo. Góndola: fecha + servicio + costo.
-export function FichaServicios({ tipo, unidadId, empresaId, kmActual }: Props) {
+export function FichaServicios({ tipo, unidadId, empresaId, kmActual, onChange }: Props) {
   const esTracto = tipo === "tracto";
   const col = esTracto ? "tracto_id" : "gondola_id";
   const [rows, setRows] = useState<ServicioMant[]>([]);
@@ -77,13 +78,13 @@ export function FichaServicios({ tipo, unidadId, empresaId, kmActual }: Props) {
       : await sb.from("servicios_mantenimiento").update(datos).eq("id", editar.id);
     setSaving(false);
     if (err) return setError(err.message);
-    setEditar(null); void load();
+    setEditar(null); void load(); onChange?.();
   }
 
   async function eliminar(s: ServicioMant) {
     if (!window.confirm("¿Eliminar este servicio de la bitácora?")) return;
     const { error: err } = await createClient().from("servicios_mantenimiento").delete().eq("id", s.id);
-    if (err) setError(err.message); else void load();
+    if (err) setError(err.message); else { void load(); onChange?.(); }
   }
 
   const total = rows.reduce((a, r) => a + Number(r.costo), 0);
