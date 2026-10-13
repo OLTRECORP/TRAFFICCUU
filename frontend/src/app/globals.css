@@ -24,7 +24,7 @@
     --border: 214 32% 89%;
     --input: 214 32% 85%;
     --ring: 199 79% 28%;
-    --radius: 0.6rem;
+    --radius: 1rem;
   }
   .dark {
     --background: 222 30% 8%;
@@ -49,6 +49,8 @@
   }
   * { @apply border-border; }
   body { @apply bg-background text-foreground antialiased; }
+  /* Foco más suave: los controles redondeados llevan su propio anillo. */
+  ::selection { background: hsl(var(--highlight) / 0.25); }
 }
 
 /* Mapa Leaflet: en modo oscuro se invierten los mosaicos y las etiquetas toman los colores del tema. */

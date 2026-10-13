@@ -8,7 +8,7 @@ import type { FacturaEstadistica, FacturaMes, OrdenResumen } from "@/lib/types";
 import { mxn } from "@/lib/utils";
 import { Alert } from "@/components/ui/alert";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { AreaChart, Donut } from "./charts";
+import { BarChart, Donut } from "./charts";
 import { KpiCard } from "./kpi-card";
 
 const mesCorto = (iso: string) => new Intl.DateTimeFormat("es-MX", { month: "short", year: "2-digit", timeZone: "UTC" }).format(new Date(iso));
@@ -49,7 +49,7 @@ export function FacturasOrdenes({ est, meses, ordenes, error }: {
       {error && <Alert variant="error">No se pudieron cargar las estadísticas: {error}</Alert>}
 
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-        <KpiCard icon={FileText} label="Facturas vigentes" value={String(f.n)} hint={`${mxn(f.total)} · ${f.canceladas} canceladas`} />
+        <KpiCard serie={serie.map((x) => x.valor)} icon={FileText} label="Facturas vigentes" value={String(f.n)} hint={`${mxn(f.total)} · ${f.canceladas} canceladas`} />
         <KpiCard icon={CircleCheck} label="Pagadas" value={mxn(f.pagadas)} hint={`${f.pagadasN} facturas pagadas o con complemento`} />
         <KpiCard icon={HandCoins} label="Por cobrar" value={mxn(f.porCobrar)} hint={`${f.porCobrarN} facturas sin pagar ni complemento`} />
         <KpiCard icon={FileWarning} label="Sin complemento de pago" value={String(f.sinCompN)} hint={`${mxn(f.sinComp)} · ${f.sinOrden} sin orden`} />
@@ -58,11 +58,11 @@ export function FacturasOrdenes({ est, meses, ordenes, error }: {
       </div>
 
       <div className="grid gap-4 lg:grid-cols-[1.7fr_1fr]">
-        <Card className="rounded-xl">
+        <Card>
           <CardHeader><CardTitle className="text-sm text-primary dark:text-foreground">Facturación por mes (últimos 12)</CardTitle></CardHeader>
-          <CardContent><AreaChart puntos={serie} /></CardContent>
+          <CardContent><BarChart puntos={serie} /></CardContent>
         </Card>
-        <Card className="rounded-xl">
+        <Card>
           <CardHeader><CardTitle className="text-sm text-primary dark:text-foreground">Facturas por estado</CardTitle></CardHeader>
           <CardContent><Donut datos={porEstado} titulo="Estado" centro="Total de facturas" unidad="Facturas" /></CardContent>
         </Card>

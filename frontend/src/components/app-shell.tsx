@@ -27,7 +27,7 @@ function Brand() {
     <Link href="/dashboard" className="flex items-center gap-2 px-5 py-5">
       {logoUrl ? (
         // El logo va sobre una "pastilla" clara para verse bien con cualquier color de barra.
-        <span className="flex h-12 w-full max-w-[180px] items-center justify-center rounded-lg bg-white px-2 py-1">
+        <span className="flex h-12 w-full max-w-[180px] items-center justify-center rounded-2xl bg-white px-2 py-1">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src={logoUrl} alt={empresa ?? "Logo"} className="max-h-full max-w-full object-contain" />
         </span>
@@ -43,7 +43,7 @@ function Brand() {
 export function Sidebar() {
   const pathname = usePathname();
   return (
-    <aside className="hidden w-60 shrink-0 flex-col bg-sidebar text-sidebar-foreground md:flex">
+    <aside className="sticky top-3 m-3 mr-0 hidden h-[calc(100vh-1.5rem)] w-60 shrink-0 flex-col overflow-y-auto rounded-3xl bg-sidebar text-sidebar-foreground shadow-lg md:flex">
       <Brand />
       <nav className="mt-2 grid gap-1 px-3" aria-label="Principal">
         {links.map(({ href, label, icon: Icon }) => {
@@ -54,12 +54,11 @@ export function Sidebar() {
               href={href}
               aria-current={active ? "page" : undefined}
               className={cn(
-                "relative flex items-center gap-3 rounded-md px-3 py-2.5 text-sm font-medium text-sidebar-foreground/75 transition-colors hover:bg-white/10 hover:text-sidebar-foreground",
-                active && "bg-white/10 text-sidebar-foreground",
+                "relative flex items-center gap-3 rounded-full px-4 py-2.5 text-sm font-medium text-sidebar-foreground/75 transition-colors hover:bg-white/10 hover:text-sidebar-foreground",
+                active && "bg-white/15 text-sidebar-foreground shadow-sm",
               )}
             >
-              {active && <span className="absolute -right-3 top-1/2 h-6 w-1 -translate-y-1/2 rounded-l bg-highlight" />}
-              <Icon className={cn("h-[18px] w-[18px]", active && "text-highlight")} />
+                            <Icon className={cn("h-[18px] w-[18px]", active && "text-highlight")} />
               {label}
             </Link>
           );
@@ -92,8 +91,8 @@ export function Topbar() {
   const iconBtn = "flex h-9 w-9 items-center justify-center rounded-full text-sidebar-foreground/85 hover:bg-white/10";
 
   return (
-    <header className="bg-sidebar text-sidebar-foreground">
-      <div className="flex h-14 items-center gap-3 px-4 md:px-6">
+    <header className="m-3 mb-0 rounded-3xl bg-sidebar text-sidebar-foreground shadow-lg md:ml-3">
+      <div className="flex h-14 items-center gap-3 px-5 md:px-6">
         <h1 className="flex-1 text-base font-semibold">{title}</h1>
         <button onClick={toggleMode} className={iconBtn} aria-label={mode === "dark" ? "Cambiar a modo claro" : "Cambiar a modo oscuro"}>
           {mode === "dark" ? <Sun className="h-[18px] w-[18px]" /> : <Moon className="h-[18px] w-[18px]" />}
@@ -113,7 +112,7 @@ export function Topbar() {
       <nav className="flex gap-1 overflow-x-auto px-3 pb-2 md:hidden" aria-label="Principal móvil">
         {links.map(({ href, label }) => (
           <Link key={href} href={href}
-            className={cn("rounded-md px-3 py-1.5 text-sm text-sidebar-foreground/75", pathname.startsWith(href) && "bg-white/10 text-sidebar-foreground")}>
+            className={cn("rounded-full px-3 py-1.5 text-sm text-sidebar-foreground/75", pathname.startsWith(href) && "bg-white/10 text-sidebar-foreground")}>
             {label}
           </Link>
         ))}

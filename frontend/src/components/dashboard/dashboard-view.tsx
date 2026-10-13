@@ -12,7 +12,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useTheme } from "@/components/theme-provider";
 import { ViajeModal } from "@/components/viaje-modal";
 import { ViajesTable } from "@/components/viajes-table";
-import { AreaChart, Donut } from "./charts";
+import { BarChart, Donut } from "./charts";
 import { FacturasOrdenes } from "./facturas-ordenes";
 import { KpiCard } from "./kpi-card";
 import { UploadXml } from "./upload-xml";
@@ -76,13 +76,26 @@ export function DashboardView() {
   const hintRango = `Últimos ${diasRango} días`;
   const fact = useMemo(() => resumenFacturas(est), [est]);
   const serie = useMemo(() => serieFacturacion(dias.map((x) => ({ fecha: x.dia, total: Number(x.total) })), rango), [dias, rango]);
+  // Viajes por tramo del periodo (14 barritas), solo para el indicador visual.
+  const serieViajes = useMemo(() => {
+    const n = 14, fin = Date.now(), ms = diasRango * 86_400_000, out = Array<number>(n).fill(0);
+    for (const v of viajes) {
+      const t = new Date(v.fecha).getTime();
+      if (t > fin || t < fin - ms) continue;
+      out[Math.min(n - 1, Math.floor(((t - (fin - ms)) / ms) * n))]++;
+    }
+    return out;
+  }, [viajes, diasRango]);
   const porChofer = useMemo(() => agrupar(viajes, (v) => v.chofer?.nombre ?? "Sin chofer"), [viajes]);
   const porDestino = useMemo(() => agrupar(viajes, (v) => destinoLabel(v)), [viajes]);
 
   return (
     <div className="grid gap-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <h2 className="text-2xl font-bold text-primary dark:text-foreground">Bienvenido{empresa ? `, ${empresa}` : ""}</h2>
+        <div>
+          <p className="text-sm text-muted-foreground">Resumen de tu operación</p>
+          <h2 className="text-3xl font-bold tracking-tight text-primary dark:text-foreground">Bienvenido{empresa ? `, ${empresa}` : ""}</h2>
+        </div>
         <UploadXml
           onResult={({ ok, zips, fallos }) => {
             const partes = [
@@ -100,10 +113,10 @@ export function DashboardView() {
 
       <div className="flex flex-wrap items-center gap-2 text-sm">
         <span className="font-medium text-muted-foreground">Periodo:</span>
-        <div className="flex gap-1 rounded-lg border bg-card p-1 text-xs font-semibold" role="tablist" aria-label="Periodo">
+        <div className="flex gap-1 rounded-full border bg-card p-1 text-xs font-semibold" role="tablist" aria-label="Periodo">
           {RANGOS.map((r) => (
             <button key={r.id} role="tab" aria-selected={rango === r.id} onClick={() => setRango(r.id)}
-              className={cn("rounded px-3 py-1.5 text-muted-foreground hover:text-foreground", rango === r.id && "bg-highlight/15 text-highlight")}>
+              className={cn("rounded-full px-4 py-1.5 text-muted-foreground hover:text-foreground", rango === r.id && "bg-highlight text-white shadow-sm")}>
               {r.label === "1S" ? "1 semana" : r.label === "1M" ? "1 mes" : r.label === "3M" ? "3 meses" : "1 año"}
             </button>
           ))}
@@ -111,9 +124,9 @@ export function DashboardView() {
       </div>
 
       <section aria-label="Indicadores" className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <KpiCard icon={Truck} label="Viajes realizados" value={String(k.viajes)} hint={hintRango} />
+        <KpiCard serie={serieViajes} icon={Truck} label="Viajes realizados" value={String(k.viajes)} hint={hintRango} />
         <KpiCard icon={Route} label="Km operativos (redondo)" value={km(k.km)} hint={hintRango} />
-        <KpiCard icon={Banknote} label="Facturación total" value={mxn(fact.total)} hint={`Suma de ${fact.n} facturas vigentes`} />
+        <KpiCard serie={serie.map((x) => x.valor)} icon={Banknote} label="Facturación total" value={mxn(fact.total)} hint={`Suma de ${fact.n} facturas vigentes`} />
         <KpiCard icon={MapPin} label="Destino más frecuente" value={k.destinoTop} hint={hintRango} />
       </section>
 
@@ -126,18 +139,18 @@ export function DashboardView() {
         </div>
         <div className="grid content-start gap-2">
           <h3 className="text-sm font-semibold text-primary dark:text-foreground">Facturación</h3>
-          <Card className="rounded-xl">
-            <CardContent><AreaChart puntos={serie} /></CardContent>
+          <Card>
+            <CardContent><BarChart puntos={serie} /></CardContent>
           </Card>
         </div>
       </section>
 
       <section className="grid gap-4 lg:grid-cols-2" aria-label="Distribución">
-        <Card className="rounded-xl">
+        <Card>
           <CardHeader><CardTitle className="text-sm text-primary dark:text-foreground">Viajes por chofer</CardTitle></CardHeader>
           <CardContent><Donut datos={porChofer} titulo="Chofer" centro="Total de viajes" /></CardContent>
         </Card>
-        <Card className="rounded-xl">
+        <Card>
           <CardHeader><CardTitle className="text-sm text-primary dark:text-foreground">Viajes por destino</CardTitle></CardHeader>
           <CardContent><Donut datos={porDestino} titulo="Destino" centro="Total de viajes" /></CardContent>
         </Card>

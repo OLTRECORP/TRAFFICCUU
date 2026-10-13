@@ -9,7 +9,7 @@ export const Table = ({ className, ...p }: React.HTMLAttributes<HTMLTableElement
 export const TableHeader = (p: React.HTMLAttributes<HTMLTableSectionElement>) => <thead className="[&_tr]:border-b" {...p} />;
 export const TableBody = (p: React.HTMLAttributes<HTMLTableSectionElement>) => <tbody className="[&_tr:last-child]:border-0" {...p} />;
 export const TableRow = ({ className, ...p }: React.HTMLAttributes<HTMLTableRowElement>) => (
-  <tr className={cn("border-b transition-colors hover:bg-muted/60", className)} {...p} />
+  <tr className={cn("border-b border-border/60 transition-colors hover:bg-muted/60", className)} {...p} />
 );
 export const TableHead = ({ className, ...p }: React.ThHTMLAttributes<HTMLTableCellElement>) => (
   <th className={cn("h-11 px-3 text-left align-middle text-xs font-semibold uppercase tracking-wide text-muted-foreground", className)} {...p} />

@@ -21,7 +21,7 @@ export function ViajesTable({ viajes, loading, onSelect }: { viajes: Viaje[]; lo
   const numeros = ventana(pagina, paginas);
 
   return (
-    <Card className="flex flex-col rounded-xl">
+    <Card className="flex flex-col">
       <Table>
         <TableHeader>
           <TableRow className="hover:bg-transparent">
