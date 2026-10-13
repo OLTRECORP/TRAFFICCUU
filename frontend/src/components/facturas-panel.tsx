@@ -7,6 +7,10 @@ import { ChevronLeft, ChevronRight } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import type { Chofer, Factura, FacturaMes, Lugar } from "@/lib/types";
 import { fechaMx, mxn } from "@/lib/utils";
+import { Trash2 } from "lucide-react";
+import { AuditoriaEliminaciones } from "@/components/auditoria-eliminaciones";
+import { EliminarFacturas } from "@/components/eliminar-facturas";
+import { Alert } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -37,6 +41,10 @@ export function FacturasPanel({ ordenInicial = "" }: { ordenInicial?: string }) 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selected, setSelected] = useState<Factura | null>(null);
+  const [marcadas, setMarcadas] = useState<string[]>([]);       // ids marcadas para eliminar
+  const [aEliminar, setAEliminar] = useState<string[]>([]);
+  const [aviso, setAviso] = useState<string | null>(null);
+  const [version, setVersion] = useState(0);
 
   // Opciones de los filtros: meses con facturas, choferes y lugares (catálogos de la Carta Porte)
   useEffect(() => {
@@ -76,6 +84,9 @@ export function FacturasPanel({ ordenInicial = "" }: { ordenInicial?: string }) 
 
   useEffect(() => { void load(); }, [load]);
   const paginas = Math.max(1, Math.ceil(total / TAM));
+  const alternar = (id: string) => setMarcadas((m) => (m.includes(id) ? m.filter((x) => x !== id) : [...m, id]));
+  const canceladasPagina = rows.filter((f) => f.estado === "cancelado").map((f) => f.id);
+  const todasMarcadas = rows.length > 0 && rows.every((f) => marcadas.includes(f.id));
 
   return (
     <div className="grid gap-4">
@@ -105,10 +116,22 @@ export function FacturasPanel({ ordenInicial = "" }: { ordenInicial?: string }) 
         </select>
       </div>
       {error && <ErrorAlert where="facturas" message={error} />}
+      {aviso && <Alert variant="success">{aviso}</Alert>}
+      <div className="flex flex-wrap items-center gap-2 text-xs">
+        <Button variant="outline" size="sm" disabled={canceladasPagina.length === 0} onClick={() => setMarcadas((m) => Array.from(new Set([...m, ...canceladasPagina])))}>
+          Marcar las canceladas de esta página ({canceladasPagina.length})
+        </Button>
+        <Button variant="destructive" size="sm" disabled={marcadas.length === 0} onClick={() => setAEliminar(marcadas)}>
+          <Trash2 className="mr-1 h-4 w-4" />Eliminar marcadas ({marcadas.length})
+        </Button>
+        {marcadas.length > 0 && <Button variant="ghost" size="sm" onClick={() => setMarcadas([])}>Quitar marcas</Button>}
+      </div>
       <Card className="rounded-xl">
         <Table>
           <TableHeader>
             <TableRow className="hover:bg-transparent">
+              <TableHead className="w-8"><input type="checkbox" aria-label="Marcar todas" checked={todasMarcadas}
+                onChange={() => setMarcadas((m) => (todasMarcadas ? m.filter((id) => !rows.some((f) => f.id === id)) : Array.from(new Set([...m, ...rows.map((f) => f.id)]))))} /></TableHead>
               <TableHead>Folio</TableHead><TableHead>Folio fiscal (UUID)</TableHead><TableHead>Emisión</TableHead><TableHead>Estado</TableHead>
               <TableHead>Complemento</TableHead><TableHead>Orden de compra</TableHead>
               <TableHead>XML</TableHead><TableHead>Pago</TableHead><TableHead className="text-right">Total</TableHead>
@@ -116,11 +139,14 @@ export function FacturasPanel({ ordenInicial = "" }: { ordenInicial?: string }) 
           </TableHeader>
           <TableBody>
             {loading ? (
-              <TableRow><TableCell colSpan={9} className="py-10 text-center text-muted-foreground">Cargando facturas…</TableCell></TableRow>
+              <TableRow><TableCell colSpan={10} className="py-10 text-center text-muted-foreground">Cargando facturas…</TableCell></TableRow>
             ) : rows.length === 0 ? (
-              <TableRow><TableCell colSpan={9} className="py-10 text-center text-muted-foreground">Sin facturas. Importa el Excel de administración de fletes.</TableCell></TableRow>
+              <TableRow><TableCell colSpan={10} className="py-10 text-center text-muted-foreground">Sin facturas. Importa el Excel de administración de fletes.</TableCell></TableRow>
             ) : rows.map((f) => (
               <TableRow key={f.id} className="cursor-pointer border-0 even:bg-secondary/70" onClick={() => setSelected(f)}>
+                <TableCell onClick={(e) => e.stopPropagation()}>
+                  <input type="checkbox" aria-label={`Marcar factura ${f.folio}`} checked={marcadas.includes(f.id)} onChange={() => alternar(f.id)} />
+                </TableCell>
                 <TableCell className="font-medium">{f.folio}</TableCell>
                 <TableCell className="whitespace-nowrap font-mono text-xs" title={f.uuid ?? undefined}>{f.uuid ? f.uuid.toUpperCase() : <span className="font-sans text-muted-foreground">Sin UUID</span>}</TableCell>
                 <TableCell className="whitespace-nowrap">{f.fecha_emision ? fechaMx(f.fecha_emision) : "—"}</TableCell>
@@ -143,7 +169,10 @@ export function FacturasPanel({ ordenInicial = "" }: { ordenInicial?: string }) 
           </div>
         </div>
       </Card>
+      <AuditoriaEliminaciones acciones={["factura_eliminada"]} refrescar={version} />
       <FacturaModal factura={selected} onClose={() => setSelected(null)} />
+      <EliminarFacturas ids={aEliminar} onClose={() => setAEliminar([])}
+        onDone={(m) => { setAEliminar([]); setMarcadas([]); setAviso(m); setVersion((v) => v + 1); void load(); }} />
     </div>
   );
 }
