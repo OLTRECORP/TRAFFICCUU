@@ -12,6 +12,7 @@ import { Alert } from "@/components/ui/alert";
 import { ErrorAlert } from "@/components/error-alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { CATEGORIAS_SERVICIO } from "@/components/ficha-servicios";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -179,6 +180,12 @@ function Detalle({ tracto, alertas, chofer, servicios, kmPorLitro, mejorKmPorLit
   tracto: Tracto; alertas: Alerta[]; chofer: ChoferAsig | null; servicios: ServicioMant[];
   kmPorLitro: number | null; mejorKmPorLitro: number; ultimaCarga: string | null; onRegistrar: (r: Regla) => void;
 }) {
+  const costoTotal = servicios.reduce((a, s) => a + Number(s.costo), 0);
+  const porTipo: { label: string; total: number }[] = CATEGORIAS_SERVICIO
+    .map((c) => ({ label: c.label, total: servicios.filter((s) => s.categoria === c.value).reduce((a, s) => a + Number(s.costo), 0) }))
+    .filter((t) => t.total > 0);
+  const sinTipo = servicios.filter((s) => !s.categoria).reduce((a, s) => a + Number(s.costo), 0);
+  if (sinTipo > 0) porTipo.push({ label: "Sin tipo", total: sinTipo });
   const relativo = kmPorLitro != null && mejorKmPorLitro > 0 ? (kmPorLitro / mejorKmPorLitro) * 100 : null;
   return (
     <div className="grid content-start gap-4">
@@ -199,6 +206,7 @@ function Detalle({ tracto, alertas, chofer, servicios, kmPorLitro, mejorKmPorLit
             {chofer?.licencia && <span className="text-xs text-muted-foreground">Licencia {chofer.licencia}</span>}
           </div>
           <Dato k="Última carga de diésel" v={ultimaCarga ? fechaMx(ultimaCarga) : "—"} />
+          <Dato k="Costo de operación (mantenimiento)" v={mxn(costoTotal)} />
         </CardContent>
       </Card>
 
@@ -225,16 +233,21 @@ function Detalle({ tracto, alertas, chofer, servicios, kmPorLitro, mejorKmPorLit
       <Card className="rounded-xl">
         <CardHeader><CardTitle className="flex items-center gap-2 text-base"><Wrench className="h-4 w-4" aria-hidden /> Historial de servicios</CardTitle></CardHeader>
         <CardContent className="overflow-x-auto">
+          {porTipo.length > 0 && (
+            <p className="mb-3 text-xs text-muted-foreground">
+              Total {mxn(costoTotal)} · {porTipo.map((t) => `${t.label} ${mxn(t.total)}`).join(" · ")}
+            </p>
+          )}
           {servicios.length === 0 ? <p className="text-sm text-muted-foreground">Sin servicios registrados.</p> : (
             <table className="w-full text-sm">
               <thead><tr className="text-left text-xs text-muted-foreground">
-                <th className="py-1 pr-3 font-medium">Fecha</th><th className="py-1 pr-3 font-medium">Servicio</th>
+                <th className="py-1 pr-3 font-medium">Fecha</th><th className="py-1 pr-3 font-medium">Tipo</th><th className="py-1 pr-3 font-medium">Servicio</th>
                 <th className="py-1 pr-3 text-right font-medium">Kilometraje</th><th className="py-1 text-right font-medium">Costo</th>
               </tr></thead>
               <tbody>
                 {servicios.slice(0, 8).map((s) => (
                   <tr key={s.id} className="border-t">
-                    <td className="py-1.5 pr-3 whitespace-nowrap">{fechaMx(s.fecha)}</td><td className="py-1.5 pr-3">{s.servicio}</td>
+                    <td className="py-1.5 pr-3 whitespace-nowrap">{fechaMx(s.fecha)}</td><td className="py-1.5 pr-3">{CATEGORIAS_SERVICIO.find((c) => c.value === s.categoria)?.label ?? "—"}</td><td className="py-1.5 pr-3">{s.servicio}</td>
                     <td className="py-1.5 pr-3 text-right">{s.kilometraje != null ? km(s.kilometraje) : "—"}</td>
                     <td className="py-1.5 text-right">{mxn(Number(s.costo))}</td>
                   </tr>
