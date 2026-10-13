@@ -73,6 +73,7 @@ export interface Factura {
 export interface OrdenResumen {
   id: string; numero: string; monto: number; fecha_creacion: string | null; fecha_pago: string | null;
   comp_pago: number | null; n_facturas: number; suma_facturas: number; diferencia: number;
+  n_complementos: number; fecha_pago_complemento: string | null; monto_pagado: number; pagada: boolean;   // pagada = hay complemento de pago con fecha
 }
 
 export interface ImportExcelResult {
