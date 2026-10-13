@@ -7,6 +7,7 @@ import { calcularAlertas, peorNivel, type Alerta, type Nivel } from "@/lib/mante
 import { tramos, type Carga, type ViajeRend } from "@/lib/combustible";
 import type { Bitacora, Chofer, Regla, ServicioMant, Tracto } from "@/lib/types";
 import { cn, fechaMx, km, mxn } from "@/lib/utils";
+import { FichaServicios, etiquetaCategoria } from "@/components/ficha-servicios";
 import { Alert } from "@/components/ui/alert";
 import { ErrorAlert } from "@/components/error-alert";
 import { Badge } from "@/components/ui/badge";
@@ -109,13 +110,13 @@ export function MantenimientoPanel() {
     return t ? filas.filter((f) => `${f.tracto.placa} ${f.tracto.modelo ?? ""}`.toLowerCase().includes(t)) : filas;
   }, [filas, q]);
 
-  // rendimiento km/l por tracto (odómetro, tanque lleno a tanque lleno); sin dos cargas con odómetro no hay valor
+  // rendimiento km/l por tracto: km de Carta Porte entre cargas ÷ litros (tanque lleno a tanque lleno); sin tramos con litros no hay valor
   const rendimiento = useMemo(() => {
     const asignados = new Map(choferes.filter((c) => c.tracto_asignado_id).map((c) => [c.tracto_asignado_id!, c.id]));
     const acc = new Map<string, { km: number; litros: number }>();
     for (const t of tramos(cargas, viajes, asignados)) {
       const a = acc.get(t.tractoId) ?? { km: 0, litros: 0 };
-      a.km += t.kmOdometro; a.litros += t.litros; acc.set(t.tractoId, a);
+      if (t.litros != null) { a.km += t.km; a.litros += t.litros; acc.set(t.tractoId, a); }
     }
     const out = new Map<string, number>();
     for (const [id, a] of acc) if (a.litros > 0) out.set(id, a.km / a.litros);
@@ -165,6 +166,9 @@ export function MantenimientoPanel() {
           tracto={actual.tracto} alertas={actual.alertas}
           chofer={choferes.find((c) => c.tracto_asignado_id === actual.tracto.id) ?? null}
           servicios={servicios.filter((s) => s.tracto_id === actual.tracto.id)}
+          cargas={cargas.filter((c) => c.tracto_id === actual.tracto.id)}
+          kmViajes={viajes.filter((v) => v.tracto_id === actual.tracto.id).reduce((t, v) => t + Number(v.km), 0)}
+          onServiciosChange={() => void load()}
           kmPorLitro={rendimiento.get(actual.tracto.id) ?? null} mejorKmPorLitro={mejorRend}
           ultimaCarga={cargas.find((c) => c.tracto_id === actual.tracto.id)?.fecha ?? null}
           onRegistrar={(regla) => setRegistro({ tracto: actual.tracto, regla })}
@@ -184,8 +188,9 @@ function Dato({ k, v }: { k: string; v: string }) {
   );
 }
 
-function Detalle({ tracto, alertas, chofer, servicios, kmPorLitro, mejorKmPorLitro, ultimaCarga, onRegistrar }: {
-  tracto: Tracto; alertas: Alerta[]; chofer: ChoferAsig | null; servicios: ServicioMant[];
+function Detalle({ tracto, alertas, chofer, servicios, cargas, kmViajes, onServiciosChange, kmPorLitro, mejorKmPorLitro, ultimaCarga, onRegistrar }: {
+  tracto: Tracto; alertas: Alerta[]; chofer: ChoferAsig | null; servicios: ServicioMant[]; cargas: Carga[];
+  kmViajes: number; onServiciosChange: () => void;
   kmPorLitro: number | null; mejorKmPorLitro: number; ultimaCarga: string | null; onRegistrar: (r: Regla) => void;
 }) {
   const relativo = kmPorLitro != null && mejorKmPorLitro > 0 ? (kmPorLitro / mejorKmPorLitro) * 100 : null;
@@ -219,7 +224,7 @@ function Detalle({ tracto, alertas, chofer, servicios, kmPorLitro, mejorKmPorLit
               detalle={a.restante >= 0 ? `faltan ${km(a.restante)}` : `excedido ${km(-a.restante)}`} />
           ))}
           <Anillo valor={relativo} vacio={relativo == null} nivel="verde" etiqueta="Rendimiento de combustible"
-            detalle={kmPorLitro != null ? `${kmPorLitro.toFixed(2)} km/l (vs. mejor de la flota)` : "Sin cargas con odómetro"} />
+            detalle={kmPorLitro != null ? `${kmPorLitro.toFixed(2)} km/l (vs. mejor de la flota)` : "Sin dos cargas con litros"} />
           {alertas.length === 0 && <p className="col-span-full text-sm text-muted-foreground">No hay reglas de mantenimiento configuradas.</p>}
         </CardContent>
       </Card>
@@ -231,29 +236,54 @@ function Detalle({ tracto, alertas, chofer, servicios, kmPorLitro, mejorKmPorLit
         </CardContent>
       </Card>
 
+      <CostoOperacion servicios={servicios} cargas={cargas} kmViajes={kmViajes} />
+
       <Card className="rounded-xl">
-        <CardHeader><CardTitle className="flex items-center gap-2 text-base"><Wrench className="h-4 w-4" aria-hidden /> Historial de servicios</CardTitle></CardHeader>
-        <CardContent className="overflow-x-auto">
-          {servicios.length === 0 ? <p className="text-sm text-muted-foreground">Sin servicios registrados.</p> : (
-            <table className="w-full text-sm">
-              <thead><tr className="text-left text-xs text-muted-foreground">
-                <th className="py-1 pr-3 font-medium">Fecha</th><th className="py-1 pr-3 font-medium">Servicio</th>
-                <th className="py-1 pr-3 text-right font-medium">Kilometraje</th><th className="py-1 text-right font-medium">Costo</th>
-              </tr></thead>
-              <tbody>
-                {servicios.slice(0, 8).map((s) => (
-                  <tr key={s.id} className="border-t">
-                    <td className="py-1.5 pr-3 whitespace-nowrap">{fechaMx(s.fecha)}</td><td className="py-1.5 pr-3">{s.servicio}</td>
-                    <td className="py-1.5 pr-3 text-right">{s.kilometraje != null ? km(s.kilometraje) : "—"}</td>
-                    <td className="py-1.5 text-right">{mxn(Number(s.costo))}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
+        <CardHeader><CardTitle className="flex items-center gap-2 text-base"><Wrench className="h-4 w-4" aria-hidden /> Servicios y reparaciones</CardTitle></CardHeader>
+        <CardContent>
+          <FichaServicios tipo="tracto" unidadId={tracto.id} empresaId={tracto.empresa_id} kmActual={tracto.kilometraje_actual} onChange={onServiciosChange} />
         </CardContent>
       </Card>
     </div>
+  );
+}
+
+/** Costo de operación del tracto: servicios por tipo + diésel registrado, y costo por km de Carta Porte. */
+function CostoOperacion({ servicios, cargas, kmViajes }: { servicios: ServicioMant[]; cargas: Carga[]; kmViajes: number }) {
+  const porTipo = new Map<string, number>();
+  for (const s of servicios) {
+    const k = etiquetaCategoria(s.categoria) ?? "Sin tipo";
+    porTipo.set(k, (porTipo.get(k) ?? 0) + Number(s.costo));
+  }
+  const filas = [...porTipo.entries()].sort((a, b) => b[1] - a[1]);
+  const mant = filas.reduce((t, [, v]) => t + v, 0);
+  const diesel = cargas.reduce((t, c) => t + Number(c.costo ?? 0), 0);
+  const total = mant + diesel;
+  const max = Math.max(1, ...filas.map(([, v]) => v));
+  return (
+    <Card className="rounded-xl">
+      <CardHeader><CardTitle className="text-base">Costo de operación (historial)</CardTitle></CardHeader>
+      <CardContent className="grid gap-4">
+        <div className="grid gap-4 sm:grid-cols-4">
+          <Dato k="Mantenimiento" v={mxn(mant)} />
+          <Dato k="Diésel (costo registrado)" v={mxn(diesel)} />
+          <Dato k="Total" v={mxn(total)} />
+          <Dato k="Costo por km (Carta Porte)" v={kmViajes > 0 ? `${mxn(total / kmViajes)} / km` : "—"} />
+        </div>
+        {filas.length > 0 && (
+          <ul className="grid gap-1.5">
+            {filas.map(([tipo, v]) => (
+              <li key={tipo} className="grid grid-cols-[110px_1fr_auto] items-center gap-2 text-sm">
+                <span>{tipo}</span>
+                <span className="h-2 overflow-hidden rounded-full bg-secondary"><span className="block h-full bg-primary" style={{ width: `${(v / max) * 100}%` }} /></span>
+                <span className="whitespace-nowrap text-right font-medium">{mxn(v)}</span>
+              </li>
+            ))}
+          </ul>
+        )}
+        <p className="text-xs text-muted-foreground">El costo por km usa los km (redondo) de todos los viajes del tracto; el diésel solo suma las cargas con costo capturado.</p>
+      </CardContent>
+    </Card>
   );
 }
 

@@ -87,14 +87,14 @@ export function CombustiblePanel() {
   const rend = useMemo(() => rendimientoPorChofer(cargas, viajes, desde, hasta, asignados), [cargas, viajes, desde, hasta, asignados]);
 
   async function borrar(c: Carga) {
-    if (!window.confirm(`¿Eliminar la carga de ${litros(c.litros)} del ${fechaMx(c.fecha)} (${placa.get(c.tracto_id) ?? "tracto"})?`)) return;
+    if (!window.confirm(`¿Eliminar la carga de ${c.litros == null ? "carga" : litros(c.litros)} del ${fechaMx(c.fecha)} (${placa.get(c.tracto_id) ?? "tracto"})?`)) return;
     const { error: e } = await createClient().from("cargas_combustible").delete().eq("id", c.id);
     if (e) setError(e.message); else void load();
   }
 
   if (loading) return <p className="text-sm text-muted-foreground">Cargando combustible…</p>;
 
-  const totLitros = filtradas.reduce((s, c) => s + Number(c.litros), 0);
+  const totLitros = filtradas.reduce((s, c) => s + Number(c.litros ?? 0), 0);
   const totCosto = filtradas.reduce((s, c) => s + Number(c.costo ?? 0), 0);
 
   return (
@@ -148,22 +148,20 @@ export function CombustiblePanel() {
                   <TableHead>Chofer</TableHead>
                   <TableHead className="text-right">Litros</TableHead>
                   <TableHead className="text-right">Costo</TableHead>
-                  <TableHead className="text-right">Odómetro</TableHead>
-                  <TableHead>Estación / notas</TableHead>
+                                    <TableHead>Estación / notas</TableHead>
                   <TableHead className="w-24" aria-hidden />
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {filtradas.length === 0 ? (
-                  <TableRow><TableCell colSpan={8} className="py-8 text-center text-muted-foreground">Sin cargas en el filtro seleccionado.</TableCell></TableRow>
+                  <TableRow><TableCell colSpan={7} className="py-8 text-center text-muted-foreground">Sin cargas en el filtro seleccionado.</TableCell></TableRow>
                 ) : filtradas.map((c) => (
                   <TableRow key={c.id}>
                     <TableCell className="whitespace-nowrap">{fechaMx(c.fecha)}</TableCell>
                     <TableCell className="whitespace-nowrap font-medium">{placa.get(c.tracto_id) ?? "—"}</TableCell>
                     <TableCell>{c.chofer_id ? nombre.get(c.chofer_id) ?? "—" : <span className="text-muted-foreground">—</span>}</TableCell>
-                    <TableCell className="whitespace-nowrap text-right">{litros(c.litros)}</TableCell>
+                    <TableCell className="whitespace-nowrap text-right">{c.litros == null ? <span className="text-muted-foreground">sin litros</span> : litros(c.litros)}</TableCell>
                     <TableCell className="whitespace-nowrap text-right">{c.costo == null ? "—" : mxn(c.costo)}</TableCell>
-                    <TableCell className="whitespace-nowrap text-right">{c.kilometraje == null ? <span className="text-muted-foreground">sin odómetro</span> : km(c.kilometraje)}</TableCell>
                     <TableCell>{[c.estacion, c.notas].filter(Boolean).join(" · ") || "—"}</TableCell>
                     <TableCell>
                       <div className="flex justify-end gap-1">
@@ -247,16 +245,17 @@ function Rendimiento({ filas, nombre, placa }: { filas: RendChofer[]; nombre: Ma
               <TableHead>Chofer</TableHead>
               <TableHead className="text-right">Cargas</TableHead>
               <TableHead className="text-right">Litros</TableHead>
-              <TableHead className="text-right">km/l (odómetro)</TableHead>
-              <TableHead className="text-right">km/l (Carta Porte)</TableHead>
-              <TableHead className="text-right">Viajes</TableHead>
+              <TableHead className="text-right">km entre cargas</TableHead>
+              <TableHead className="text-right">Viajes entre cargas</TableHead>
+              <TableHead className="text-right">km/l</TableHead>
+              <TableHead className="text-right">Viajes (rango)</TableHead>
               <TableHead className="text-right">Litros por viaje</TableHead>
               <TableHead className="text-right">Viajes por carga</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {filas.length === 0 ? (
-              <TableRow><TableCell colSpan={8} className="py-8 text-center text-muted-foreground">Sin cargas en el rango seleccionado.</TableCell></TableRow>
+              <TableRow><TableCell colSpan={9} className="py-8 text-center text-muted-foreground">Sin cargas en el rango seleccionado.</TableCell></TableRow>
             ) : filas.map((r) => {
               const id = r.choferId ?? "sin";
               return (
@@ -268,9 +267,9 @@ function Rendimiento({ filas, nombre, placa }: { filas: RendChofer[]; nombre: Ma
         </Table>
       </Card>
       <div className="grid gap-1 text-xs text-muted-foreground">
-        <p><b>km/l (odómetro)</b>: kilómetros del odómetro entre dos cargas consecutivas del mismo tracto ÷ litros de la carga que cierra el tramo (se asume tanque lleno en cada carga).</p>
-        <p><b>km/l (Carta Porte)</b>: km (redondo) de los viajes del tracto con fecha de salida entre ambas cargas ÷ los mismos litros; es referencia, no cuenta viajes vacíos ni fechas del mismo día.</p>
-        <p>Las cargas sin odómetro cuentan en litros, costo y litros por viaje, pero no en km/l. La carga sin chofer se atribuye al chofer asignado al tracto (pestaña «Chofer y tracto»); si no hay, al del último viaje de ese tracto a su fecha; si tampoco, va en «Sin chofer». Solo se cuentan viajes de choferes con cargas en el rango; facturas canceladas excluidas.</p>
+        <p><b>Cómo se calcula:</b> basta registrar la fecha de cada carga. Entre una carga y la siguiente del mismo tracto se suman los km (redondo, de la Carta Porte) y se cuentan los viajes con fecha de salida después de la carga anterior y hasta la fecha de la carga que cierra el tramo.</p>
+        <p><b>km/l</b> = km del tramo ÷ litros de la carga que cierra el tramo (se asume tanque lleno en cada carga). Sin litros capturados el tramo muestra km y viajes, pero no km/l. La primera carga de un tracto solo marca el inicio del primer tramo.</p>
+        <p>La carga sin chofer se atribuye al chofer asignado al tracto (pestaña «Chofer y tracto»); si no hay, al del último viaje de ese tracto a su fecha; si tampoco, va en «Sin chofer». Facturas canceladas excluidas.</p>
       </div>
     </>
   );
@@ -282,27 +281,28 @@ function FilaRend({ r, abierto, onToggle, etiqueta, placa }: { r: RendChofer; ab
       <TableRow className="cursor-pointer" onClick={onToggle}>
         <TableCell className="font-medium">
           {etiqueta}
-          {r.cargasSinOdometro > 0 && <span className="block text-xs font-normal text-amber-600">{r.cargasSinOdometro} carga(s) sin odómetro, fuera del km/l</span>}
+          {r.cargasSinLitros > 0 && <span className="block text-xs font-normal text-amber-600">{r.cargasSinLitros} carga(s) sin litros, fuera del km/l</span>}
         </TableCell>
         <TableCell className="text-right">{r.cargas}</TableCell>
         <TableCell className="whitespace-nowrap text-right">{litros(r.litros)}</TableCell>
+        <TableCell className="whitespace-nowrap text-right">{r.tramos.length ? km(r.km) : "—"}</TableCell>
+        <TableCell className="text-right">{r.tramos.length ? r.viajesTramos : "—"}</TableCell>
         <TableCell className="whitespace-nowrap text-right font-semibold">{r.kmPorLitro == null ? <span className="font-normal text-muted-foreground">sin datos</span> : num(r.kmPorLitro, 2)}</TableCell>
-        <TableCell className="whitespace-nowrap text-right">{num(r.kmPorLitroCp, 2)}</TableCell>
         <TableCell className="text-right">{r.choferId ? r.viajes : "—"}</TableCell>
         <TableCell className="whitespace-nowrap text-right">{r.litrosPorViaje == null ? "—" : litros(r.litrosPorViaje)}</TableCell>
         <TableCell className="text-right">{num(r.viajesPorCarga, 2)}</TableCell>
       </TableRow>
       {abierto && (
         <TableRow className="bg-secondary/40 hover:bg-secondary/40">
-          <TableCell colSpan={8}>
+          <TableCell colSpan={9}>
             {r.tramos.length === 0 ? (
-              <p className="text-sm text-muted-foreground">Sin tramos calculables: se necesitan al menos dos cargas del mismo tracto con odómetro.</p>
+              <p className="text-sm text-muted-foreground">Sin tramos: se necesitan al menos dos cargas del mismo tracto en fechas distintas.</p>
             ) : (
               <Table>
                 <TableHeader>
                   <TableRow className="hover:bg-transparent">
                     <TableHead>Tracto</TableHead><TableHead>Tramo</TableHead>
-                    <TableHead className="text-right">km odómetro</TableHead><TableHead className="text-right">km Carta Porte</TableHead>
+                    <TableHead className="text-right">km</TableHead><TableHead className="text-right">Viajes</TableHead>
                     <TableHead className="text-right">Litros</TableHead><TableHead className="text-right">km/l</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -311,10 +311,10 @@ function FilaRend({ r, abierto, onToggle, etiqueta, placa }: { r: RendChofer; ab
                     <TableRow key={i}>
                       <TableCell>{placa.get(t.tractoId) ?? "—"}</TableCell>
                       <TableCell className="whitespace-nowrap">{fechaMx(t.desde)} → {fechaMx(t.hasta)}</TableCell>
-                      <TableCell className="text-right">{km(t.kmOdometro)}</TableCell>
-                      <TableCell className="text-right">{km(t.kmCartaPorte)}</TableCell>
-                      <TableCell className="text-right">{litros(t.litros)}</TableCell>
-                      <TableCell className="text-right font-medium">{num(t.kmOdometro / t.litros, 2)}</TableCell>
+                      <TableCell className="text-right">{km(t.km)}</TableCell>
+                      <TableCell className="text-right">{t.viajes}</TableCell>
+                      <TableCell className="text-right">{t.litros == null ? "—" : litros(t.litros)}</TableCell>
+                      <TableCell className="text-right font-medium">{t.litros == null ? "—" : num(t.km / t.litros, 2)}</TableCell>
                     </TableRow>
                   ))}
                 </TableBody>
@@ -333,7 +333,7 @@ function FormCarga({
   carga: Carga | "nueva" | null; tractos: TractoOp[]; choferes: ChoferOp[]; tractoInicial: string;
   onClose: () => void; onSaved: () => void;
 }) {
-  const vacio = { tracto: "", chofer: "", fecha: "", litros: "", costo: "", odo: "", estacion: "", notas: "" };
+  const vacio = { tracto: "", chofer: "", fecha: "", litros: "", costo: "", estacion: "", notas: "" };
   const [f, setF] = useState(vacio);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -344,8 +344,8 @@ function FormCarga({
     setError(null);
     setF(carga === "nueva"
       ? { ...vacio, tracto: tractoInicial, fecha: new Date().toISOString().slice(0, 10) }
-      : { tracto: carga.tracto_id, chofer: carga.chofer_id ?? "", fecha: carga.fecha, litros: String(carga.litros), costo: carga.costo == null ? "" : String(carga.costo),
-          odo: carga.kilometraje == null ? "" : String(carga.kilometraje), estacion: carga.estacion ?? "", notas: carga.notas ?? "" });
+      : { tracto: carga.tracto_id, chofer: carga.chofer_id ?? "", fecha: carga.fecha, litros: carga.litros == null ? "" : String(carga.litros), costo: carga.costo == null ? "" : String(carga.costo),
+          estacion: carga.estacion ?? "", notas: carga.notas ?? "" });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [carga]);
 
@@ -353,16 +353,14 @@ function FormCarga({
     e.preventDefault();
     const tracto = tractos.find((t) => t.id === f.tracto);
     if (!tracto) return setError("Selecciona un tracto");
-    const l = Number(f.litros);
-    if (!Number.isFinite(l) || l <= 0) return setError("Los litros deben ser mayores a 0");
+    const l = f.litros === "" ? null : Number(f.litros);
+    if (l != null && (!Number.isFinite(l) || l <= 0)) return setError("Los litros deben ser mayores a 0");
     const costo = f.costo === "" ? null : Number(f.costo);
     if (costo != null && (!Number.isFinite(costo) || costo < 0)) return setError("Costo inválido");
-    const odo = f.odo === "" ? null : Number(f.odo);
-    if (odo != null && (!Number.isFinite(odo) || odo < 0)) return setError("Odómetro inválido");
     setSaving(true);
     const payload = {
       empresa_id: tracto.empresa_id, tracto_id: tracto.id, chofer_id: f.chofer || null, fecha: f.fecha,
-      litros: l, costo, kilometraje: odo, estacion: f.estacion.trim() || null, notas: f.notas.trim() || null,
+      litros: l, costo, estacion: f.estacion.trim() || null, notas: f.notas.trim() || null,
     };
     const sb = createClient();
     const { error: err } = carga && carga !== "nueva"
@@ -377,7 +375,7 @@ function FormCarga({
       <DialogContent className="max-w-md">
         <div>
           <DialogTitle className="text-lg font-semibold">{carga === "nueva" ? "Registrar carga de combustible" : "Editar carga"}</DialogTitle>
-          <DialogDescription className="text-sm text-muted-foreground">Diésel en litros. Costo y odómetro son opcionales; sin odómetro la carga no entra al km/l.</DialogDescription>
+          <DialogDescription className="text-sm text-muted-foreground">Basta la fecha y el tracto: los km y viajes entre cargas salen de las Cartas Porte. Con los litros se calcula además el km/l.</DialogDescription>
         </div>
         <form onSubmit={onSubmit} className="grid gap-4">
           {error && <ErrorAlert where="combustible-form" message={error} />}
@@ -397,9 +395,8 @@ function FormCarga({
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div className="grid gap-2"><Label htmlFor="cf-fecha">Fecha</Label><Input id="cf-fecha" type="date" required value={f.fecha} onChange={set("fecha")} /></div>
-            <div className="grid gap-2"><Label htmlFor="cf-litros">Litros</Label><Input id="cf-litros" type="number" min={0.01} step="0.01" required value={f.litros} onChange={set("litros")} /></div>
+            <div className="grid gap-2"><Label htmlFor="cf-litros">Litros (para km/l)</Label><Input id="cf-litros" type="number" min={0.01} step="0.01" value={f.litros} onChange={set("litros")} /></div>
             <div className="grid gap-2"><Label htmlFor="cf-costo">Costo MXN (opcional)</Label><Input id="cf-costo" type="number" min={0} step="0.01" value={f.costo} onChange={set("costo")} /></div>
-            <div className="grid gap-2"><Label htmlFor="cf-odo">Odómetro km (opcional)</Label><Input id="cf-odo" type="number" min={0} step="0.1" value={f.odo} onChange={set("odo")} /></div>
           </div>
           <div className="grid gap-2"><Label htmlFor="cf-est">Estación</Label><Input id="cf-est" value={f.estacion} onChange={set("estacion")} /></div>
           <div className="grid gap-2"><Label htmlFor="cf-notas">Notas</Label><Input id="cf-notas" value={f.notas} onChange={set("notas")} /></div>
