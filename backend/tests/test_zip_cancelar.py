@@ -193,3 +193,16 @@ def test_ejecutar_por_meses_guarda_la_solicitud_y_termina_ok(monkeypatch):
     finales = [p for t, p in db.updates if t == "sat_descargas"]
     assert finales[-1]["estado"] == "ok" and finales[-1]["facturas_asignadas"] == 1
     assert finales[-1]["detalle"][0]["estado"] == "ok" and finales[-1]["detalle"][0]["solicitud"] == "SOL-1"
+
+
+def test_reprocesar_solo_registra_las_facturas_con_xml_que_aun_no_tienen_viaje(monkeypatch):
+    db = ChainDB(
+        facturas=[{"id": "f1", "folio": "1"}, {"id": "f2", "folio": "2"}],
+        facturas_sat=[{"factura_id": "f1", "xml": "<a/>"}, {"factura_id": "f2", "xml": "<b/>"}],
+        viajes=[{"factura_id": "f1"}],
+    )
+    registradas = []
+    monkeypatch.setattr(dm, "_carta_porte", lambda db_, cp, xml, factura, acu, avisar: registradas.append(factura["id"]))
+    acu = dm._contadores()
+    dm._reprocesar(db, "e1", {"log": lambda *a: None, "parar": lambda: False, "cp": (None, None)}, acu)
+    assert registradas == ["f2"]   # f1 ya tiene viaje y no se repasa

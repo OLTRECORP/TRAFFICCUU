@@ -42,24 +42,34 @@ export function DashboardView() {
   }, []);
   useEffect(() => { load(); }, [load]);
 
-  useEffect(() => {
+  const cargarFacturas = useCallback(async () => {
     const sb = createClient();
     const desde = new Date(Date.now() - 366 * 86_400_000).toISOString().slice(0, 10);
-    void (async () => {
-      const [e, m, d, o] = await Promise.all([
-        sb.from("facturas_estadisticas").select("estado, complemento, con_orden, con_complemento, n, total"),
-        sb.from("facturas_por_mes").select("mes, n, total").order("mes", { ascending: false }).limit(12),
-        sb.from("facturas_por_dia").select("dia, n, total").gte("dia", desde).limit(1000),
-        sb.from("ordenes_compra_resumen").select("*").limit(1000),
-      ]);
-      const err = e.error ?? m.error ?? d.error ?? o.error;
-      if (err) { setErrorFacturas(err.message); return; }
-      setEst((e.data ?? []) as FacturaEstadistica[]);
-      setMeses(((m.data ?? []) as FacturaMes[]).reverse());
-      setDias((d.data ?? []) as FacturaDia[]);
-      setOrdenes((o.data ?? []) as OrdenResumen[]);
-    })();
+    const [e, m, d, o] = await Promise.all([
+      sb.from("facturas_estadisticas").select("estado, complemento, con_orden, con_complemento, n, total"),
+      sb.from("facturas_por_mes").select("mes, n, total").order("mes", { ascending: false }).limit(12),
+      sb.from("facturas_por_dia").select("dia, n, total").gte("dia", desde).limit(1000),
+      sb.from("ordenes_compra_resumen").select("*").limit(1000),
+    ]);
+    const err = e.error ?? m.error ?? d.error ?? o.error;
+    if (err) { setErrorFacturas(err.message); return; }
+    setErrorFacturas(null);
+    setEst((e.data ?? []) as FacturaEstadistica[]);
+    setMeses(((m.data ?? []) as FacturaMes[]).reverse());
+    setDias((d.data ?? []) as FacturaDia[]);
+    setOrdenes((o.data ?? []) as OrdenResumen[]);
   }, []);
+  useEffect(() => { void cargarFacturas(); }, [cargarFacturas]);
+
+  // Lo que baja el SAT (u otra pestaña) se refleja solo: al volver a esta pestaña y cada minuto mientras está visible.
+  const recargar = useCallback(() => { void load(); void cargarFacturas(); }, [load, cargarFacturas]);
+  useEffect(() => {
+    const alVolver = () => { if (document.visibilityState === "visible") recargar(); };
+    const t = setInterval(alVolver, 60_000);
+    document.addEventListener("visibilitychange", alVolver);
+    window.addEventListener("focus", alVolver);
+    return () => { clearInterval(t); document.removeEventListener("visibilitychange", alVolver); window.removeEventListener("focus", alVolver); };
+  }, [recargar]);
 
   const k = useMemo(() => kpis(viajes), [viajes]);
   const fact = useMemo(() => resumenFacturas(est), [est]);
@@ -79,7 +89,7 @@ export function DashboardView() {
             ].filter(Boolean);
             setNotice(partes.length ? partes.join(" ") : null);
             setError(fallos.length ? fallos.join("\n") : null);
-            if (ok || zips) load();
+            if (ok || zips) recargar();
           }}
         />
       </div>
