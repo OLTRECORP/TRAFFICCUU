@@ -86,7 +86,10 @@ export function CombustiblePanel() {
   if (loading) return <p className="text-sm text-muted-foreground">Cargando combustible…</p>;
 
   const totLitros = filtradas.reduce((s, c) => s + Number(c.litros ?? 0), 0);
-  const totCosto = filtradas.reduce((s, c) => s + Number(c.costo ?? 0), 0);
+  const totCosto = filtradas.reduce((s, c) => s + Number(c.costo ?? 0), 0);   // costo = precio TOTAL de cada carga
+  const conAmbos = filtradas.filter((c) => c.costo != null && c.litros != null);
+  const litrosConCosto = conAmbos.reduce((s, c) => s + Number(c.litros), 0);
+  const precioProm = litrosConCosto > 0 ? conAmbos.reduce((s, c) => s + Number(c.costo), 0) / litrosConCosto : null;
 
   return (
     <div className="grid gap-4">
@@ -116,10 +119,11 @@ export function CombustiblePanel() {
         </TabsList>
 
         <TabsContent value="cargas" className="grid gap-4">
-          <div className="grid gap-3 sm:grid-cols-3">
+          <div className="grid gap-3 sm:grid-cols-4">
             <Kpi label="Cargas" value={String(filtradas.length)} />
             <Kpi label="Litros de diésel" value={litros(totLitros)} />
-            <Kpi label="Costo registrado" value={mxn(totCosto)} />
+            <Kpi label="Costo registrado (suma del total de cada carga)" value={mxn(totCosto)} />
+            <Kpi label="Precio promedio por litro" value={precioProm == null ? "—" : mxn(precioProm)} />
           </div>
           <Card>
             <Table>
@@ -129,14 +133,15 @@ export function CombustiblePanel() {
                   <TableHead>Tracto</TableHead>
                   <TableHead>Chofer</TableHead>
                   <TableHead className="text-right">Litros</TableHead>
-                  <TableHead className="text-right">Costo</TableHead>
+                  <TableHead className="text-right">Precio total</TableHead>
+                  <TableHead className="text-right">Precio por litro</TableHead>
                                     <TableHead>Estación / notas</TableHead>
-                  <TableHead className="w-24" aria-hidden />
+                  <TableHead className="w-36" aria-hidden />
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {filtradas.length === 0 ? (
-                  <TableRow><TableCell colSpan={7} className="py-8 text-center text-muted-foreground">Sin cargas registradas.</TableCell></TableRow>
+                  <TableRow><TableCell colSpan={8} className="py-8 text-center text-muted-foreground">Sin cargas registradas.</TableCell></TableRow>
                 ) : filtradas.map((c) => (
                   <TableRow key={c.id}>
                     <TableCell className="whitespace-nowrap">{fechaMx(c.fecha)}</TableCell>
@@ -144,10 +149,11 @@ export function CombustiblePanel() {
                     <TableCell>{c.chofer_id ? nombre.get(c.chofer_id) ?? "—" : <span className="text-muted-foreground">—</span>}</TableCell>
                     <TableCell className="whitespace-nowrap text-right">{c.litros == null ? <span className="text-muted-foreground">sin litros</span> : litros(c.litros)}</TableCell>
                     <TableCell className="whitespace-nowrap text-right">{c.costo == null ? "—" : mxn(c.costo)}</TableCell>
+                    <TableCell className="whitespace-nowrap text-right">{c.costo == null || !c.litros ? "—" : mxn(Number(c.costo) / Number(c.litros))}</TableCell>
                     <TableCell>{[c.estacion, c.notas].filter(Boolean).join(" · ") || "—"}</TableCell>
                     <TableCell>
                       <div className="flex justify-end gap-1">
-                        <Button variant="ghost" size="sm" aria-label="Editar carga" onClick={() => setEditar(c)}><Pencil className="h-4 w-4" /></Button>
+                        <Button variant="outline" size="sm" aria-label="Editar carga" onClick={() => setEditar(c)}><Pencil className="h-4 w-4" /> Editar</Button>
                         <Button variant="ghost" size="sm" aria-label="Eliminar carga" onClick={() => void borrar(c)}><Trash2 className="h-4 w-4" /></Button>
                       </div>
                     </TableCell>
@@ -331,6 +337,8 @@ function FormCarga({
   const [f, setF] = useState(vacio);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const lN = Number(f.litros), cN = Number(f.costo);
+  const precioLitro = f.litros !== "" && f.costo !== "" && lN > 0 && Number.isFinite(cN) ? cN / lN : null;
   const set = (k: keyof typeof vacio) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => setF((p) => ({ ...p, [k]: e.target.value }));
 
   useEffect(() => {
@@ -350,18 +358,26 @@ function FormCarga({
     const l = f.litros === "" ? null : Number(f.litros);
     if (l != null && (!Number.isFinite(l) || l <= 0)) return setError("Los litros deben ser mayores a 0");
     const costo = f.costo === "" ? null : Number(f.costo);
-    if (costo != null && (!Number.isFinite(costo) || costo < 0)) return setError("Costo inválido");
+    if (costo != null && (!Number.isFinite(costo) || costo < 0)) return setError("El precio total es inválido");
     setSaving(true);
     const payload = {
       empresa_id: tracto.empresa_id, tracto_id: tracto.id, chofer_id: f.chofer || null, fecha: f.fecha,
       litros: l, costo, estacion: f.estacion.trim() || null, notas: f.notas.trim() || null,
     };
     const sb = createClient();
-    const { error: err } = carga && carga !== "nueva"
-      ? await sb.from("cargas_combustible").update(payload).eq("id", carga.id)
-      : await sb.from("cargas_combustible").insert(payload);
+    let msg: string | null = null;
+    try {
+      const { error: err } = carga && carga !== "nueva"
+        ? await sb.from("cargas_combustible").update(payload).eq("id", carga.id)
+        : await sb.from("cargas_combustible").insert(payload);
+      msg = err?.message ?? null;
+    } catch (x) {
+      msg = x instanceof Error ? x.message : String(x);
+    }
     setSaving(false);
-    if (err) setError(err.message); else onSaved();
+    if (msg) setError(/failed to fetch|networkerror|load failed/i.test(msg)
+      ? "No se pudo conectar con la base de datos (sin respuesta de Supabase). Revisa tu conexión y vuelve a intentar; la carga no se guardó." : msg);
+    else onSaved();
   }
 
   return (
@@ -390,7 +406,11 @@ function FormCarga({
           <div className="grid grid-cols-2 gap-3">
             <div className="grid gap-2"><Label htmlFor="cf-fecha">Fecha</Label><Input id="cf-fecha" type="date" required value={f.fecha} onChange={set("fecha")} /></div>
             <div className="grid gap-2"><Label htmlFor="cf-litros">Litros (para km/l)</Label><Input id="cf-litros" type="number" min={0.01} step="0.01" value={f.litros} onChange={set("litros")} /></div>
-            <div className="grid gap-2"><Label htmlFor="cf-costo">Costo MXN (opcional)</Label><Input id="cf-costo" type="number" min={0} step="0.01" value={f.costo} onChange={set("costo")} /></div>
+            <div className="grid gap-2"><Label htmlFor="cf-costo">Precio total de la carga MXN (opcional)</Label><Input id="cf-costo" type="number" min={0} step="0.01" value={f.costo} onChange={set("costo")} /></div>
+            <div className="grid gap-2">
+              <Label htmlFor="cf-ppl">Precio por litro (automático)</Label>
+              <Input id="cf-ppl" readOnly tabIndex={-1} className="bg-secondary" value={precioLitro == null ? "" : mxn(precioLitro)} placeholder="Total ÷ litros" />
+            </div>
           </div>
           <div className="grid gap-2"><Label htmlFor="cf-est">Estación</Label><Input id="cf-est" value={f.estacion} onChange={set("estacion")} /></div>
           <div className="grid gap-2"><Label htmlFor="cf-notas">Notas</Label><Input id="cf-notas" value={f.notas} onChange={set("notas")} /></div>
