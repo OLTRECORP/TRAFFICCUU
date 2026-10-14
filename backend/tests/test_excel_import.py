@@ -76,11 +76,14 @@ class FakeTable:
     def select(self, *_): return self
     def eq(self, *_): return self
     def in_(self, key, keys): self._in = (key, keys); return self
+    def order(self, *_): return self
+    def range(self, a, b): self._rango = (a, b); return self
 
     def upsert(self, rows, on_conflict):
         self.key = on_conflict.split(",")[1]
         for r in rows:
-            self.store.setdefault(self.name, {})[r[self.key]] = r
+            t = self.store.setdefault(self.name, {})
+            t[r[self.key]] = {"id": f"{self.name}-{r[self.key]}", **t.get(r[self.key], {}), **r}
         return self
 
     def execute(self):
@@ -89,6 +92,9 @@ class FakeTable:
         if self._in:
             key, keys = self._in
             r.data = [{key: k} for k in keys if k in self.store.get(self.name, {})]
+        elif getattr(self, "_rango", None):
+            a, b = self._rango
+            r.data = list(self.store.get(self.name, {}).values())[a:b + 1]
         else:
             r.data = []
         return r
@@ -111,3 +117,21 @@ def test_guardar_es_idempotente():
     assert r2["facturas"] == {"total": 1, "nuevas": 0, "actualizadas": 1}
     assert r2["ordenes_compra"]["actualizadas"] == 1
     assert len(db.store["facturas"]) == 1
+
+
+def test_excel_posterior_actualiza_la_factura_creada_desde_el_xml_sin_duplicar():
+    # El XML ya dio de alta la factura (folio "123", con UUID); el Excel la trae con el UUID dañado y folio "0123".
+    db = FakeDb()
+    db.store["facturas"] = {"123": {"id": "f1", "folio": "123", "uuid": U1, "total": "5000.00",
+                                       "tipo_comprobante": "Ingreso", "fecha_emision": "2026-01-08"}}
+    parsed = parse_workbook(make_xlsx(
+        facturas=[["a", 1, "0123", "UUID DANADO", "factura", "pagado", None, 5000, None, None, "4287CH", None, None]],
+        ordenes=[],
+    ))
+    fila = parsed["facturas"][0]
+    assert fila["folio"] == "0123" and fila["uuid"] is None
+    r = guardar(db, "emp", parsed)
+    assert r["facturas"] == {"total": 1, "nuevas": 0, "actualizadas": 1}
+    assert list(db.store["facturas"]) == ["123"]                 # sin duplicar
+    f = db.store["facturas"]["123"]
+    assert f["uuid"] == U1 and f["estado"] == "pagado" and f["fecha_emision"] == "2026-01-08"

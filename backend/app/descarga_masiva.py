@@ -211,6 +211,14 @@ class _Indice:
             if not f.get("uuid") and f.get("estado") != "cancelado":
                 self.sin_uuid_por_folio.setdefault(normalizar_folio(f["folio"]), []).append(f)
         self.usadas: set[str] = set()
+        self.folios = {str(f["folio"]) for f in facturas}
+
+    def registrar(self, f: dict) -> None:
+        """Agrega al índice una factura recién creada (para que otro XML del mismo lote no la duplique)."""
+        if f.get("uuid"):
+            self.por_uuid[str(f["uuid"]).lower()] = f
+        self.folios.add(str(f["folio"]))
+        self.usadas.add(f["id"])
 
     def buscar(self, r: dict) -> tuple[dict | None, str]:
         """(factura, motivo): motivo explica por qué no hubo asignación única."""
@@ -227,6 +235,51 @@ class _Indice:
         if len(candidatas) == 1:
             return next(iter(candidatas.values())), ""
         return None, "varias facturas coinciden en folio y total" if candidatas else "ninguna factura coincide en UUID, folio y total"
+
+
+def _folio_nuevo(indice: _Indice, r: dict) -> str:
+    """Folio de la factura nueva: el del XML; si ya lo usa otra factura (otra serie), Serie+Folio; al final el UUID."""
+    serie, folio = (r.get("serie") or "").strip(), (r.get("folio") or "").strip()
+    for c in (folio, f"{serie}{folio}", f"{serie}-{folio}" if serie and folio else "", serie, r["uuid"][:8].lower()):
+        if c and c not in indice.folios:
+            return c
+    return r["uuid"].lower()
+
+
+def crear_factura(db, empresa_id: str, indice: _Indice, r: dict) -> dict:
+    """Da de alta una factura emitida a partir de su XML cuando no hay ninguna relacionada. Un Excel que se suba
+    después la encuentra por UUID (o por folio y total) y la actualiza, igual que si el Excel se hubiera subido primero."""
+    fila = {
+        "empresa_id": empresa_id, "folio": _folio_nuevo(indice, r), "uuid": r["uuid"].lower(),
+        "tipo_comprobante": "Ingreso", "estado": "activado", "complemento": "SIN COMPLEMENTO",
+        "fecha_emision": (r.get("fecha") or "")[:10] or None, "total": str(_dec(r.get("total")) or Decimal("0.00")),
+    }
+    creada = db.table("facturas").insert(fila).execute().data[0]
+    indice.registrar(creada)
+    return creada
+
+
+def asegurar_factura_xml(tenant: Tenant, xml: bytes) -> tuple[str | None, bool]:
+    """Para un XML subido suelto: lo liga a su factura (por UUID, o folio y total si el Excel la trae sin UUID) o la
+    crea, y guarda el XML en `facturas_sat`. Devuelve (factura_id, creada); (None, False) si no es una factura de ingreso."""
+    db = get_admin_client()
+    r = resumen_cfdi(xml)
+    if r.get("tipo_comprobante") != "I":
+        return None, False
+    eid = tenant.empresa_id
+    folios = list({c for c in (r.get("folio"), f"{r.get('serie') or ''}{r.get('folio') or ''}",
+                               f"{r.get('serie')}-{r.get('folio')}" if r.get("serie") and r.get("folio") else None) if c})
+    filas = {f["id"]: f for f in _leer_todo(lambda a, b: db.table("facturas").select("id, folio, uuid, total, estado, complemento")
+                                            .eq("empresa_id", eid).is_("uuid", "null").order("id").range(a, b))}
+    for q in (db.table("facturas").select("id, folio, uuid, total, estado, complemento").eq("empresa_id", eid).eq("uuid", r["uuid"].lower()),
+              db.table("facturas").select("id, folio, uuid, total, estado, complemento").eq("empresa_id", eid).in_("folio", folios)):
+        for f in q.execute().data or []:
+            filas[f["id"]] = f
+    indice = _Indice(list(filas.values()))
+    acu = _contadores()
+    procesar_xmls(db, eid, indice, [xml], None, acu, {"rfc": tenant.rfc})
+    f = indice.por_uuid.get(r["uuid"].lower())
+    return (f["id"] if f else None), acu["facturas_creadas"] > 0
 
 
 LOTE_GUARDADO = 20   # XML asignados que se guardan juntos mientras se recorre un mes
@@ -277,6 +330,15 @@ def _recorrer(db, empresa_id, indice, xmls, id_solicitud, acumulado, sat_rows, a
 
         r_plano = {"uuid": r["uuid"], "serie": r.get("serie"), "folio": r.get("folio"), "total": r.get("total")}
         factura, motivo = indice.buscar(r_plano)
+        # Sin factura relacionada y emitida por la empresa: se da de alta con los datos del XML.
+        if factura is None and motivo.startswith("ninguna") and ctx.get("rfc") \
+                and (r["emisor"]["rfc"] or "").upper() == ctx["rfc"].upper():
+            try:
+                factura = crear_factura(db, empresa_id, indice, r)
+                acumulado["facturas_creadas"] += 1
+                avisar(f"XML {r['uuid'][:8]}… sin factura relacionada: se creó la factura {factura['folio']}", "ok")
+            except Exception as exc:
+                motivo = f"no se pudo crear la factura: {type(exc).__name__}"
         if factura is None:
             if len(acumulado["sin_asignar"]) < MAX_SIN_ASIGNAR:
                 acumulado["sin_asignar"].append({
@@ -424,7 +486,7 @@ def _rango_mes(anio: int, mes: int) -> tuple[datetime, datetime]:
 
 
 def _contadores() -> dict:
-    return {"xml_recibidos": 0, "ignorados": 0, "facturas_asignadas": 0, "complementos": 0, "uuid_recuperados": 0,
+    return {"xml_recibidos": 0, "ignorados": 0, "facturas_asignadas": 0, "facturas_creadas": 0, "complementos": 0, "uuid_recuperados": 0,
             "sin_asignar": [], "sin_asignar_total": 0, "viajes": 0, "viajes_existentes": 0, "sin_carta_porte": 0,
             "viajes_error": 0, "zip_aceptados": 0, "zip_rechazados": 0,
             "solicitudes_nuevas": 0, "solicitudes_retomadas": 0}
@@ -497,7 +559,7 @@ def _ejecutar(empresa_id: str, job_id: str, anio: int, meses: list[int], zip_byt
         ))
         avisar(f"{len(facturas)} facturas cargadas para asignar los XML")
         indice = _Indice(facturas)
-        ctx = {"log": avisar, "parar": bit.cancelado,
+        ctx = {"log": avisar, "parar": bit.cancelado, "rfc": rfc,
                "cp": (Tenant(user_id="", empresa_id=empresa_id, rfc=rfc), LugaresCatalogo(db, empresa_id))}
     except Exception as exc:
         avisar(f"No se pudo preparar la descarga: {type(exc).__name__}: {str(exc)[:200]}", "error")

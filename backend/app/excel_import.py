@@ -163,6 +163,48 @@ def parse_workbook(content: bytes) -> dict:
     return {"facturas": facturas, "ordenes": ordenes, "omitidas": f_om + o_om, "uuid_danados": danados}
 
 
+def _alinear_facturas(db, empresa_id: str, rows: list[dict]) -> int:
+    """Antes de guardar: las facturas que ya existen (p. ej. creadas al subir su XML) se reconocen por UUID, o por
+    folio y total, y el renglón del Excel pasa a actualizarlas en vez de duplicarlas. Un UUID válido que ya tiene la
+    factura no se borra si el Excel lo trae dañado. Devuelve cuántos renglones se alinearon a una factura existente."""
+    from .descarga_masiva import normalizar_folio   # import tardío: solo se necesita al guardar facturas
+
+    existentes: list[dict] = []
+    for a in range(0, 10**9, 1000):
+        lote = (db.table("facturas").select("*").eq("empresa_id", empresa_id).order("id").range(a, a + 999).execute().data or [])
+        existentes.extend(lote)
+        if len(lote) < 1000:
+            break
+    por_folio = {str(f["folio"]): f for f in existentes}
+    por_uuid = {str(f["uuid"]).lower(): f for f in existentes if f.get("uuid")}
+    por_norm: dict[str, list[dict]] = {}
+    for f in existentes:
+        por_norm.setdefault(normalizar_folio(f["folio"]), []).append(f)
+
+    usadas: set[str] = set()
+    alineadas = 0
+    for row in rows:
+        f = por_folio.get(row["folio"]) or (por_uuid.get(row["uuid"].lower()) if row.get("uuid") else None)
+        if f is None:
+            total = Decimal(row["total"])
+            cand = [c for c in por_norm.get(normalizar_folio(row["folio"]), [])
+                    if c["id"] not in usadas and not (c.get("uuid") and row.get("uuid") and c["uuid"].lower() != row["uuid"].lower())
+                    and abs(Decimal(str(c["total"])) - total) <= Decimal("0.01")]
+            f = cand[0] if len(cand) == 1 else None
+        if f is None or f["id"] in usadas:
+            continue
+        usadas.add(f["id"])
+        if row["folio"] != f["folio"]:
+            alineadas += 1
+            row["folio"] = f["folio"]
+        if not row.get("uuid") and f.get("uuid"):
+            row["uuid"] = f["uuid"]
+        for k in ("tipo_comprobante", "fecha_emision"):   # lo que el Excel no trae se conserva del XML
+            if row.get(k) is None:
+                row[k] = f.get(k)
+    return alineadas
+
+
 def guardar(db, empresa_id: str, parsed: dict) -> dict:
     """Upsert en bloques acotado a la empresa. Cuenta altas vs. actualizaciones."""
     res = {}
@@ -170,6 +212,8 @@ def guardar(db, empresa_id: str, parsed: dict) -> dict:
         ("ordenes_compra", "numero", parsed["ordenes"]),
         ("facturas", "folio", parsed["facturas"]),
     ):
+        if table == "facturas":
+            _alinear_facturas(db, empresa_id, rows)
         existentes: set[str] = set()
         for i in range(0, len(rows), CHUNK):
             keys = [r[key] for r in rows[i : i + CHUNK]]
