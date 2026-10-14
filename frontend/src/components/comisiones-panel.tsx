@@ -2,10 +2,13 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
-import { comisionDe, estadisticas, TASA_COMISION, totales, type Periodo, type ViajeComision } from "@/lib/comisiones";
+import { comisionDe, estadisticas, etiquetaSemanaPago, semanaPago, semanaPagoDesplazada, TASA_COMISION, totales, type Periodo, type ViajeComision } from "@/lib/comisiones";
 import type { Chofer } from "@/lib/types";
 import { fechaMx, mxn } from "@/lib/utils";
+import { ChevronLeft, ChevronRight } from "lucide-react";
 import { Alert } from "@/components/ui/alert";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { ErrorAlert } from "@/components/error-alert";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -14,6 +17,9 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 
 const sel = "h-10 rounded-md border bg-background px-3 text-sm";
+
+/** Hoy en hora local (YYYY-MM-DD). */
+const hoyLocal = () => new Date().toLocaleDateString("en-CA");
 const PAG = 1000;
 
 function Kpi({ label, value }: { label: string; value: string }) {
@@ -28,8 +34,17 @@ function Kpi({ label, value }: { label: string; value: string }) {
 export function ComisionesPanel() {
   const [choferes, setChoferes] = useState<Pick<Chofer, "id" | "nombre">[]>([]);
   const [choferId, setChoferId] = useState("");
-  const [desde, setDesde] = useState("");
-  const [hasta, setHasta] = useState("");
+  // Por defecto: semana de pago (vie–jue) más reciente ya cerrada, la que se paga este viernes o el último.
+  const [modo, setModo] = useState<"semana" | "rango">("semana");
+  const [semana, setSemana] = useState(() => semanaPagoDesplazada(hoyLocal(), -1));
+  const [desdeLibre, setDesdeLibre] = useState("");
+  const [hastaLibre, setHastaLibre] = useState("");
+  const desde = modo === "semana" ? semana.desde : desdeLibre;
+  const hasta = modo === "semana" ? semana.hasta : hastaLibre;
+  const setDesde = setDesdeLibre, setHasta = setHastaLibre;
+  const hoy = hoyLocal();
+  const semanaEnCurso = modo === "semana" && hoy >= semana.desde && hoy <= semana.hasta;
+  const moverSemana = (delta: number) => setSemana((s) => semanaPagoDesplazada(s.desde, delta));
   const [viajes, setViajes] = useState<ViajeComision[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -102,22 +117,45 @@ export function ComisionesPanel() {
       {error && <ErrorAlert where="comisiones" message={error} />}
 
       <Card>
-        <CardContent className="grid gap-3 p-4 sm:grid-cols-3">
-          <div className="grid gap-1.5">
-            <Label htmlFor="com-chofer">Chofer</Label>
-            <select id="com-chofer" className={sel} value={choferId} onChange={(e) => setChoferId(e.target.value)}>
-              <option value="">Selecciona un chofer…</option>
-              {choferes.map((c) => <option key={c.id} value={c.id}>{c.nombre}</option>)}
-            </select>
+        <CardContent className="grid gap-3 p-4">
+          <div className="grid gap-3 sm:grid-cols-[1fr_1fr]">
+            <div className="grid gap-1.5">
+              <Label htmlFor="com-chofer">Chofer</Label>
+              <select id="com-chofer" className={sel} value={choferId} onChange={(e) => setChoferId(e.target.value)}>
+                <option value="">Selecciona un chofer…</option>
+                {choferes.map((c) => <option key={c.id} value={c.id}>{c.nombre}</option>)}
+              </select>
+            </div>
+            <div className="grid gap-1.5">
+              <Label htmlFor="com-modo">Periodo</Label>
+              <select id="com-modo" className={sel} value={modo} onChange={(e) => setModo(e.target.value as "semana" | "rango")}>
+                <option value="semana">Semanal (viernes a jueves)</option>
+                <option value="rango">Rango personalizado</option>
+              </select>
+            </div>
           </div>
-          <div className="grid gap-1.5">
-            <Label htmlFor="com-desde">Viajes desde</Label>
-            <Input id="com-desde" type="date" value={desde} max={hasta || undefined} onChange={(e) => setDesde(e.target.value)} />
-          </div>
-          <div className="grid gap-1.5">
-            <Label htmlFor="com-hasta">Viajes hasta</Label>
-            <Input id="com-hasta" type="date" value={hasta} min={desde || undefined} onChange={(e) => setHasta(e.target.value)} />
-          </div>
+
+          {modo === "semana" ? (
+            <div className="flex flex-wrap items-center gap-2">
+              <Button type="button" variant="outline" size="icon" onClick={() => moverSemana(-1)} aria-label="Semana anterior"><ChevronLeft className="h-4 w-4" /></Button>
+              <p className="min-w-0 flex-1 text-center text-sm font-medium sm:flex-none sm:px-2">{etiquetaSemanaPago(semana)}</p>
+              <Button type="button" variant="outline" size="icon" onClick={() => moverSemana(1)} aria-label="Semana siguiente"><ChevronRight className="h-4 w-4" /></Button>
+              {semanaEnCurso && <Badge variant="amarillo">En curso: aún no se cierra</Badge>}
+              <Button type="button" variant="ghost" size="sm" onClick={() => setSemana(semanaPagoDesplazada(hoy, -1))}>Última cerrada</Button>
+              <Button type="button" variant="ghost" size="sm" onClick={() => setSemana(semanaPago(hoy))}>En curso</Button>
+            </div>
+          ) : (
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div className="grid gap-1.5">
+                <Label htmlFor="com-desde">Viajes desde</Label>
+                <Input id="com-desde" type="date" value={desdeLibre} max={hastaLibre || undefined} onChange={(e) => setDesde(e.target.value)} />
+              </div>
+              <div className="grid gap-1.5">
+                <Label htmlFor="com-hasta">Viajes hasta</Label>
+                <Input id="com-hasta" type="date" value={hastaLibre} min={desdeLibre || undefined} onChange={(e) => setHasta(e.target.value)} />
+              </div>
+            </div>
+          )}
         </CardContent>
       </Card>
 
@@ -237,7 +275,7 @@ function Historial({ viajes }: { viajes: ViajeComision[] }) {
           <TabsContent key={p} value={p}><TablaPeriodo viajes={viajes} periodo={p} /></TabsContent>
         ))}
       </Tabs>
-      <p className="text-xs text-muted-foreground">Semanas ISO (inicio en lunes). Fecha del viaje = salida del origen en la Carta Porte. No incluye facturas canceladas.</p>
+      <p className="text-xs text-muted-foreground">Semanas de pago: de viernes a jueves; se pagan el viernes siguiente al cierre. Fecha del viaje = salida del origen en la Carta Porte. No incluye facturas canceladas.</p>
     </div>
   );
 }
