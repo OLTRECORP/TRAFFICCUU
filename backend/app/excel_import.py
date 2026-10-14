@@ -157,6 +157,9 @@ def parse_workbook(content: bytes) -> dict:
     ws_f = _find_sheet(wb, "lista de facturas")
     ws_o = _find_sheet(wb, "relacion de ordenes")
     if ws_f is None and ws_o is None:
+        if _find_sheet(wb, "viajes") is not None:
+            raise ExcelError("REMISIONES: Este es un Excel de viajes por remisión (hojas PRECIOS y VIAJES). "
+                             "Impórtalo en Clientes → «Importar viajes desde Excel de remisiones».")
         raise ExcelError("El archivo no tiene las hojas 'LISTA DE FACTURAS' ni 'RELACION DE ORDENES'")
     facturas, f_om, danados = parse_facturas(ws_f) if ws_f is not None else ([], 0, 0)
     ordenes, o_om = parse_ordenes(ws_o) if ws_o is not None else ([], 0)

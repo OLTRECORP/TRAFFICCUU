@@ -15,6 +15,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ImportarRemisiones } from "./importar-remisiones";
 import { SemanasCliente } from "./semanas-cliente";
+import { UnificarClientes } from "./unificar-clientes";
 
 const num = "h-8 w-20 rounded-md border bg-background px-2 text-right text-sm";
 
@@ -108,6 +109,8 @@ export function ClientesPanel() {
       </Card>
 
       <ImportarRemisiones clientes={clientes} onDone={() => void cargar()} />
+
+      <UnificarClientes clientes={clientes} onDone={() => { setSel(null); void cargar(); }} />
 
       {actual && (
         <Card>

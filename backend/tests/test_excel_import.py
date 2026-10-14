@@ -135,3 +135,14 @@ def test_excel_posterior_actualiza_la_factura_creada_desde_el_xml_sin_duplicar()
     assert list(db.store["facturas"]) == ["123"]                 # sin duplicar
     f = db.store["facturas"]["123"]
     assert f["uuid"] == U1 and f["estado"] == "pagado" and f["fecha_emision"] == "2026-01-08"
+
+
+def test_excel_de_remisiones_en_facturas_da_mensaje_para_ir_a_clientes():
+    from io import BytesIO
+    import pytest
+    from openpyxl import Workbook
+    from app.excel_import import ExcelError, parse_workbook
+    wb = Workbook(); wb.active.title = "PRECIOS"; wb.create_sheet("VIAJES")
+    out = BytesIO(); wb.save(out)
+    with pytest.raises(ExcelError, match="^REMISIONES: .*Clientes"):
+        parse_workbook(out.getvalue())
