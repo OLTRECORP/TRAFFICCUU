@@ -14,6 +14,7 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { Alert } from "@/components/ui/alert";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { ViajesFactura } from "@/components/viajes-factura";
 
 const UUID_RE = /^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i;
 const SONDEO_MS = 5000;
@@ -90,7 +91,7 @@ export function FacturaModal({ factura, onClose }: { factura: Factura | null; on
 
   return (
     <Dialog open={!!factura} onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="max-w-2xl">
+      <DialogContent className="max-w-4xl">
         {factura && (
           <>
             <div className="pr-6">
@@ -129,11 +130,16 @@ export function FacturaModal({ factura, onClose }: { factura: Factura | null; on
             {sat?.estado === "error" && <ErrorAlert where="facturas-sat" message={sat.error ?? "El SAT no devolvió el CFDI"} />}
             {abandonada && <p className="text-sm text-muted-foreground">La consulta anterior no terminó. Usa «Actualizar desde SAT» para reintentar.</p>}
 
-            <Tabs defaultValue="factura">
+            <Tabs key={factura.id} defaultValue={(factura.vs?.length ?? 0) > 1 ? "viajes" : "factura"}>
               <TabsList>
                 <TabsTrigger value="factura">Factura</TabsTrigger>
+                <TabsTrigger value="viajes">Viajes{factura.vs ? ` (${factura.vs.length})` : ""}</TabsTrigger>
                 <TabsTrigger value="carta">Carta Porte</TabsTrigger>
               </TabsList>
+
+              <TabsContent value="viajes">
+                <ViajesFactura facturaId={factura.id} />
+              </TabsContent>
 
               <TabsContent value="factura">
                 {sobrepeso && (
