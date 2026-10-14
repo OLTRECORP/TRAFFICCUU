@@ -151,3 +151,21 @@ def test_cliente_por_rfc_o_nombre():
     assert es_del_cliente({**c, "rfc": None}, None, "Pétreos La Purísima, S.A. de C.V.")
     assert not es_del_cliente({**c, "rfc": None}, "XAXX010101000", "TRITURADOS ROCA")
     assert lunes(datetime(2025, 7, 13).date()).isoformat() == "2025-07-07"
+
+
+def test_viajes_casi_iguales_con_distinto_folio_se_importan_ambos_sin_aviso():
+    wb = Workbook()
+    wb.active.title = "PRECIOS"
+    wb.active.append(["ORIGEN", "DESTINO", "PRECIO", "UNIDAD"])
+    wb.active.append(["COX", "ALAMAR", 160, "M3"])
+    v = wb.create_sheet("VIAJES")
+    v.append(["FECHA", "ORIGEN", "DESTINO", "REMISION", "MATERIAL", "NOMBRE OPERADOR", "PLACAS CAMION", "PLACA GONDOLA", "CANTIDAD", "UNIDAD", "PRECIO UNITARIO", "SUBTOTAL"])
+    for folio in (100, 101):   # mismo día, ruta, chofer, tracto y precio acordado distinto a la tarifa
+        v.append([datetime(2025, 7, 7), "COX", "ALAMAR", folio, "ARENA", "JUAN PEREZ", "80A1PM", "89UP8A", 32, "M3", 170, 5440])
+    out = BytesIO(); wb.save(out)
+    db = FakeDB(lugares=[], choferes=[], tractocamiones=[], gondolas=[], unidad_alias=[], viajes=[], rutas=[], clientes=[])
+    r = importar(db, "e1", parse_libro(out.getvalue()), None, confirmar=True)
+    assert r["nuevos"] == 2 and len(db.t["viajes"]) == 2
+    assert "remision_repetida" not in r["avisos"]
+    assert {v["precio_unitario"] for v in db.t["viajes"]} == {170.0}             # se respeta el precio acordado del viaje
+    assert r["avisos"]["precio_distinto_tarifa"][0]["viajes"] == 2               # solo informativo
