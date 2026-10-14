@@ -8,7 +8,7 @@ export interface ViajeComision {
 
 export type Periodo = "mes" | "semana" | "anio";
 
-export interface FilaEstadistica { clave: string; etiqueta: string; viajes: number; subtotal: number; comision: number }
+export interface FilaEstadistica { clave: string; etiqueta: string; viajes: number; subtotal: number; comision: number; detalle: ViajeComision[] }
 
 export const comisionDe = (subtotal: number) => Math.round(Number(subtotal) * TASA_COMISION * 100) / 100;
 
@@ -19,18 +19,40 @@ export const totales = (v: ViajeComision[]) => {
   return { viajes: v.length, subtotal, comision: Math.round(comision * 100) / 100 };
 };
 
+/** Lo contabilizado en un conjunto de viajes: viajes, facturas distintas (por folio), subtotal y comisión. */
+export interface Contabilizado { viajes: number; facturas: number; subtotal: number; comision: number }
+
+export const contabilizados = (v: ViajeComision[]): Contabilizado => ({
+  ...totales(v),
+  facturas: new Set(v.map((x) => x.folio ?? x.viaje_id)).size,
+});
+
 const MESES = ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic"];
+const DIAS = ["dom", "lun", "mar", "mié", "jue", "vie", "sáb"];
+const DIA_MS = 86400000;
 const parse = (d: string) => { const [y, m, dd] = d.split("-").map(Number); return Date.UTC(y, m - 1, dd); };
 const dia = (t: number) => { const d = new Date(t); return `${d.getUTCDate()} ${MESES[d.getUTCMonth()]}`; };
+const iso = (t: number) => new Date(t).toISOString().slice(0, 10);
 
-/** Semana ISO 8601: inicia en lunes; la semana 1 es la que contiene el primer jueves del año. */
-export function semanaIso(fecha: string) {
+/**
+ * Semana de pago: de viernes a jueves. Lo trabajado en la semana se paga el viernes siguiente al cierre
+ * (el viernes que sigue al jueves final), así que cada viaje cae en la semana que inicia el viernes anterior o igual a su fecha.
+ */
+export interface SemanaPago { desde: string; hasta: string; pago: string }   // YYYY-MM-DD: viernes, jueves y viernes de pago
+
+export function semanaPago(fecha: string): SemanaPago {
   const t = parse(fecha);
-  const lunes = t - ((new Date(t).getUTCDay() + 6) % 7) * 86400000;
-  const jueves = lunes + 3 * 86400000;
-  const anio = new Date(jueves).getUTCFullYear();
-  const semana = Math.floor((jueves - Date.UTC(anio, 0, 1)) / (7 * 86400000)) + 1;
-  return { anio, semana, lunes, domingo: lunes + 6 * 86400000 };
+  const inicio = t - ((new Date(t).getUTCDay() - 5 + 7) % 7) * DIA_MS;   // viernes (día 5) de esa semana
+  return { desde: iso(inicio), hasta: iso(inicio + 6 * DIA_MS), pago: iso(inicio + 7 * DIA_MS) };
+}
+
+/** Semana de pago `delta` semanas antes (negativo) o después (positivo) de la que contiene `fecha`. */
+export const semanaPagoDesplazada = (fecha: string, delta: number) => semanaPago(iso(parse(fecha) + delta * 7 * DIA_MS));
+
+/** Etiqueta legible: «vie 9 oct – jue 15 oct 2026 · pago vie 16 oct». */
+export function etiquetaSemanaPago(s: SemanaPago) {
+  const f = (d: string) => `${DIAS[new Date(parse(d)).getUTCDay()]} ${dia(parse(d))}`;
+  return `${f(s.desde)} – ${f(s.hasta)} ${s.hasta.slice(0, 4)} · pago ${f(s.pago)}`;
 }
 
 function clave(fecha: string, p: Periodo): { clave: string; etiqueta: string } {
@@ -39,20 +61,17 @@ function clave(fecha: string, p: Periodo): { clave: string; etiqueta: string } {
     const m = Number(fecha.slice(5, 7));
     return { clave: fecha.slice(0, 7), etiqueta: `${MESES[m - 1]} ${fecha.slice(0, 4)}` };
   }
-  const s = semanaIso(fecha);
-  return {
-    clave: `${s.anio}-W${String(s.semana).padStart(2, "0")}`,
-    etiqueta: `Sem ${s.semana} · ${dia(s.lunes)} – ${dia(s.domingo)} ${new Date(s.domingo).getUTCFullYear()}`,
-  };
+  const s = semanaPago(fecha);
+  return { clave: s.desde, etiqueta: etiquetaSemanaPago(s) };
 }
 
-/** Viajes y comisión por mes, semana ISO o año; el más reciente primero. */
+/** Viajes y comisión por mes, semana de pago (viernes a jueves) o año; el más reciente primero. */
 export function estadisticas(viajes: ViajeComision[], p: Periodo): FilaEstadistica[] {
   const mapa = new Map<string, FilaEstadistica>();
   for (const v of viajes) {
     const { clave: k, etiqueta } = clave(v.fecha_viaje, p);
-    const f = mapa.get(k) ?? { clave: k, etiqueta, viajes: 0, subtotal: 0, comision: 0 };
-    f.viajes += 1; f.subtotal += Number(v.subtotal); f.comision += comisionDe(v.subtotal);
+    const f = mapa.get(k) ?? { clave: k, etiqueta, viajes: 0, subtotal: 0, comision: 0, detalle: [] };
+    f.viajes += 1; f.subtotal += Number(v.subtotal); f.comision += comisionDe(v.subtotal); f.detalle.push(v);
     mapa.set(k, f);
   }
   return [...mapa.values()].sort((a, b) => b.clave.localeCompare(a.clave));

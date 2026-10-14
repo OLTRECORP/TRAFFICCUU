@@ -18,7 +18,8 @@ export interface Tramo {
   desde: string; hasta: string;        // fechas de la carga anterior y de la carga que cierra el tramo
   km: number;                          // km (redondo) de los viajes del tracto en el tramo
   viajes: number;                      // viajes del tracto en el tramo
-  litros: number | null;               // litros de la carga que cierra el tramo (tanque lleno a tanque lleno); null si no se capturaron
+  litros: number | null;               // litros del día que cierra el tramo (suma de todas sus cargas); null si ninguna tiene litros
+  cargas: number;                      // cargas de ese día (2 o más se suman como una sola)
 }
 
 export interface RendChofer {
@@ -53,26 +54,43 @@ export function choferDeCarga(c: Carga, viajes: ViajeRend[], asignados: Asignaci
   return mejor?.chofer_id ?? null;
 }
 
+/** Cargas de un mismo tracto en un mismo día, sumadas como una sola. */
+export interface DiaCarga { fecha: string; litros: number | null; costo: number; cargas: Carga[] }
+
+/** Agrupa por día (fecha) las cargas de UN tracto: 2 o más del mismo día se suman a ese día. */
+export function cargasPorDia(lista: Carga[]): DiaCarga[] {
+  const dias = new Map<string, DiaCarga>();
+  for (const c of [...lista].sort(cmp)) {
+    const d = dias.get(c.fecha) ?? { fecha: c.fecha, litros: null, costo: 0, cargas: [] };
+    if (c.litros != null) d.litros = (d.litros ?? 0) + Number(c.litros);
+    d.costo += Number(c.costo ?? 0);
+    d.cargas.push(c);
+    dias.set(c.fecha, d);
+  }
+  return [...dias.values()];
+}
+
 /**
- * Tramos por tracto: pares consecutivos de cargas ordenadas por fecha (dos cargas el mismo día no forman tramo).
- * Se asume tanque lleno en cada carga: los litros del tramo son los de la carga que lo cierra. La primera carga
- * de un tracto solo marca el inicio del primer tramo.
+ * Tramos por tracto: pares de días consecutivos con carga. Las cargas del mismo día se suman a ese día, y los km son
+ * los de los viajes hasta el día de la siguiente carga. Se asume tanque lleno: los litros del tramo son los del día que
+ * lo cierra. El primer día con carga de un tracto solo marca el inicio del primer tramo.
  */
 export function tramos(cargas: Carga[], viajes: ViajeRend[], asignados: Asignaciones = new Map()): Tramo[] {
   const porTracto = new Map<string, Carga[]>();
   for (const c of cargas) porTracto.set(c.tracto_id, [...(porTracto.get(c.tracto_id) ?? []), c]);
   const out: Tramo[] = [];
   for (const [tractoId, lista] of porTracto) {
-    lista.sort(cmp);
+    const dias = cargasPorDia(lista);
     const delTracto = viajes.filter((v) => v.tracto_id === tractoId);
-    for (let i = 1; i < lista.length; i++) {
-      const a = lista[i - 1], b = lista[i];
-      if (b.fecha <= a.fecha) continue;
+    for (let i = 1; i < dias.length; i++) {
+      const a = dias[i - 1], b = dias[i];
       const enTramo = delTracto.filter((v) => v.fecha_viaje > a.fecha && v.fecha_viaje <= b.fecha);
+      // Chofer del día: el de la primera carga del día que tenga uno.
+      const choferId = b.cargas.map((c) => choferDeCarga(c, viajes, asignados)).find((id) => id != null) ?? null;
       out.push({
-        tractoId, choferId: choferDeCarga(b, viajes, asignados), desde: a.fecha, hasta: b.fecha,
+        tractoId, choferId, desde: a.fecha, hasta: b.fecha,
         km: enTramo.reduce((t, v) => t + Number(v.km), 0), viajes: enTramo.length,
-        litros: b.litros == null ? null : Number(b.litros),
+        litros: b.litros, cargas: b.cargas.length,
       });
     }
   }

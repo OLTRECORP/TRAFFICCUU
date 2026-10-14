@@ -2,10 +2,14 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
-import { comisionDe, estadisticas, TASA_COMISION, totales, type Periodo, type ViajeComision } from "@/lib/comisiones";
+import { comisionDe, estadisticas, etiquetaSemanaPago, semanaPago, semanaPagoDesplazada, TASA_COMISION, totales, type Periodo, type ViajeComision } from "@/lib/comisiones";
 import type { Chofer } from "@/lib/types";
 import { fechaMx, mxn } from "@/lib/utils";
+import { ChevronLeft, ChevronRight } from "lucide-react";
 import { Alert } from "@/components/ui/alert";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { ComisionesDetalle, type DetalleComision } from "@/components/comisiones-detalle";
 import { ErrorAlert } from "@/components/error-alert";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -14,22 +18,41 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 
 const sel = "h-10 rounded-md border bg-background px-3 text-sm";
+
+/** Hoy en hora local (YYYY-MM-DD). */
+const hoyLocal = () => new Date().toLocaleDateString("en-CA");
 const PAG = 1000;
 
-function Kpi({ label, value }: { label: string; value: string }) {
-  return (
-    <Card><CardContent className="p-4">
+function Kpi({ label, value, onClick }: { label: string; value: string; onClick?: () => void }) {
+  const cuerpo = (
+    <CardContent className="p-4">
       <p className="text-xs text-muted-foreground">{label}</p>
       <p className="mt-1 text-xl font-bold">{value}</p>
-    </CardContent></Card>
+      {onClick && <p className="mt-1 text-xs font-medium text-highlight">Ver facturas y viajes incluidos →</p>}
+    </CardContent>
+  );
+  if (!onClick) return <Card>{cuerpo}</Card>;
+  return (
+    <button type="button" onClick={onClick} className="rounded-[inherit] text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+      <Card className="h-full cursor-pointer transition-shadow hover:shadow-md">{cuerpo}</Card>
+    </button>
   );
 }
 
 export function ComisionesPanel() {
   const [choferes, setChoferes] = useState<Pick<Chofer, "id" | "nombre">[]>([]);
   const [choferId, setChoferId] = useState("");
-  const [desde, setDesde] = useState("");
-  const [hasta, setHasta] = useState("");
+  // Por defecto: semana de pago (vie–jue) más reciente ya cerrada, la que se paga este viernes o el último.
+  const [modo, setModo] = useState<"semana" | "rango">("semana");
+  const [semana, setSemana] = useState(() => semanaPagoDesplazada(hoyLocal(), -1));
+  const [desdeLibre, setDesdeLibre] = useState("");
+  const [hastaLibre, setHastaLibre] = useState("");
+  const desde = modo === "semana" ? semana.desde : desdeLibre;
+  const hasta = modo === "semana" ? semana.hasta : hastaLibre;
+  const setDesde = setDesdeLibre, setHasta = setHastaLibre;
+  const hoy = hoyLocal();
+  const semanaEnCurso = modo === "semana" && hoy >= semana.desde && hoy <= semana.hasta;
+  const moverSemana = (delta: number) => setSemana((s) => semanaPagoDesplazada(s.desde, delta));
   const [viajes, setViajes] = useState<ViajeComision[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -97,27 +120,56 @@ export function ComisionesPanel() {
   const tot = useMemo(() => totales(enRango), [enRango]);
   const rangoInvalido = !!desde && !!hasta && desde > hasta;
 
+  // Detalle (ventana) de las facturas/viajes que componen una comisión.
+  const [detalle, setDetalle] = useState<DetalleComision | null>(null);
+  const nombreChofer = choferes.find((c) => c.id === choferId)?.nombre ?? "chofer";
+  const tituloPeriodo = modo === "semana" ? etiquetaSemanaPago(semana)
+    : desde || hasta ? `${desde ? fechaMx(desde) : "inicio"} – ${hasta ? fechaMx(hasta) : "hoy"}` : "Todo el historial";
+
   return (
     <div className="grid gap-4">
       {error && <ErrorAlert where="comisiones" message={error} />}
 
       <Card>
-        <CardContent className="grid gap-3 p-4 sm:grid-cols-3">
-          <div className="grid gap-1.5">
-            <Label htmlFor="com-chofer">Chofer</Label>
-            <select id="com-chofer" className={sel} value={choferId} onChange={(e) => setChoferId(e.target.value)}>
-              <option value="">Selecciona un chofer…</option>
-              {choferes.map((c) => <option key={c.id} value={c.id}>{c.nombre}</option>)}
-            </select>
+        <CardContent className="grid gap-3 p-4">
+          <div className="grid gap-3 sm:grid-cols-[1fr_1fr]">
+            <div className="grid gap-1.5">
+              <Label htmlFor="com-chofer">Chofer</Label>
+              <select id="com-chofer" className={sel} value={choferId} onChange={(e) => setChoferId(e.target.value)}>
+                <option value="">Selecciona un chofer…</option>
+                {choferes.map((c) => <option key={c.id} value={c.id}>{c.nombre}</option>)}
+              </select>
+            </div>
+            <div className="grid gap-1.5">
+              <Label htmlFor="com-modo">Periodo</Label>
+              <select id="com-modo" className={sel} value={modo} onChange={(e) => setModo(e.target.value as "semana" | "rango")}>
+                <option value="semana">Semanal (viernes a jueves)</option>
+                <option value="rango">Rango personalizado</option>
+              </select>
+            </div>
           </div>
-          <div className="grid gap-1.5">
-            <Label htmlFor="com-desde">Viajes desde</Label>
-            <Input id="com-desde" type="date" value={desde} max={hasta || undefined} onChange={(e) => setDesde(e.target.value)} />
-          </div>
-          <div className="grid gap-1.5">
-            <Label htmlFor="com-hasta">Viajes hasta</Label>
-            <Input id="com-hasta" type="date" value={hasta} min={desde || undefined} onChange={(e) => setHasta(e.target.value)} />
-          </div>
+
+          {modo === "semana" ? (
+            <div className="flex flex-wrap items-center gap-2">
+              <Button type="button" variant="outline" size="icon" onClick={() => moverSemana(-1)} aria-label="Semana anterior"><ChevronLeft className="h-4 w-4" /></Button>
+              <p className="min-w-0 flex-1 text-center text-sm font-medium sm:flex-none sm:px-2">{etiquetaSemanaPago(semana)}</p>
+              <Button type="button" variant="outline" size="icon" onClick={() => moverSemana(1)} aria-label="Semana siguiente"><ChevronRight className="h-4 w-4" /></Button>
+              {semanaEnCurso && <Badge variant="amarillo">En curso: aún no se cierra</Badge>}
+              <Button type="button" variant="ghost" size="sm" onClick={() => setSemana(semanaPagoDesplazada(hoy, -1))}>Última cerrada</Button>
+              <Button type="button" variant="ghost" size="sm" onClick={() => setSemana(semanaPago(hoy))}>En curso</Button>
+            </div>
+          ) : (
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div className="grid gap-1.5">
+                <Label htmlFor="com-desde">Viajes desde</Label>
+                <Input id="com-desde" type="date" value={desdeLibre} max={hastaLibre || undefined} onChange={(e) => setDesde(e.target.value)} />
+              </div>
+              <div className="grid gap-1.5">
+                <Label htmlFor="com-hasta">Viajes hasta</Label>
+                <Input id="com-hasta" type="date" value={hastaLibre} min={desdeLibre || undefined} onChange={(e) => setHasta(e.target.value)} />
+              </div>
+            </div>
+          )}
         </CardContent>
       </Card>
 
@@ -135,9 +187,9 @@ export function ComisionesPanel() {
           <TabsContent value="calculo" className="grid gap-4">
             {rangoInvalido && <Alert variant="error">La fecha inicial es posterior a la final.</Alert>}
             <div className="grid gap-3 sm:grid-cols-3">
-              <Kpi label="Viajes" value={String(tot.viajes)} />
-              <Kpi label="Subtotal facturado (sin IVA)" value={mxn(tot.subtotal)} />
-              <Kpi label={`Comisión ${TASA_COMISION * 100}%`} value={mxn(tot.comision)} />
+              <Kpi label="Viajes" value={String(tot.viajes)} onClick={() => setDetalle({ titulo: tituloPeriodo, chofer: nombreChofer, viajes: enRango })} />
+              <Kpi label="Subtotal facturado (sin IVA)" value={mxn(tot.subtotal)} onClick={() => setDetalle({ titulo: tituloPeriodo, chofer: nombreChofer, viajes: enRango })} />
+              <Kpi label={`Comisión ${TASA_COMISION * 100}%`} value={mxn(tot.comision)} onClick={() => setDetalle({ titulo: tituloPeriodo, chofer: nombreChofer, viajes: enRango })} />
             </div>
             <Card>
               <Table>
@@ -179,10 +231,12 @@ export function ComisionesPanel() {
           </TabsContent>
 
           <TabsContent value="estadisticas">
-            <Historial viajes={viajes} />
+            <Historial viajes={viajes} onDetalle={(titulo, v) => setDetalle({ titulo, chofer: nombreChofer, viajes: v })} />
           </TabsContent>
         </Tabs>
       )}
+
+      <ComisionesDetalle detalle={detalle} onClose={() => setDetalle(null)} />
 
       {sinChoferRango.length > 0 && (
         <Card>
@@ -218,7 +272,7 @@ export function ComisionesPanel() {
   );
 }
 
-function Historial({ viajes }: { viajes: ViajeComision[] }) {
+function Historial({ viajes, onDetalle }: { viajes: ViajeComision[]; onDetalle: (titulo: string, v: ViajeComision[]) => void }) {
   const general = useMemo(() => totales(viajes), [viajes]);
   return (
     <div className="grid gap-4">
@@ -234,15 +288,15 @@ function Historial({ viajes }: { viajes: ViajeComision[] }) {
           <TabsTrigger value="anio">Por año</TabsTrigger>
         </TabsList>
         {(["mes", "semana", "anio"] as Periodo[]).map((p) => (
-          <TabsContent key={p} value={p}><TablaPeriodo viajes={viajes} periodo={p} /></TabsContent>
+          <TabsContent key={p} value={p}><TablaPeriodo viajes={viajes} periodo={p} onDetalle={onDetalle} /></TabsContent>
         ))}
       </Tabs>
-      <p className="text-xs text-muted-foreground">Semanas ISO (inicio en lunes). Fecha del viaje = salida del origen en la Carta Porte. No incluye facturas canceladas.</p>
+      <p className="text-xs text-muted-foreground">Haz clic en una fila para ver sus facturas y viajes. Semanas de pago: de viernes a jueves; se pagan el viernes siguiente al cierre. Fecha del viaje = salida del origen en la Carta Porte. No incluye facturas canceladas.</p>
     </div>
   );
 }
 
-function TablaPeriodo({ viajes, periodo }: { viajes: ViajeComision[]; periodo: Periodo }) {
+function TablaPeriodo({ viajes, periodo, onDetalle }: { viajes: ViajeComision[]; periodo: Periodo; onDetalle: (titulo: string, v: ViajeComision[]) => void }) {
   const filas = useMemo(() => estadisticas(viajes, periodo), [viajes, periodo]);
   const max = Math.max(1, ...filas.map((f) => f.comision));
   return (
@@ -261,7 +315,9 @@ function TablaPeriodo({ viajes, periodo }: { viajes: ViajeComision[]; periodo: P
           {filas.length === 0 ? (
             <TableRow><TableCell colSpan={5} className="py-8 text-center text-muted-foreground">Este chofer aún no tiene viajes con factura.</TableCell></TableRow>
           ) : filas.map((f) => (
-            <TableRow key={f.clave}>
+            <TableRow key={f.clave} tabIndex={0} className="cursor-pointer" aria-label={`Ver facturas de ${f.etiqueta}`}
+              onClick={() => onDetalle(f.etiqueta, f.detalle)}
+              onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && onDetalle(f.etiqueta, f.detalle)}>
               <TableCell className="whitespace-nowrap font-medium">{f.etiqueta}</TableCell>
               <TableCell className="text-right">{f.viajes}</TableCell>
               <TableCell className="whitespace-nowrap text-right">{mxn(f.subtotal)}</TableCell>
