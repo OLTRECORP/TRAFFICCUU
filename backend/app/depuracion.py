@@ -13,8 +13,8 @@ def _rpc(nombre: str, args: dict) -> dict:
     except Exception as exc:
         texto = str(exc)
         if "PGRST202" in texto or "Could not find the function" in texto or "does not exist" in texto:
-            raise HTTPException(status.HTTP_409_CONFLICT, "Falta ejecutar la migración 017 en Supabase "
-                                "(supabase/migrations/017_eliminar_facturas_unificar_unidades.sql)")
+            mig = "023_unificar_clientes.sql" if "clientes" in nombre else "017_eliminar_facturas_unificar_unidades.sql"
+            raise HTTPException(status.HTTP_409_CONFLICT, f"Falta ejecutar la migración {mig[:3]} en Supabase (supabase/migrations/{mig})")
         # los RAISE EXCEPTION de las funciones llegan con su mensaje en español
         msg = getattr(exc, "message", None) or texto
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(msg)[:300])
@@ -43,6 +43,14 @@ def vista_previa_unificar(empresa_id: str, tipo: str, origen: str, destino: str)
 
 def unificar(empresa_id: str, usuario_id: str, tipo: str, origen: str, destino: str) -> dict:
     return _rpc("fn_unificar_unidad", {"p_empresa": empresa_id, "p_tipo": tipo, "p_origen": origen, "p_destino": destino, "p_usuario": usuario_id})
+
+
+def vista_previa_unificar_clientes(empresa_id: str, origen: str, destino: str) -> dict:
+    return _rpc("fn_vista_previa_unificar_clientes", {"p_empresa": empresa_id, "p_origen": origen, "p_destino": destino})
+
+
+def unificar_clientes(empresa_id: str, usuario_id: str, origen: str, destino: str) -> dict:
+    return _rpc("fn_unificar_clientes", {"p_empresa": empresa_id, "p_origen": origen, "p_destino": destino, "p_usuario": usuario_id})
 
 
 def unidad_por_alias(db, empresa_id: str, tipo: str, placa: str) -> str | None:

@@ -1,6 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
+import { ChevronDown, ChevronRight } from "lucide-react";
+import { ViajesFactura } from "@/components/viajes-factura";
 import { createClient } from "@/lib/supabase/client";
 import { Download } from "lucide-react";
 import { descargarXml } from "@/lib/descarga";
@@ -12,7 +14,9 @@ import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 
-type Fila = Pick<Factura, "id" | "folio" | "uuid" | "estado" | "fecha_emision" | "total" | "complemento">;
+type Fila = Pick<Factura, "id" | "folio" | "uuid" | "estado" | "fecha_emision" | "total" | "complemento" | "sat"> & {
+  vs: { cliente: { nombre: string } | null }[];   // viajes ligados con su cliente
+};
 
 function Resumen({ label, value, tono }: { label: string; value: string; tono?: "verde" | "amarillo" }) {
   return (
@@ -27,21 +31,22 @@ export function OrdenModal({ orden, onClose }: { orden: OrdenResumen | null; onC
   const [facturas, setFacturas] = useState<Fila[]>([]);
   const [complementos, setComplementos] = useState<ComplementoPago[]>([]);
   const [loading, setLoading] = useState(false);
+  const [abierta, setAbierta] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    setFacturas([]); setComplementos([]); setError(null);
+    setFacturas([]); setComplementos([]); setError(null); setAbierta(null);
     if (!orden) return;
     let vigente = true;
     setLoading(true);
     void (async () => {
       const { data, error: err } = await createClient().from("facturas")
-        .select("id, folio, uuid, estado, fecha_emision, total, complemento")
+        .select("id, folio, uuid, estado, fecha_emision, total, complemento, sat:facturas_sat(estado, actualizado_en, receptor:datos->receptor), vs:viajes(cliente:clientes(nombre))")
         .eq("orden_compra", orden.numero)
         .order("fecha_emision", { ascending: true, nullsFirst: false }).order("folio")
         .limit(1000);
       if (!vigente) return;
-      if (err) setError(err.message); else setFacturas((data ?? []) as Fila[]);
+      if (err) setError(err.message); else setFacturas((data ?? []) as unknown as Fila[]);
       // Complementos de pago (XML del SAT) que cubren las facturas de esta orden
       const ligas = await createClient().from("complementos_pago_facturas").select("complemento_id").eq("orden_compra", orden.numero);
       const ids = [...new Set((ligas.data ?? []).map((l) => l.complemento_id as string))];
@@ -61,7 +66,7 @@ export function OrdenModal({ orden, onClose }: { orden: OrdenResumen | null; onC
 
   return (
     <Dialog open={!!orden} onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="max-w-3xl">
+      <DialogContent className="max-w-5xl">
         {orden && (
           <>
             <div className="pr-6">
@@ -85,26 +90,41 @@ export function OrdenModal({ orden, onClose }: { orden: OrdenResumen | null; onC
                 <TableHeader>
                   <TableRow className="hover:bg-transparent">
                     <TableHead>Folio</TableHead><TableHead>UUID</TableHead><TableHead>Emisión</TableHead>
+                    <TableHead>Cliente</TableHead><TableHead className="text-right">Viajes</TableHead>
                     <TableHead>Estado</TableHead><TableHead className="text-right">Total</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {loading ? (
-                    <TableRow><TableCell colSpan={5} className="py-8 text-center text-muted-foreground">Cargando facturas…</TableCell></TableRow>
+                    <TableRow><TableCell colSpan={7} className="py-8 text-center text-muted-foreground">Cargando facturas…</TableCell></TableRow>
                   ) : facturas.length === 0 ? (
-                    <TableRow><TableCell colSpan={5} className="py-8 text-center text-muted-foreground">Esta orden no tiene facturas ligadas.</TableCell></TableRow>
+                    <TableRow><TableCell colSpan={7} className="py-8 text-center text-muted-foreground">Esta orden no tiene facturas ligadas.</TableCell></TableRow>
                   ) : facturas.map((f) => (
-                    <TableRow key={f.id} className={f.estado === "cancelado" ? "opacity-60" : undefined}>
-                      <TableCell className="font-medium">{f.folio}</TableCell>
+                    <Fragment key={f.id}>
+                    <TableRow className={`cursor-pointer ${f.estado === "cancelado" ? "opacity-60" : ""}`} onClick={() => setAbierta(abierta === f.id ? null : f.id)}
+                      aria-expanded={abierta === f.id}>
+                      <TableCell className="font-medium">
+                        <span className="inline-flex items-center gap-1">
+                          {abierta === f.id ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}{f.folio}
+                        </span>
+                      </TableCell>
                       <TableCell className="font-mono text-xs" title={f.uuid ?? undefined}>{f.uuid ? `${f.uuid.slice(0, 8).toUpperCase()}…` : "—"}</TableCell>
                       <TableCell className="whitespace-nowrap">{f.fecha_emision ? fechaMx(f.fecha_emision) : "—"}</TableCell>
+                      <TableCell className="max-w-48 truncate">{f.vs.find((v) => v.cliente)?.cliente?.nombre ?? f.sat?.receptor?.nombre ?? "—"}</TableCell>
+                      <TableCell className="text-right">{f.vs.length}</TableCell>
                       <TableCell><Badge variant={f.estado === "cancelado" ? "rojo" : f.estado === "pagado" ? "verde" : "default"}>{f.estado ?? "—"}</Badge></TableCell>
                       <TableCell className="whitespace-nowrap text-right">{mxn(f.total)}</TableCell>
                     </TableRow>
+                    {abierta === f.id && (
+                      <TableRow className="bg-secondary/40 hover:bg-secondary/40">
+                        <TableCell colSpan={7}><ViajesFactura facturaId={f.id} compacto /></TableCell>
+                      </TableRow>
+                    )}
+                    </Fragment>
                   ))}
                   {facturas.length > 0 && (
                     <TableRow className="bg-secondary/70 font-semibold hover:bg-secondary/70">
-                      <TableCell colSpan={4} className="text-right">Total (sin canceladas)</TableCell>
+                      <TableCell colSpan={6} className="text-right">Total (sin canceladas)</TableCell>
                       <TableCell className="whitespace-nowrap text-right">{mxn(suma)}</TableCell>
                     </TableRow>
                   )}

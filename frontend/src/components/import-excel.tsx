@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useRef, useState } from "react";
 import { FileSpreadsheet, Loader2 } from "lucide-react";
 import { ApiError, postBackend } from "@/lib/api";
@@ -48,7 +49,14 @@ export function ImportExcel({ onDone }: { onDone: () => void }) {
           Importar Excel
         </Button>
       </div>
-      {msg && (msg.ok ? <Alert variant="success">{msg.text}</Alert> : <ErrorAlert where="importar-excel" message={msg.text} status={msg.status} path={msg.path} />)}
+      {msg && (msg.ok ? <Alert variant="success">{msg.text}</Alert>
+        : msg.text.startsWith("REMISIONES:") ? (
+          // Excel de La Purísima (u otro de remisiones) subido aquí por error: se manda a su importador
+          <Alert variant="info">
+            {msg.text.replace("REMISIONES: ", "")}{" "}
+            <Link href="/clientes" className="font-semibold underline">Ir a Clientes</Link>
+          </Alert>
+        ) : <ErrorAlert where="importar-excel" message={msg.text} status={msg.status} path={msg.path} />)}
     </div>
   );
 }

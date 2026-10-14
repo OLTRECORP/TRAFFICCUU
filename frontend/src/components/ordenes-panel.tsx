@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
-import type { OrdenResumen } from "@/lib/types";
+import type { Cliente, OrdenResumen } from "@/lib/types";
 import { fechaMx, mxn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -24,23 +24,40 @@ export function OrdenesPanel({ qInicial = "" }: { qInicial?: string }) {
   const [pagina, setPagina] = useState(1);
   const [q, setQ] = useState(qInicial);
   const [pago, setPago] = useState("");
+  const [cliente, setCliente] = useState("");
+  const [clientes, setClientes] = useState<Pick<Cliente, "id" | "nombre">[]>([]);
+
+  useEffect(() => {
+    void createClient().from("clientes").select("id, nombre").order("nombre").limit(1000)
+      .then(({ data }) => setClientes((data ?? []) as Pick<Cliente, "id" | "nombre">[]));
+  }, []);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selected, setSelected] = useState<OrdenResumen | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
+    // Por cliente: órdenes de las facturas que tienen viajes de ese cliente (la orden se liga por número).
+    let numeros: string[] | null = null;
+    if (cliente) {
+      const { data, error: e } = await createClient().from("facturas").select("orden_compra, vf:viajes!inner(cliente_id)")
+        .eq("vf.cliente_id", cliente).not("orden_compra", "is", null).limit(5000);
+      if (e) { setError(e.message); setLoading(false); return; }
+      numeros = [...new Set((data ?? []).map((f) => f.orden_compra as string))];
+      if (!numeros.length) { setRows([]); setTotal(0); setError(null); setLoading(false); return; }
+    }
     let query = createClient().from("ordenes_compra_resumen").select("*", { count: "exact" })
       .order("fecha_creacion", { ascending: false, nullsFirst: false }).order("numero", { ascending: false })
       .range((pagina - 1) * TAM, pagina * TAM - 1);
     const t = q.trim().replace(/[,()%]/g, "");
     if (t) query = query.ilike("numero", `%${t}%`);
     if (pago) query = query.eq("pagada", pago === "pagada");
+    if (numeros) query = query.in("numero", numeros);
     const { data, count, error: err } = await query;
     if (err) setError(err.message);
     else { setError(null); setRows((data ?? []) as OrdenResumen[]); setTotal(count ?? 0); }
     setLoading(false);
-  }, [pagina, q, pago]);
+  }, [pagina, q, pago, cliente]);
 
   useEffect(() => { void load(); }, [load]);
   const paginas = Math.max(1, Math.ceil(total / TAM));
@@ -52,6 +69,10 @@ export function OrdenesPanel({ qInicial = "" }: { qInicial?: string }) {
         <Input className="max-w-xs" placeholder="Buscar N° de orden" value={q} onChange={(e) => { setQ(e.target.value); setPagina(1); }} />
         <select className={sel} value={pago} onChange={(e) => { setPago(e.target.value); setPagina(1); }} aria-label="Estatus de pago">
           <option value="">Pagadas y no pagadas</option><option value="pagada">Pagadas</option><option value="no_pagada">No pagadas</option>
+        </select>
+        <select className={sel} value={cliente} onChange={(e) => { setCliente(e.target.value); setPagina(1); }} aria-label="Cliente">
+          <option value="">Todos los clientes</option>
+          {clientes.map((c) => <option key={c.id} value={c.id}>{c.nombre}</option>)}
         </select>
       </div>
       {error && <ErrorAlert where="ordenes" message={error} />}

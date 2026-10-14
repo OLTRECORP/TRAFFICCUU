@@ -16,6 +16,30 @@ def palabras(texto: str | None) -> frozenset[str]:
     return frozenset(p for p in normalizar(texto).split() if p not in VACIAS)
 
 
+# Sufijos de razón social que no distinguen a un cliente («SA DE CV», «S DE RL DE CV», «SAPI»…)
+SOCIEDAD = {"sa", "cv", "s", "rl", "sapi", "sab", "sc", "ac", "sas", "spr", "ri", "c", "v"}
+
+
+def palabras_empresa(texto: str | None) -> frozenset[str]:
+    t = re.sub(r"\bs\s*a\s*p?\s*i?\s*de\s*c\s*v\b|\bs\s*de\s*r\s*l\b", " ", normalizar(texto))
+    return frozenset(p for p in t.split() if p not in VACIAS and p not in SOCIEDAD)
+
+
+def clientes_parecidos(clientes: list[dict]) -> list[tuple[dict, dict]]:
+    """Pares de clientes que parecen el mismo (nombre o alias iguales sin razón social, o unos contenidos en otros)."""
+    pares = []
+    for i, a in enumerate(clientes):
+        na = [palabras_empresa(n) for n in [a["nombre"], *(a.get("alias") or [])]]
+        for b in clientes[i + 1:]:
+            if a.get("rfc") and b.get("rfc") and a["rfc"].strip().upper() != b["rfc"].strip().upper():
+                continue   # RFC distintos: son empresas distintas
+            nb = [palabras_empresa(n) for n in [b["nombre"], *(b.get("alias") or [])]]
+            mismo_rfc = bool(a.get("rfc")) and (a.get("rfc") or "").strip().upper() == (b.get("rfc") or "").strip().upper()
+            if mismo_rfc or any(parecido(x, y) for x in na for y in nb):
+                pares.append((a, b))
+    return pares
+
+
 def _una_letra(a: str, b: str) -> bool:
     """Distancia de edición <= 1 (sustitución, inserción o borrado)."""
     if a == b:

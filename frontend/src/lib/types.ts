@@ -68,7 +68,8 @@ export interface EmpresaConfig {
 }
 
 export interface Factura {
-  sat?: { estado: string; actualizado_en: string | null } | null;   // embebido desde facturas_sat
+  sat?: { estado: string; actualizado_en: string | null; receptor?: { rfc: string | null; nombre: string | null } | null } | null;   // embebido desde facturas_sat
+  vs?: { cliente_id: string | null }[];   // viajes ligados (uno por XML; varios en una factura semanal)
   id: string; folio: string; uuid: string | null; tipo_comprobante: string | null; estado: string | null;
   fecha_emision: string | null; total: number; complemento: string | null;
   orden_referida: string | null; orden_compra: string | null; fecha_creacion: string | null; fecha_pago: string | null;

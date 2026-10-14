@@ -169,3 +169,17 @@ def test_viajes_casi_iguales_con_distinto_folio_se_importan_ambos_sin_aviso():
     assert "remision_repetida" not in r["avisos"]
     assert {v["precio_unitario"] for v in db.t["viajes"]} == {170.0}             # se respeta el precio acordado del viaje
     assert r["avisos"]["precio_distinto_tarifa"][0]["viajes"] == 2               # solo informativo
+
+
+def test_clientes_parecidos_ignora_razon_social_y_respeta_rfc():
+    from app.nombres import clientes_parecidos, palabras_empresa
+    assert palabras_empresa("Triturados Roca de BC, S.A. de C.V.") == palabras_empresa("TRITURADOS ROCA DE BC")
+    cs = [{"id": "1", "nombre": "TRITURADOS ROCA DE BC", "rfc": None, "alias": []},
+          {"id": "2", "nombre": "TRITURADOS ROCA DE BC SA DE CV", "rfc": "TRB010101AA1", "alias": []},
+          {"id": "3", "nombre": "TRITURADOS ROCA", "rfc": None, "alias": []},
+          {"id": "4", "nombre": "PETREOS LA PURISIMA", "rfc": "PPU010101AB1", "alias": ["PURISIMA"]},
+          {"id": "5", "nombre": "PETREOS LA PURISMA", "rfc": None, "alias": []},          # una letra de diferencia
+          {"id": "6", "nombre": "CEMEX", "rfc": "CEM880726UZA", "alias": []},
+          {"id": "7", "nombre": "CEMEX CONCRETOS", "rfc": "CCO8605231N4", "alias": []}]  # RFC distinto: no se sugiere
+    pares = {tuple(sorted((a["id"], b["id"]))) for a, b in clientes_parecidos(cs)}
+    assert pares == {("1", "2"), ("1", "3"), ("2", "3"), ("4", "5")}

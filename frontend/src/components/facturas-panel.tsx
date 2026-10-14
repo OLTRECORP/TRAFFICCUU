@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
-import type { Chofer, Factura, FacturaMes, Lugar } from "@/lib/types";
+import type { Chofer, Cliente, Factura, FacturaMes, Lugar } from "@/lib/types";
 import { fechaMx, mxn } from "@/lib/utils";
 import { Trash2 } from "lucide-react";
 import { AuditoriaEliminaciones } from "@/components/auditoria-eliminaciones";
@@ -35,6 +35,8 @@ export function FacturasPanel({ ordenInicial = "" }: { ordenInicial?: string }) 
   const [mes, setMes] = useState("");          // "YYYY-MM" (mes de emisión)
   const [chofer, setChofer] = useState("");
   const [lugar, setLugar] = useState("");        // origen o destino del viaje
+  const [cliente, setCliente] = useState("");
+  const [clientes, setClientes] = useState<Pick<Cliente, "id" | "nombre">[]>([]);
   const [meses, setMeses] = useState<string[]>([]);
   const [choferes, setChoferes] = useState<Pick<Chofer, "id" | "nombre">[]>([]);
   const [lugares, setLugares] = useState<Pick<Lugar, "id" | "nombre">[]>([]);
@@ -55,14 +57,17 @@ export function FacturasPanel({ ordenInicial = "" }: { ordenInicial?: string }) 
       .then(({ data }) => setChoferes((data ?? []) as Pick<Chofer, "id" | "nombre">[]));
     void sb.from("lugares").select("id, nombre").order("nombre").limit(1000)
       .then(({ data }) => setLugares((data ?? []) as Pick<Lugar, "id" | "nombre">[]));
+    void sb.from("clientes").select("id, nombre").order("nombre").limit(1000)
+      .then(({ data }) => setClientes((data ?? []) as Pick<Cliente, "id" | "nombre">[]));
   }, []);
 
   const load = useCallback(async () => {
     setLoading(true);
-    // El chofer y el origen/destino salen del viaje (Carta Porte) ligado a la factura: join interno solo si se filtra.
-    const porViaje = !!(chofer || lugar);
+    // Chofer, origen/destino y cliente salen de los viajes ligados a la factura (uno por XML; varios en una factura
+    // semanal): join interno solo si se filtra. `vs` trae los viajes para mostrar el cliente y cuántos son.
+    const porViaje = !!(chofer || lugar || cliente);
     let query = createClient().from("facturas")
-      .select(`*, sat:facturas_sat(estado, actualizado_en)${porViaje ? ", viajes!inner(chofer_id, lugar_origen_id, lugar_destino_id)" : ""}`, { count: "exact" })
+      .select(`*, sat:facturas_sat(estado, actualizado_en, receptor:datos->receptor), vs:viajes(cliente_id)${porViaje ? ", vf:viajes!inner(chofer_id, lugar_origen_id, lugar_destino_id, cliente_id)" : ""}`, { count: "exact" })
       .order("fecha_emision", { ascending: false, nullsFirst: false }).order("folio", { ascending: false })
       .range((pagina - 1) * TAM, pagina * TAM - 1);
     const t = q.trim().replace(/[,()%]/g, "");
@@ -74,16 +79,23 @@ export function FacturasPanel({ ordenInicial = "" }: { ordenInicial?: string }) 
       const sig = m === 12 ? `${a + 1}-01` : `${a}-${String(m + 1).padStart(2, "0")}`;
       query = query.gte("fecha_emision", `${mes}-01`).lt("fecha_emision", `${sig}-01`);
     }
-    if (chofer) query = query.eq("viajes.chofer_id", chofer);
-    if (lugar) query = query.or(`lugar_origen_id.eq.${lugar},lugar_destino_id.eq.${lugar}`, { referencedTable: "viajes" });
+    if (chofer) query = query.eq("vf.chofer_id", chofer);
+    if (cliente) query = query.eq("vf.cliente_id", cliente);
+    if (lugar) query = query.or(`lugar_origen_id.eq.${lugar},lugar_destino_id.eq.${lugar}`, { referencedTable: "vf" });
     const { data, count, error: err } = await query;
     if (err) setError(err.message);
     else { setError(null); setRows((data ?? []) as unknown as Factura[]); setTotal(count ?? 0); }
     setLoading(false);
-  }, [pagina, q, estado, comp, mes, chofer, lugar]);
+  }, [pagina, q, estado, comp, mes, chofer, lugar, cliente]);
 
   useEffect(() => { void load(); }, [load]);
   const paginas = Math.max(1, Math.ceil(total / TAM));
+  const nombreCliente = new Map(clientes.map((c) => [c.id, c.nombre]));
+  // Cliente de la factura: el de sus viajes; si aún no tiene viajes ligados, el receptor de su XML.
+  const clienteDe = (f: Factura) => {
+    const id = f.vs?.find((v) => v.cliente_id)?.cliente_id;
+    return (id && nombreCliente.get(id)) || f.sat?.receptor?.nombre || null;
+  };
   const alternar = (id: string) => setMarcadas((m) => (m.includes(id) ? m.filter((x) => x !== id) : [...m, id]));
   const canceladasPagina = rows.filter((f) => f.estado === "cancelado").map((f) => f.id);
   const todasMarcadas = rows.length > 0 && rows.every((f) => marcadas.includes(f.id));
@@ -110,6 +122,10 @@ export function FacturasPanel({ ordenInicial = "" }: { ordenInicial?: string }) 
           <option value="">Todos los choferes</option>
           {choferes.map((c) => <option key={c.id} value={c.id}>{c.nombre}</option>)}
         </select>
+        <select className={sel} value={cliente} onChange={(e) => { setCliente(e.target.value); setPagina(1); }} aria-label="Cliente">
+          <option value="">Todos los clientes</option>
+          {clientes.map((c) => <option key={c.id} value={c.id}>{c.nombre}</option>)}
+        </select>
         <select className={sel} value={lugar} onChange={(e) => { setLugar(e.target.value); setPagina(1); }} aria-label="Origen o destino">
           <option value="">Todas las ubicaciones</option>
           {lugares.map((l) => <option key={l.id} value={l.id}>{l.nombre}</option>)}
@@ -133,15 +149,16 @@ export function FacturasPanel({ ordenInicial = "" }: { ordenInicial?: string }) 
               <TableHead className="w-8"><input type="checkbox" aria-label="Marcar todas" checked={todasMarcadas}
                 onChange={() => setMarcadas((m) => (todasMarcadas ? m.filter((id) => !rows.some((f) => f.id === id)) : Array.from(new Set([...m, ...rows.map((f) => f.id)]))))} /></TableHead>
               <TableHead>Folio</TableHead><TableHead>Folio fiscal (UUID)</TableHead><TableHead>Emisión</TableHead><TableHead>Estado</TableHead>
+              <TableHead>Cliente</TableHead><TableHead className="text-right">Viajes</TableHead>
               <TableHead>Complemento</TableHead><TableHead>Orden de compra</TableHead>
               <TableHead>XML</TableHead><TableHead>Pago</TableHead><TableHead className="text-right">Total</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {loading ? (
-              <TableRow><TableCell colSpan={10} className="py-10 text-center text-muted-foreground">Cargando facturas…</TableCell></TableRow>
+              <TableRow><TableCell colSpan={12} className="py-10 text-center text-muted-foreground">Cargando facturas…</TableCell></TableRow>
             ) : rows.length === 0 ? (
-              <TableRow><TableCell colSpan={10} className="py-10 text-center text-muted-foreground">Sin facturas. Importa el Excel de administración de fletes.</TableCell></TableRow>
+              <TableRow><TableCell colSpan={12} className="py-10 text-center text-muted-foreground">Sin facturas. Importa el Excel de administración de fletes.</TableCell></TableRow>
             ) : rows.map((f) => (
               <TableRow key={f.id} className="cursor-pointer border-0 even:bg-secondary/70" onClick={() => setSelected(f)}>
                 <TableCell onClick={(e) => e.stopPropagation()}>
@@ -151,6 +168,8 @@ export function FacturasPanel({ ordenInicial = "" }: { ordenInicial?: string }) 
                 <TableCell className="whitespace-nowrap font-mono text-xs" title={f.uuid ?? undefined}>{f.uuid ? f.uuid.toUpperCase() : <span className="font-sans text-muted-foreground">Sin UUID</span>}</TableCell>
                 <TableCell className="whitespace-nowrap">{f.fecha_emision ? fechaMx(f.fecha_emision) : "—"}</TableCell>
                 <TableCell><Badge variant={f.estado === "cancelado" ? "rojo" : f.estado === "pagado" ? "verde" : "default"}>{f.estado ?? "—"}</Badge></TableCell>
+                <TableCell className="max-w-48 truncate" title={clienteDe(f) ?? undefined}>{clienteDe(f) ?? <span className="text-muted-foreground">—</span>}</TableCell>
+                <TableCell className="text-right">{f.vs?.length ? f.vs.length : <span className="text-muted-foreground">0</span>}</TableCell>
                 <TableCell><Badge variant={f.complemento === "COMPLEMENTO LISTO" ? "verde" : "amarillo"}>{f.complemento === "COMPLEMENTO LISTO" ? "Listo" : "Sin complemento"}</Badge></TableCell>
                 <TableCell>{f.orden_compra ? <Link onClick={(e) => e.stopPropagation()} className="font-medium text-highlight hover:underline" href={`/ordenes?q=${f.orden_compra}`}>{f.orden_compra}</Link> : <span className="text-muted-foreground">Sin orden</span>}</TableCell>
                 <TableCell><Badge variant={f.sat?.estado === "ok" && f.sat.actualizado_en ? "verde" : "default"}>{f.sat?.estado === "ok" && f.sat.actualizado_en ? "Descargado" : "Pendiente"}</Badge></TableCell>

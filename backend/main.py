@@ -21,6 +21,7 @@ from app.excel_import import ExcelError, guardar, parse_workbook
 from app.sat import descargar_cfdis
 from app.viajes_service import guardar_viaje
 from app import depuracion, semanal
+from app.nombres import clientes_parecidos
 from app.remisiones_excel import RemisionesError, importar as remisiones_importar, parse_libro as remisiones_parse
 
 logging.basicConfig(level=logging.INFO)
@@ -147,6 +148,40 @@ def clientes_semanas(cliente_id: uuidlib.UUID, tenant: Tenant = Depends(current_
     facturas = semanal.facturas_del_cliente(db, tenant.empresa_id, c)
     sugeridas = {s["semana"]: f["id"] for f, s in semanal.emparejar(semanas, facturas)}
     return {"semanas": [{**s, "sugerida": sugeridas.get(s["semana"])} for s in semanas], "facturas": facturas}
+
+
+@app.post("/api/clientes/similares")
+def clientes_similares(tenant: Tenant = Depends(current_tenant)) -> dict:
+    """Pares de clientes con nombre parecido; propone conservar el que tiene más viajes."""
+    db = get_admin_client()
+    try:
+        clientes = db.table("clientes_resumen").select("id, nombre, rfc, alias, viajes").eq("empresa_id", tenant.empresa_id).execute().data or []
+    except Exception:
+        raise HTTPException(status.HTTP_409_CONFLICT, "Falta ejecutar la migración 023 en Supabase (supabase/migrations/023_unificar_clientes.sql)")
+    pares = []
+    for a, b in clientes_parecidos(clientes):
+        conservar, duplicado = (a, b) if (a["viajes"], len(a["nombre"])) >= (b["viajes"], len(b["nombre"])) else (b, a)
+        pares.append({"conservar": conservar, "duplicado": duplicado})
+    return {"pares": pares}
+
+
+class UnificarClientesRequest(BaseModel):
+    origen_id: uuidlib.UUID      # el duplicado, que desaparece
+    destino_id: uuidlib.UUID     # el cliente que se conserva
+    confirmar: bool = False
+
+
+@app.post("/api/clientes/unificar-vista-previa")
+def clientes_unificar_vista_previa(body: UnificarClientesRequest, tenant: Tenant = Depends(current_tenant)) -> dict:
+    return depuracion.vista_previa_unificar_clientes(tenant.empresa_id, str(body.origen_id), str(body.destino_id))
+
+
+@app.post("/api/clientes/unificar")
+def clientes_unificar(body: UnificarClientesRequest, tenant: Tenant = Depends(current_tenant)) -> dict:
+    """Une el cliente duplicado al que se conserva (viajes, tarifas, alias, RFC). Exige confirmar=true."""
+    if not body.confirmar:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Falta la confirmación")
+    return depuracion.unificar_clientes(tenant.empresa_id, tenant.user_id, str(body.origen_id), str(body.destino_id))
 
 
 class LigarSemanaRequest(BaseModel):
