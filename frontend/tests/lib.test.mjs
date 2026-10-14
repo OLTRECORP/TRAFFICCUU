@@ -70,3 +70,12 @@ test("día con cargas sin litros: suma solo las que tienen; si ninguna, null", (
   assert.equal(cargasPorDia([carga("a", "2026-10-05", 120), carga("b", "2026-10-05", null)])[0].litros, 120);
   assert.equal(cargasPorDia([carga("a", "2026-10-05", null), carga("b", "2026-10-05", null)])[0].litros, null);
 });
+
+// ---- Comisiones: lo contabilizado en el detalle ---------------------------------------------
+import { contabilizados } from "../src/lib/comisiones.ts";
+
+test("contabilizados: viajes, facturas distintas, subtotal y comisión", () => {
+  const v = (id, folio, subtotal) => ({ viaje_id: id, chofer_id: "c", folio, fecha_viaje: "2026-10-09", subtotal, origen: null, destino: null, cliente: null });
+  const c = contabilizados([v("1", "A1", 1000), v("2", "A1", 500), v("3", "A2", 2000), v("4", null, 100)]);
+  assert.deepEqual(c, { viajes: 4, facturas: 3, subtotal: 3600, comision: 432 });   // A1 con 2 viajes cuenta 1 factura; sin folio cuenta aparte
+});

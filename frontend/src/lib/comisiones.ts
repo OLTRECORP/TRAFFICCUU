@@ -8,7 +8,7 @@ export interface ViajeComision {
 
 export type Periodo = "mes" | "semana" | "anio";
 
-export interface FilaEstadistica { clave: string; etiqueta: string; viajes: number; subtotal: number; comision: number }
+export interface FilaEstadistica { clave: string; etiqueta: string; viajes: number; subtotal: number; comision: number; detalle: ViajeComision[] }
 
 export const comisionDe = (subtotal: number) => Math.round(Number(subtotal) * TASA_COMISION * 100) / 100;
 
@@ -18,6 +18,14 @@ export const totales = (v: ViajeComision[]) => {
   const comision = v.reduce((s, x) => s + comisionDe(x.subtotal), 0);
   return { viajes: v.length, subtotal, comision: Math.round(comision * 100) / 100 };
 };
+
+/** Lo contabilizado en un conjunto de viajes: viajes, facturas distintas (por folio), subtotal y comisión. */
+export interface Contabilizado { viajes: number; facturas: number; subtotal: number; comision: number }
+
+export const contabilizados = (v: ViajeComision[]): Contabilizado => ({
+  ...totales(v),
+  facturas: new Set(v.map((x) => x.folio ?? x.viaje_id)).size,
+});
 
 const MESES = ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic"];
 const DIAS = ["dom", "lun", "mar", "mié", "jue", "vie", "sáb"];
@@ -62,8 +70,8 @@ export function estadisticas(viajes: ViajeComision[], p: Periodo): FilaEstadisti
   const mapa = new Map<string, FilaEstadistica>();
   for (const v of viajes) {
     const { clave: k, etiqueta } = clave(v.fecha_viaje, p);
-    const f = mapa.get(k) ?? { clave: k, etiqueta, viajes: 0, subtotal: 0, comision: 0 };
-    f.viajes += 1; f.subtotal += Number(v.subtotal); f.comision += comisionDe(v.subtotal);
+    const f = mapa.get(k) ?? { clave: k, etiqueta, viajes: 0, subtotal: 0, comision: 0, detalle: [] };
+    f.viajes += 1; f.subtotal += Number(v.subtotal); f.comision += comisionDe(v.subtotal); f.detalle.push(v);
     mapa.set(k, f);
   }
   return [...mapa.values()].sort((a, b) => b.clave.localeCompare(a.clave));
