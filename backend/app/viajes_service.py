@@ -4,6 +4,7 @@ from fastapi import HTTPException, status
 from .auth import Tenant
 from .cfdi_parser import CFDIViaje, UbicacionData
 from .db import get_admin_client
+from .clientes_service import cliente_para_viaje
 from .depuracion import unidad_por_alias
 from .rutas_service import LugaresCatalogo, _norm
 
@@ -122,7 +123,11 @@ def guardar_viaje(tenant: Tenant, v: CFDIViaje, factura_id: str | None = None, c
         "mercancia": v.mercancia,
         "fecha_salida": v.origen.fecha.isoformat() if v.origen.fecha else None,
         "fecha_llegada": v.destino.fecha.isoformat() if v.destino.fecha else None,
+        # el cliente decide la tasa de comisión y si los km salen del mapa
+        "cliente_id": cliente_para_viaje(db, eid, v.rfc_receptor, v.destino.nombre),
     }
+    if row["cliente_id"] is None:
+        del row["cliente_id"]
     try:
         # El trigger trg_viaje_suma_kilometraje actualiza tractocamiones.kilometraje_actual
         res = db.table("viajes").insert(row).execute()

@@ -267,6 +267,9 @@ _ESQUEMA = [
     ("012", "tractocamiones", "capacidad_kg"),
     ("012", "viajes_sobrepeso", "viaje_id"),
     ("013", "lugares", "cliente"),
+    ("022", "clientes", "id,comision_pct,km_por_mapa,factura_semanal"),
+    ("022", "viajes", "cliente_id,remision,origen_registro,import_key"),
+    ("022", "tarifas", "id,comision_pct"),
 ]
 
 

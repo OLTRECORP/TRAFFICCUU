@@ -5,9 +5,10 @@ import logging
 from fastapi import HTTPException
 
 from .auth import Tenant
-from .cfdi_parser import CFDIError, parse_cfdi
+from .cfdi_parser import CFDIError, parse_cfdi, resumen_cfdi
 from .db import get_admin_client
 from .rutas_service import LugaresCatalogo
+from .semanal import cliente_semanal
 from .viajes_service import guardar_viaje
 
 log = logging.getLogger("carta_porte")
@@ -19,6 +20,14 @@ def registrar(db, tenant: Tenant, xml: bytes, factura_id: str | None, catalogo: 
         cfdi = parse_cfdi(xml)
     except CFDIError as exc:
         return "sin_carta_porte", str(exc)
+    # La factura semanal de un cliente (p. ej. La Purísima) no es un viaje: agrupa los de su semana y se liga después.
+    try:
+        receptor = resumen_cfdi(xml).get("receptor") or {}
+        semanal = cliente_semanal(db, tenant.empresa_id, receptor.get("rfc"), receptor.get("nombre"))
+    except Exception:   # migración 022 aún sin aplicar
+        semanal = None
+    if semanal:
+        return "omitido", f"Factura semanal de {semanal['nombre']}: se liga a los viajes de su semana, no crea un viaje"
     existente = db.table("viajes").select("id, factura_id").eq("empresa_id", tenant.empresa_id).eq("uuid", cfdi.uuid.lower()).limit(1).execute().data
     if existente:
         if factura_id and not existente[0].get("factura_id"):

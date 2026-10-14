@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
-import { FileText, LayoutDashboard, LogOut, ReceiptText, Users, Container, MapPin, Moon, Settings, Sun, Truck, Wrench, Percent, Fuel } from "lucide-react";
+import { FileText, LayoutDashboard, LogOut, ReceiptText, Users, Container, MapPin, Moon, Settings, Sun, Truck, Wrench, Percent, Fuel, Building2 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { cn } from "@/lib/utils";
 import { useTheme } from "@/components/theme-provider";
@@ -12,6 +12,7 @@ const links = [
   { href: "/dashboard", label: "Dashboard", title: "Dashboard", icon: LayoutDashboard },
   { href: "/facturas", label: "Facturas", title: "Lista de facturas", icon: FileText },
   { href: "/ordenes", label: "Órdenes de compra", title: "Relación de órdenes de compra", icon: ReceiptText },
+  { href: "/clientes", label: "Clientes", title: "Clientes, tarifas y facturas semanales", icon: Building2 },
   { href: "/lugares", label: "Orígenes y destinos", title: "Orígenes y destinos", icon: MapPin },
   { href: "/choferes", label: "Choferes", title: "Choferes", icon: Users },
   { href: "/comisiones", label: "Comisiones", title: "Comisiones de choferes", icon: Percent },

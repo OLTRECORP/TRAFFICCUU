@@ -46,6 +46,9 @@ export interface Viaje {
   km_operativos: number | null;
   toneladas_facturadas?: number | null; precio_tonelada?: number | null; mercancia?: string | null;
   fecha_salida?: string | null; fecha_llegada?: string | null;
+  origen_registro?: "xml" | "excel"; remision?: string | null; material?: string | null;
+  cantidad?: number | null; unidad?: string | null; precio_unitario?: number | null;
+  km_por_mapa?: boolean; cliente?: { nombre: string; comision_pct: number } | null;
 }
 
 /** Viaje con toneladas facturadas por encima de la capacidad del tracto (vista viajes_sobrepeso). */
@@ -126,7 +129,24 @@ export interface Lugar {
   referencia: string | null; lat: number | null; lng: number | null; activo: boolean;
   precio_tonelada: number | null;
   cliente?: string | null;   // un cliente puede tener varios destinos; cada lugar lleva su propio nombre
+  alias?: string[];          // otros nombres con que llega (ej. «LA RUMOROSA» para «RUMOROSA»)
+  auto_ubicar?: boolean;     // false: el nombre no basta para ubicarlo; se marca a mano en el mapa
 }
+
+/** Cliente: tasa de comisión de sus viajes, si sus km salen del mapa y si factura por semana (lunes a domingo). */
+export interface Cliente {
+  id: string; nombre: string; rfc: string | null; alias: string[];
+  comision_pct: number; km_por_mapa: boolean; factura_semanal: boolean; notas: string | null;
+}
+export interface Tarifa {
+  id: string; cliente_id: string; origen_id: string; destino_id: string; precio: number; unidad: string;
+  comision_pct: number | null; origen: { nombre: string } | null; destino: { nombre: string } | null;
+}
+export interface SemanaCliente {
+  semana: string; fin: string; viajes: number; subtotal: number; cantidad: number;
+  facturas: Record<string, number>; sin_factura: number; sugerida: string | null;
+}
+export interface FacturaCliente { id: string; folio: string; fecha: string | null; estado: string | null; subtotal: number | null; total: number; rfc: string | null }
 export interface Ruta {
   id: string; origen_id: string; destino_id: string; distancia_km: number; calculada_en: string;
   origen: { nombre: string } | null; destino: { nombre: string } | null;

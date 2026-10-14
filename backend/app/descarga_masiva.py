@@ -377,6 +377,8 @@ def _carta_porte(db, cp, xml: bytes, factura: dict, acumulado: dict, avisar) -> 
         avisar(f"Carta Porte → {detalle}", "ok")
     elif resultado == "existente":
         acumulado["viajes_existentes"] += 1
+    elif resultado == "omitido":
+        avisar(f"Factura {factura['folio']}: {detalle}")
     elif resultado == "sin_carta_porte":
         acumulado["sin_carta_porte"] += 1
         avisar(f"Factura {factura['folio']}: {detalle}")
@@ -661,6 +663,15 @@ def _ejecutar(empresa_id: str, job_id: str, anio: int, meses: list[int], zip_byt
             avisar(f"Km operativos: {r['calculados']} viajes calculados, {r['sin_mapa']} sin ubicación en el mapa, {r['pendientes']} pendientes", "ok")
         except Exception as exc:
             avisar(f"No se pudieron calcular los km por mapa: {type(exc).__name__}: {str(exc)[:200]}", "aviso")
+
+    if not cancelado:
+        try:   # facturas semanales (p. ej. La Purísima): cada una agrupa los viajes de lunes a domingo
+            from .semanal import ligar_todos
+            n = ligar_todos(db, empresa_id)
+            if n:
+                avisar(f"Facturas semanales: {n} ligada(s) a los viajes de su semana", "ok")
+        except Exception as exc:
+            avisar(f"No se pudieron ligar las facturas semanales: {type(exc).__name__}: {str(exc)[:150]}", "aviso")
 
     avisar(f"Solicitudes al SAT en esta corrida: {acu['solicitudes_nuevas']} nuevas, {acu['solicitudes_retomadas']} retomadas "
            "(las de meses ya guardados no se piden otra vez)")

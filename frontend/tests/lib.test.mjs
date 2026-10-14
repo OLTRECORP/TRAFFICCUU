@@ -79,3 +79,17 @@ test("contabilizados: viajes, facturas distintas, subtotal y comisión", () => {
   const c = contabilizados([v("1", "A1", 1000), v("2", "A1", 500), v("3", "A2", 2000), v("4", null, 100)]);
   assert.deepEqual(c, { viajes: 4, facturas: 3, subtotal: 3600, comision: 432 });   // A1 con 2 viajes cuenta 1 factura; sin folio cuenta aparte
 });
+
+// ---- Comisiones: tasa por viaje (cliente o ruta) -------------------------------------------------------------
+import { comisionViaje, etiquetaTasas, totales } from "../src/lib/comisiones.ts";
+
+test("cada viaje usa su tasa: Purísima 11 %, ruta Rumorosa→Venados 10 %, sin dato 12 %", () => {
+  const v = (subtotal, tasa_comision) => ({ viaje_id: String(subtotal) + tasa_comision, chofer_id: "c", folio: null, fecha_viaje: "2026-10-09", subtotal, origen: null, destino: null, cliente: null, tasa_comision });
+  assert.equal(comisionViaje(v(5120, 11)), 563.2);
+  assert.equal(comisionViaje(v(12640, 10)), 1264);
+  assert.equal(comisionViaje(v(1000, null)), 120);
+  const t = totales([v(5120, 11), v(12640, 10), v(1000, null)]);
+  assert.equal(t.comision, 1947.2);
+  assert.equal(etiquetaTasas([v(1, 11), v(1, 10)]), "10–11 %");
+  assert.equal(etiquetaTasas([v(1, 11)]), "11 %");
+});

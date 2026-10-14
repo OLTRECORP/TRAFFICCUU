@@ -135,10 +135,14 @@ def asignar_viaje(empresa_id: str, viaje_id: str, origen_id: str | None, destino
 def ubicar_lugares(empresa_id: str, log=None, limite: float | None = None) -> int:
     """Pone latitud/longitud a los lugares sin ubicar usando su dirección (o su nombre). Devuelve cuántos ubicó."""
     db = get_admin_client()
-    pendientes = (
-        db.table("lugares").select("id, nombre, direccion").eq("empresa_id", empresa_id).eq("activo", True)
-        .is_("lat", "null").limit(MAX_UBICAR).execute().data
-    )
+    def consulta(solo_auto: bool):
+        q = db.table("lugares").select("id, nombre, direccion").eq("empresa_id", empresa_id).eq("activo", True).is_("lat", "null")
+        # los lugares del Excel (ej. «COX») no se pueden ubicar por su nombre: se marcan a mano en el mapa
+        return (q.eq("auto_ubicar", True) if solo_auto else q).limit(MAX_UBICAR).execute().data
+    try:
+        pendientes = consulta(True)
+    except Exception:   # migración 022 aún sin aplicar
+        pendientes = consulta(False)
     ubicados = 0
     for i, l in enumerate(pendientes):
         if limite is not None and time.monotonic() > limite:
