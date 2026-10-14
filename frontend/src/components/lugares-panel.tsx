@@ -77,7 +77,8 @@ export function LugaresPanel() {
               </TableCell></TableRow>
             ) : filtradas.map((l) => (
               <TableRow key={l.id} className="border-0 even:bg-secondary/70">
-                <TableCell className="font-medium">{l.nombre}{!l.activo && <Badge className="ml-2">Inactivo</Badge>}</TableCell>
+                <TableCell className="font-medium">{l.nombre}{!l.activo && <Badge className="ml-2">Inactivo</Badge>}
+                  {!!l.alias?.length && <span className="block text-xs font-normal text-muted-foreground">También: {l.alias.join(", ")}</span>}</TableCell>
                 <TableCell>{l.cliente ?? "—"}</TableCell>
                 <TableCell>{TIPOS[l.tipo]}</TableCell>
                 <TableCell className="max-w-xs truncate" title={l.direccion ?? undefined}>{l.direccion ?? "—"}</TableCell>

@@ -3,12 +3,12 @@ from typing import Literal
 import uuid as uuidlib
 from datetime import date
 
-from fastapi import BackgroundTasks, Depends, FastAPI, File, HTTPException, UploadFile, status
+from fastapi import BackgroundTasks, Depends, FastAPI, File, Form, HTTPException, UploadFile, status
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field, model_validator
 
 from app.auth import CurrentUser, Tenant, current_tenant, current_user
-from app.cfdi_parser import CFDIError, parse_cfdi
+from app.cfdi_parser import CFDIError, parse_cfdi, resumen_cfdi
 from app.config import get_settings
 from app.crypto import encrypt
 from app.db import get_admin_client
@@ -20,7 +20,8 @@ from app.facturas_sat import ejecutar as sat_ejecutar, preparar as sat_preparar
 from app.excel_import import ExcelError, guardar, parse_workbook
 from app.sat import descargar_cfdis
 from app.viajes_service import guardar_viaje
-from app import depuracion
+from app import depuracion, semanal
+from app.remisiones_excel import RemisionesError, importar as remisiones_importar, parse_libro as remisiones_parse
 
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger("api")
@@ -51,6 +52,20 @@ async def procesar_xml(file: UploadFile = File(...), tenant: Tenant = Depends(cu
     content = await file.read(limit + 1)
     if len(content) > limit:
         raise HTTPException(status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, "El XML excede el tamaño máximo permitido")
+
+    db = get_admin_client()
+    try:
+        receptor = resumen_cfdi(content).get("receptor") or {}
+        cliente_sem = semanal.cliente_semanal(db, tenant.empresa_id, receptor.get("rfc"), receptor.get("nombre"))
+    except Exception:   # XML inválido (lo reporta parse_cfdi) o migración 022 aún sin aplicar
+        cliente_sem = None
+    if cliente_sem:
+        # Factura semanal (p. ej. La Purísima): no es un viaje; agrupa los viajes de lunes a domingo de su semana.
+        factura_id, factura_creada = asegurar_factura_xml(tenant, content)
+        r = semanal.ligar_auto(db, tenant.empresa_id, cliente_sem)
+        return {"factura_id": factura_id, "factura_creada": factura_creada, "factura_semanal": cliente_sem["nombre"],
+                "ligadas": r["ligadas"], "warnings": [] if r["ligadas"] else [
+                    "No hubo una semana con el mismo subtotal; lígala a mano en Clientes → semanas"]}
 
     try:
         cfdi = parse_cfdi(content)
@@ -88,6 +103,78 @@ async def importar_excel(file: UploadFile = File(...), tenant: Tenant = Depends(
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc))
     resultado = guardar(get_admin_client(), tenant.empresa_id, parsed)
     return {**resultado, "omitidas": parsed["omitidas"], "uuid_danados": parsed["uuid_danados"]}
+
+
+@app.post("/api/remisiones/importar")
+async def remisiones_importar_excel(file: UploadFile = File(...), cliente_id: str | None = Form(default=None),
+                                    confirmar: bool = Form(default=False), tenant: Tenant = Depends(current_tenant)) -> dict:
+    """Viajes por remisión (Excel con hojas PRECIOS y VIAJES). confirmar=false devuelve solo la vista previa."""
+    if not (file.filename or "").lower().endswith((".xlsx", ".xlsm")):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "El archivo debe ser .xlsx")
+    limit = get_settings().max_excel_bytes
+    content = await file.read(limit + 1)
+    if len(content) > limit:
+        raise HTTPException(status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, "El Excel excede el tamaño máximo permitido")
+    if cliente_id:
+        try:
+            cliente_id = str(uuidlib.UUID(cliente_id))
+        except ValueError:
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "cliente_id inválido")
+    db = get_admin_client()
+    try:
+        resultado = remisiones_importar(db, tenant.empresa_id, remisiones_parse(content), cliente_id or None, confirmar)
+    except RemisionesError as exc:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc))
+    if confirmar:
+        cliente = db.table("clientes").select("*").eq("id", resultado["cliente"]["id"]).single().execute().data
+        resultado["facturas_ligadas"] = semanal.ligar_auto(db, tenant.empresa_id, cliente)["ligadas"] if cliente.get("factura_semanal") else []
+    return resultado
+
+
+def _cliente(tenant: Tenant, cliente_id: uuidlib.UUID) -> dict:
+    c = get_admin_client().table("clientes").select("*").eq("empresa_id", tenant.empresa_id).eq("id", str(cliente_id)).limit(1).execute().data
+    if not c:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Cliente no encontrado")
+    return c[0]
+
+
+@app.post("/api/clientes/{cliente_id}/semanas")
+def clientes_semanas(cliente_id: uuidlib.UUID, tenant: Tenant = Depends(current_tenant)) -> dict:
+    """Semanas (lunes a domingo) del cliente con sus viajes, facturas ligadas y facturas del cliente para ligar."""
+    db = get_admin_client()
+    c = _cliente(tenant, cliente_id)
+    semanas = semanal.semanas_del_cliente(db, tenant.empresa_id, c["id"])
+    facturas = semanal.facturas_del_cliente(db, tenant.empresa_id, c)
+    sugeridas = {s["semana"]: f["id"] for f, s in semanal.emparejar(semanas, facturas)}
+    return {"semanas": [{**s, "sugerida": sugeridas.get(s["semana"])} for s in semanas], "facturas": facturas}
+
+
+class LigarSemanaRequest(BaseModel):
+    semana: date
+    factura_id: uuidlib.UUID | None = None   # None = desligar
+
+
+@app.post("/api/clientes/{cliente_id}/ligar-semana")
+def clientes_ligar_semana(cliente_id: uuidlib.UUID, body: LigarSemanaRequest, tenant: Tenant = Depends(current_tenant)) -> dict:
+    db = get_admin_client()
+    c = _cliente(tenant, cliente_id)
+    factura = None
+    if body.factura_id:
+        f = db.table("facturas").select("id, folio").eq("empresa_id", tenant.empresa_id).eq("id", str(body.factura_id)).limit(1).execute().data
+        if not f:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Factura no encontrada")
+        factura = f[0]
+    try:
+        n = semanal.ligar_semana(db, tenant.empresa_id, c["id"], body.semana.isoformat(), factura)
+    except ValueError as exc:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc))
+    return {"viajes": n}
+
+
+@app.post("/api/clientes/{cliente_id}/ligar-auto")
+def clientes_ligar_auto(cliente_id: uuidlib.UUID, tenant: Tenant = Depends(current_tenant)) -> dict:
+    """Liga por monto las facturas del cliente a la semana cuyo subtotal coincide."""
+    return semanal.ligar_auto(get_admin_client(), tenant.empresa_id, _cliente(tenant, cliente_id))
 
 
 class SyncRequest(BaseModel):

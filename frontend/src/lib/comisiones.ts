@@ -1,21 +1,36 @@
-/** Comisión del chofer: 12 % del subtotal de la factura (antes de IVA) de cada viaje. */
-export const TASA_COMISION = 0.12;
+/** Comisión del chofer: % del subtotal (antes de IVA) de cada viaje. La tasa viene por viaje (vista comisiones_viajes):
+ *  la excepción de la ruta (tarifa), la del cliente (p. ej. La Purísima 11 %) o la general del 12 %. */
+export const TASA_GENERAL = 12;
 
 export interface ViajeComision {
   viaje_id: string; chofer_id: string | null; folio: string | null; fecha_viaje: string;   // YYYY-MM-DD
   subtotal: number; origen: string | null; destino: string | null; cliente: string | null;
+  tasa_comision?: number | null;      // % aplicado a este viaje; sin dato = 12 %
+  remision?: string | null;           // viajes del Excel de remisiones (sin XML)
 }
 
 export type Periodo = "mes" | "semana" | "anio";
 
 export interface FilaEstadistica { clave: string; etiqueta: string; viajes: number; subtotal: number; comision: number; detalle: ViajeComision[] }
 
-export const comisionDe = (subtotal: number) => Math.round(Number(subtotal) * TASA_COMISION * 100) / 100;
+export const tasaDe = (v: Pick<ViajeComision, "tasa_comision">) => (v.tasa_comision == null ? TASA_GENERAL : Number(v.tasa_comision));
+
+export const comisionDe = (subtotal: number, tasa: number = TASA_GENERAL) => Math.round(Number(subtotal) * tasa) / 100;
+
+/** Comisión de un viaje con su propia tasa. */
+export const comisionViaje = (v: Pick<ViajeComision, "subtotal" | "tasa_comision">) => comisionDe(v.subtotal, tasaDe(v));
+
+/** «12 %» si todos los viajes llevan la misma tasa; «10–12 %» si varían. */
+export function etiquetaTasas(v: Pick<ViajeComision, "tasa_comision">[]): string {
+  const t = [...new Set(v.map(tasaDe))].sort((a, b) => a - b);
+  if (!t.length) return `${TASA_GENERAL} %`;
+  return t.length === 1 ? `${t[0]} %` : `${t[0]}–${t[t.length - 1]} %`;
+}
 
 export const totales = (v: ViajeComision[]) => {
   const subtotal = v.reduce((s, x) => s + Number(x.subtotal), 0);
   // Suma de comisiones por viaje, para que el total coincida con el detalle
-  const comision = v.reduce((s, x) => s + comisionDe(x.subtotal), 0);
+  const comision = v.reduce((s, x) => s + comisionViaje(x), 0);
   return { viajes: v.length, subtotal, comision: Math.round(comision * 100) / 100 };
 };
 
@@ -71,7 +86,7 @@ export function estadisticas(viajes: ViajeComision[], p: Periodo): FilaEstadisti
   for (const v of viajes) {
     const { clave: k, etiqueta } = clave(v.fecha_viaje, p);
     const f = mapa.get(k) ?? { clave: k, etiqueta, viajes: 0, subtotal: 0, comision: 0, detalle: [] };
-    f.viajes += 1; f.subtotal += Number(v.subtotal); f.comision += comisionDe(v.subtotal); f.detalle.push(v);
+    f.viajes += 1; f.subtotal += Number(v.subtotal); f.comision += comisionViaje(v); f.detalle.push(v);
     mapa.set(k, f);
   }
   return [...mapa.values()].sort((a, b) => b.clave.localeCompare(a.clave));

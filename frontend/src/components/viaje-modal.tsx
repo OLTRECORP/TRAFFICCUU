@@ -82,15 +82,20 @@ export function ViajeModal({ viaje, onClose, onChanged }: { viaje: Viaje | null;
                   <Field label="Placa góndola" value={viaje.gondola?.placa} />
                   <Field label="Chofer" value={viaje.chofer?.nombre} />
                   <Field label="Licencia" value={viaje.chofer?.licencia} />
+                  {viaje.remision && <Field label="Remisión" value={viaje.remision} />}
+                  {viaje.origen_registro === "excel" && (
+                    <Field label="Cantidad" value={viaje.cantidad != null ? `${Number(viaje.cantidad).toLocaleString("es-MX")} ${viaje.unidad ?? ""}${viaje.precio_unitario != null ? ` × ${mxn(Number(viaje.precio_unitario))}` : ""}` : null} />
+                  )}
                   <Field label="Mercancía" value={viaje.mercancia} />
                   <Field label="Toneladas facturadas" value={viaje.toneladas_facturadas != null ? `${Number(viaje.toneladas_facturadas).toLocaleString("es-MX")} t${viaje.precio_tonelada != null ? ` × ${mxn(Number(viaje.precio_tonelada))}` : ""}` : null} />
                   <Field label="Salida" value={viaje.fecha_salida ? fechaMx(viaje.fecha_salida) : null} />
                   <Field label="Llegada" value={viaje.fecha_llegada ? fechaMx(viaje.fecha_llegada) : null} />
-                  <Field label="Distancia oficial (XML, ida)" value={km(viaje.distancia_xml)} />
-                  <Field label="Distancia operativa (redondo)" value={km(viaje.distancia_operativa)} />
+                  {viaje.origen_registro !== "excel" && <Field label="Distancia oficial (XML, ida)" value={km(viaje.distancia_xml)} />}
+                  <Field label={`Distancia operativa (redondo${viaje.km_por_mapa ? ", del mapa" : ""})`}
+                    value={viaje.km_por_mapa && viaje.distancia_mapa_km == null ? (viaje.origen_registro === "excel" ? "Pendiente: ubica origen y destino en el mapa" : `${km(viaje.distancia_operativa)} (del XML hasta tener el mapa)`) : km(viaje.distancia_operativa)} />
                 </dl>
                 <div className="mt-4 grid gap-3 rounded-md border p-3">
-                  <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Distancia por mapa (solo comparación; no afecta los km operativos)</h4>
+                  <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{viaje.km_por_mapa ? "Distancia por mapa (este cliente usa los km del mapa como km operativos)" : "Distancia por mapa (solo comparación; no afecta los km operativos)"}</h4>
                   {error && <Alert variant="error">{error}</Alert>}
                   <div className="grid gap-3 sm:grid-cols-2">
                     <label className="grid gap-1 text-xs font-medium">Origen

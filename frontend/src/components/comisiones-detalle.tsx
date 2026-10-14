@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo } from "react";
-import { comisionDe, contabilizados, TASA_COMISION, type ViajeComision } from "@/lib/comisiones";
+import { comisionViaje, contabilizados, etiquetaTasas, tasaDe, type ViajeComision } from "@/lib/comisiones";
 import { fechaMx, mxn } from "@/lib/utils";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -39,7 +39,7 @@ export function ComisionesDetalle({ detalle, onClose }: { detalle: DetalleComisi
               <Dato label="Viajes contabilizados" value={String(c.viajes)} />
               <Dato label="Facturas incluidas" value={String(c.facturas)} />
               <Dato label="Subtotal (sin IVA)" value={mxn(c.subtotal)} />
-              <Dato label={`Comisión ${TASA_COMISION * 100}%`} value={mxn(c.comision)} />
+              <Dato label={`Comisión ${etiquetaTasas(viajes)}`} value={mxn(c.comision)} />
             </div>
 
             <div className="max-h-[50vh] overflow-y-auto rounded-lg border">
@@ -52,21 +52,23 @@ export function ComisionesDetalle({ detalle, onClose }: { detalle: DetalleComisi
                     <TableHead>Origen</TableHead>
                     <TableHead>Destino</TableHead>
                     <TableHead className="text-right">Subtotal</TableHead>
+                    <TableHead className="text-right">%</TableHead>
                     <TableHead className="text-right">Comisión</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {viajes.length === 0 ? (
-                    <TableRow><TableCell colSpan={7} className="py-8 text-center text-muted-foreground">Sin viajes en este periodo.</TableCell></TableRow>
+                    <TableRow><TableCell colSpan={8} className="py-8 text-center text-muted-foreground">Sin viajes en este periodo.</TableCell></TableRow>
                   ) : viajes.map((v, i) => (
                     <TableRow key={v.viaje_id}>
                       <TableCell className="text-muted-foreground">{i + 1}</TableCell>
                       <TableCell className="whitespace-nowrap">{fechaMx(v.fecha_viaje)}</TableCell>
-                      <TableCell className="whitespace-nowrap font-medium">{v.folio ?? "—"}</TableCell>
+                      <TableCell className="whitespace-nowrap font-medium">{v.folio ?? (v.remision ? `Rem. ${v.remision}` : "—")}{v.folio && v.remision && <span className="block text-xs font-normal text-muted-foreground">Rem. {v.remision}</span>}</TableCell>
                       <TableCell>{v.origen ?? "—"}</TableCell>
                       <TableCell>{v.destino ?? "—"}{v.cliente && <span className="block text-xs text-muted-foreground">{v.cliente}</span>}</TableCell>
                       <TableCell className="whitespace-nowrap text-right">{mxn(v.subtotal)}</TableCell>
-                      <TableCell className="whitespace-nowrap text-right font-medium">{mxn(comisionDe(v.subtotal))}</TableCell>
+                      <TableCell className="whitespace-nowrap text-right text-muted-foreground">{tasaDe(v)}%</TableCell>
+                      <TableCell className="whitespace-nowrap text-right font-medium">{mxn(comisionViaje(v))}</TableCell>
                     </TableRow>
                   ))}
                 </TableBody>
@@ -75,6 +77,7 @@ export function ComisionesDetalle({ detalle, onClose }: { detalle: DetalleComisi
                     <TableRow>
                       <TableCell colSpan={5} className="font-semibold">Total · {c.viajes} viajes · {c.facturas} facturas</TableCell>
                       <TableCell className="text-right font-semibold">{mxn(c.subtotal)}</TableCell>
+                      <TableCell />
                       <TableCell className="text-right font-semibold">{mxn(c.comision)}</TableCell>
                     </TableRow>
                   </tfoot>

@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
-import { comisionDe, estadisticas, etiquetaSemanaPago, semanaPago, semanaPagoDesplazada, TASA_COMISION, totales, type Periodo, type ViajeComision } from "@/lib/comisiones";
+import { comisionViaje, estadisticas, etiquetaSemanaPago, etiquetaTasas, semanaPago, semanaPagoDesplazada, tasaDe, totales, type Periodo, type ViajeComision } from "@/lib/comisiones";
 import type { Chofer } from "@/lib/types";
 import { fechaMx, mxn } from "@/lib/utils";
 import { ChevronLeft, ChevronRight } from "lucide-react";
@@ -72,7 +72,7 @@ export function ComisionesPanel() {
       const acum: ViajeComision[] = [];
       for (let desdeFila = 0; ; desdeFila += PAG) {
         const { data, error: e } = await sb.from("comisiones_viajes")
-          .select("viaje_id, chofer_id, folio, fecha_viaje, subtotal, origen, destino, cliente")
+          .select("viaje_id, chofer_id, folio, fecha_viaje, subtotal, origen, destino, cliente, remision, tasa_comision")
           .eq("chofer_id", choferId)
           .order("fecha_viaje", { ascending: false }).order("viaje_id")
           .range(desdeFila, desdeFila + PAG - 1);
@@ -95,7 +95,7 @@ export function ComisionesPanel() {
       const acum: ViajeComision[] = [];
       for (let d = 0; ; d += PAG) {
         const { data, error: e } = await sb.from("comisiones_viajes")
-          .select("viaje_id, chofer_id, folio, fecha_viaje, subtotal, origen, destino, cliente")
+          .select("viaje_id, chofer_id, folio, fecha_viaje, subtotal, origen, destino, cliente, remision, tasa_comision")
           .is("chofer_id", null)
           .order("fecha_viaje", { ascending: false }).order("viaje_id")
           .range(d, d + PAG - 1);
@@ -189,7 +189,7 @@ export function ComisionesPanel() {
             <div className="grid gap-3 sm:grid-cols-3">
               <Kpi label="Viajes" value={String(tot.viajes)} onClick={() => setDetalle({ titulo: tituloPeriodo, chofer: nombreChofer, viajes: enRango })} />
               <Kpi label="Subtotal facturado (sin IVA)" value={mxn(tot.subtotal)} onClick={() => setDetalle({ titulo: tituloPeriodo, chofer: nombreChofer, viajes: enRango })} />
-              <Kpi label={`Comisión ${TASA_COMISION * 100}%`} value={mxn(tot.comision)} onClick={() => setDetalle({ titulo: tituloPeriodo, chofer: nombreChofer, viajes: enRango })} />
+              <Kpi label={`Comisión ${etiquetaTasas(enRango)}`} value={mxn(tot.comision)} onClick={() => setDetalle({ titulo: tituloPeriodo, chofer: nombreChofer, viajes: enRango })} />
             </div>
             <Card>
               <Table>
@@ -200,20 +200,22 @@ export function ComisionesPanel() {
                     <TableHead>Origen</TableHead>
                     <TableHead>Destino</TableHead>
                     <TableHead className="text-right">Subtotal</TableHead>
+                    <TableHead className="text-right">%</TableHead>
                     <TableHead className="text-right">Comisión</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {enRango.length === 0 ? (
-                    <TableRow><TableCell colSpan={6} className="py-8 text-center text-muted-foreground">Sin viajes en el rango seleccionado.</TableCell></TableRow>
+                    <TableRow><TableCell colSpan={7} className="py-8 text-center text-muted-foreground">Sin viajes en el rango seleccionado.</TableCell></TableRow>
                   ) : enRango.map((v) => (
                     <TableRow key={v.viaje_id}>
                       <TableCell className="whitespace-nowrap">{fechaMx(v.fecha_viaje)}</TableCell>
-                      <TableCell className="whitespace-nowrap font-medium">{v.folio ?? "—"}</TableCell>
+                      <TableCell className="whitespace-nowrap font-medium">{v.folio ?? (v.remision ? `Rem. ${v.remision}` : "—")}{v.folio && v.remision && <span className="block text-xs font-normal text-muted-foreground">Rem. {v.remision}</span>}</TableCell>
                       <TableCell>{v.origen ?? "—"}</TableCell>
                       <TableCell>{v.destino ?? "—"}{v.cliente && <span className="block text-xs text-muted-foreground">{v.cliente}</span>}</TableCell>
                       <TableCell className="whitespace-nowrap text-right">{mxn(v.subtotal)}</TableCell>
-                      <TableCell className="whitespace-nowrap text-right font-medium">{mxn(comisionDe(v.subtotal))}</TableCell>
+                      <TableCell className="whitespace-nowrap text-right text-muted-foreground">{tasaDe(v)}%</TableCell>
+                      <TableCell className="whitespace-nowrap text-right font-medium">{mxn(comisionViaje(v))}</TableCell>
                     </TableRow>
                   ))}
                 </TableBody>
@@ -222,6 +224,7 @@ export function ComisionesPanel() {
                     <TableRow>
                       <TableCell colSpan={4} className="font-semibold">Total · {tot.viajes} viajes</TableCell>
                       <TableCell className="text-right font-semibold">{mxn(tot.subtotal)}</TableCell>
+                      <TableCell />
                       <TableCell className="text-right font-semibold">{mxn(tot.comision)}</TableCell>
                     </TableRow>
                   </tfoot>
@@ -258,7 +261,7 @@ export function ComisionesPanel() {
               {sinChoferRango.map((v) => (
                 <TableRow key={v.viaje_id}>
                   <TableCell className="whitespace-nowrap">{fechaMx(v.fecha_viaje)}</TableCell>
-                  <TableCell className="whitespace-nowrap font-medium">{v.folio ?? "—"}</TableCell>
+                  <TableCell className="whitespace-nowrap font-medium">{v.folio ?? (v.remision ? `Rem. ${v.remision}` : "—")}{v.folio && v.remision && <span className="block text-xs font-normal text-muted-foreground">Rem. {v.remision}</span>}</TableCell>
                   <TableCell>{v.origen ?? "—"}</TableCell>
                   <TableCell>{v.destino ?? "—"}</TableCell>
                   <TableCell className="whitespace-nowrap text-right">{mxn(v.subtotal)}</TableCell>
