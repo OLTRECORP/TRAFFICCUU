@@ -31,12 +31,14 @@ const ACCION: Record<Mapeo["accion"], { texto: string; variant: "verde" | "amari
 
 const AVISOS: Record<string, string> = {
   fecha_fuera_de_secuencia: "Fechas fuera de secuencia (¿año mal capturado?)",
-  precio_distinto_tarifa: "Precio distinto al de la hoja PRECIOS",
-  sin_tarifa: "Rutas sin tarifa en la hoja PRECIOS",
-  remision_repetida: "Remisiones repetidas",
+  precio_distinto_tarifa: "Precio acordado distinto a la hoja PRECIOS (se respeta el precio de cada viaje)",
+  sin_tarifa: "Rutas sin tarifa en la hoja PRECIOS (se usa el precio de cada viaje)",
+  remision_repetida: "Mismo folio de remisión en más de un renglón",
   origen_deducido: "Origen vacío deducido de la tarifa",
   subtotal_distinto: "Subtotal distinto a cantidad × precio",
 };
+// Solo informativos: la tarifa puede cambiar por acuerdo y cada viaje conserva su precio.
+const INFORMATIVOS = new Set(["precio_distinto_tarifa", "sin_tarifa"]);
 
 const sel = "h-10 w-full rounded-md border bg-background px-3 text-sm";
 
@@ -136,7 +138,7 @@ export function ImportarRemisiones({ clientes, onDone }: { clientes: Cliente[]; 
               </Bloque>
             )}
             {Object.entries(res.avisos).map(([k, lista]) => (
-              <Bloque key={k} titulo={`${AVISOS[k] ?? k} (${lista.length})`} aviso>
+              <Bloque key={k} titulo={`${AVISOS[k] ?? k} (${lista.length})`} aviso={!INFORMATIVOS.has(k)}>
                 <ul className="grid gap-1 text-sm">
                   {lista.slice(0, 30).map((a, i) => <li key={i}>{Object.entries(a).map(([kk, vv]) => `${kk}: ${vv ?? "—"}`).join(" · ")}</li>)}
                   {lista.length > 30 && <li className="text-muted-foreground">… y {lista.length - 30} más</li>}
