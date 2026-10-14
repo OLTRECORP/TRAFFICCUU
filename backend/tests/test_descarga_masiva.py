@@ -38,6 +38,10 @@ class FakeQuery:
         self.op, self.payload = "update", row
         return self
 
+    def insert(self, row):
+        self.op, self.payload = "insert", row
+        return self
+
     def eq(self, col, val):
         self.filters[col] = val
         return self
@@ -57,6 +61,10 @@ class FakeQuery:
                     tabla.append(hit)
                 out.append(hit)
             return type("R", (), {"data": out})()
+        if self.op == "insert":
+            fila = dict(self.payload, id=f"{self.name}-{len(tabla)}")
+            tabla.append(fila)
+            return type("R", (), {"data": [fila]})()
         if self.op == "update":
             for r in tabla:
                 if all(r.get(k) == v for k, v in self.filters.items()):
@@ -168,3 +176,93 @@ def test_factura_sin_carta_porte_se_cuenta_sin_romper(monkeypatch):
     acu = acumulado() | {"viajes": 0, "viajes_existentes": 0, "sin_carta_porte": 0, "viajes_error": 0}
     dm.procesar_xmls(FakeDB(facturas=fs), "e1", dm._Indice(fs), [cfdi(U1)], None, acu, {"cp": (1, 2)})
     assert acu["sin_carta_porte"] == 1 and acu["facturas_asignadas"] == 1
+
+
+def test_xml_sin_factura_relacionada_crea_la_factura_y_guarda_el_xml():
+    fs = facturas()
+    db = FakeDB(facturas=fs)
+    acu = dm._contadores()
+    dm.procesar_xmls(db, "e1", dm._Indice(fs), [cfdi(U2, serie="B", folio="777", total="2500.00")], None, acu, {"rfc": "AAA010101AAA"})
+    assert acu["facturas_creadas"] == 1 and acu["facturas_asignadas"] == 1 and acu["sin_asignar_total"] == 0
+    nueva = db.tables["facturas"][-1]
+    assert nueva["folio"] == "777" and nueva["uuid"] == U2 and nueva["total"] == "2500.00" and nueva["fecha_emision"] == "2025-03-10"
+    assert nueva["estado"] == "activado" and nueva["empresa_id"] == "e1"
+    assert db.tables["facturas_sat"][0]["factura_id"] == nueva["id"]
+
+
+def test_mismo_xml_dos_veces_no_duplica_la_factura():
+    fs = facturas()
+    db = FakeDB(facturas=fs)
+    idx = dm._Indice(fs)
+    acu = dm._contadores()
+    dm.procesar_xmls(db, "e1", idx, [cfdi(U2, folio="777", total="2500"), cfdi(U2, folio="777", total="2500")], None, acu, {"rfc": "AAA010101AAA"})
+    assert acu["facturas_creadas"] == 1 and len(db.tables["facturas"]) == 3
+
+
+def test_folio_repetido_con_otra_serie_usa_serie_y_folio():
+    fs = [{"id": "f1", "folio": "777", "uuid": U1, "total": 100, "estado": "activado"}]
+    db = FakeDB(facturas=fs)
+    acu = dm._contadores()
+    dm.procesar_xmls(db, "e1", dm._Indice(fs), [cfdi(U2, serie="B", folio="777", total="2500")], None, acu, {"rfc": "AAA010101AAA"})
+    assert db.tables["facturas"][-1]["folio"] == "B777"
+
+
+def test_xml_de_otro_emisor_o_ambiguo_no_crea_factura():
+    fs = facturas()
+    db = FakeDB(facturas=fs)
+    acu = dm._contadores()
+    dm.procesar_xmls(db, "e1", dm._Indice(fs), [cfdi(U2, folio="777")], None, acu, {"rfc": "OTRO010101XXX"})
+    assert acu["facturas_creadas"] == 0 and acu["sin_asignar_total"] == 1 and len(db.tables["facturas"]) == 2
+    ambiguas = [{"id": "a", "folio": "9", "uuid": None, "total": 100, "estado": "activado"},
+                {"id": "b", "folio": "9", "uuid": None, "total": 100, "estado": "activado"}]
+    acu = dm._contadores()
+    dm.procesar_xmls(FakeDB(facturas=ambiguas), "e1", dm._Indice(ambiguas), [cfdi(U2, serie="", folio="9", total="100")], None, acu, {"rfc": "AAA010101AAA"})
+    assert acu["facturas_creadas"] == 0 and "varias" in acu["sin_asignar"][0]["motivo"]
+
+
+class FakeDBSuelto:
+    """Lo mínimo de supabase-py para el XML suelto: select/eq/is_/in_/order/range, insert, upsert y update."""
+
+    def __init__(self, facturas):
+        self.tables = {"facturas": facturas}
+
+    def table(self, name):
+        db = self
+
+        class Q(FakeQuery):
+            def __init__(self):
+                super().__init__(db, name)
+                self.f = []
+
+            def select(self, *_): self.op = "select"; return self
+            def eq(self, c, v): self.filters[c] = v; self.f.append(lambda r: r.get(c) == v); return self
+            def is_(self, c, v): self.f.append(lambda r: r.get(c) is None); return self
+            def in_(self, c, vs): self.f.append(lambda r: r.get(c) in vs); return self
+            def order(self, *_): return self
+            def range(self, a, b): return self
+
+            def execute(self):
+                if self.op == "select":
+                    tabla = db.tables.setdefault(name, [])
+                    return type("R", (), {"data": [r for r in tabla if all(f(r) for f in self.f)]})()
+                return super().execute()
+
+        return Q()
+
+
+def test_xml_suelto_crea_o_liga_la_factura(monkeypatch):
+    from app.auth import Tenant
+    t = Tenant(user_id="u", empresa_id="e1", rfc="AAA010101AAA")
+    db = FakeDBSuelto([{"id": "f2", "folio": "A-0456", "uuid": None, "total": 5000, "estado": "activado", "empresa_id": "e1"}])
+    monkeypatch.setattr(dm, "get_admin_client", lambda: db)
+    # 1) sin factura relacionada: se crea
+    fid, creada = dm.asegurar_factura_xml(t, cfdi(U1, serie="A", folio="123", total="11600.00"))
+    assert creada and fid and db.tables["facturas"][-1]["uuid"] == U1
+    # 2) el mismo XML otra vez: reconoce la factura por UUID, no crea otra
+    fid2, creada2 = dm.asegurar_factura_xml(t, cfdi(U1, serie="A", folio="123", total="11600.00"))
+    assert fid2 == fid and not creada2 and len(db.tables["facturas"]) == 2
+    # 3) factura del Excel sin UUID: se liga por folio y total y recupera el UUID
+    fid3, creada3 = dm.asegurar_factura_xml(t, cfdi(U2, serie="A", folio="456", total="5000.00"))
+    assert fid3 == "f2" and not creada3 and db.tables["facturas"][0]["uuid"] == U2
+    # 4) un complemento de pago no es una factura de ingreso
+    assert dm.asegurar_factura_xml(t, pago(U1)) == (None, False)

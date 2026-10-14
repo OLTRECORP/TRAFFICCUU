@@ -12,7 +12,7 @@ from app.cfdi_parser import CFDIError, parse_cfdi
 from app.config import get_settings
 from app.crypto import encrypt
 from app.db import get_admin_client
-from app.descarga_masiva import cancelar as descarga_cancelar, ejecutar as descarga_ejecutar, iniciar as descarga_iniciar, iniciar_zip
+from app.descarga_masiva import asegurar_factura_xml, cancelar as descarga_cancelar, ejecutar as descarga_ejecutar, iniciar as descarga_iniciar, iniciar_zip
 from app.sat import diagnosticar as sat_diagnosticar
 from app.mapas import MapaError, geocodificar
 from app.rutas_service import asignar_viaje, calcular_km_viajes, calcular_ruta
@@ -57,9 +57,13 @@ async def procesar_xml(file: UploadFile = File(...), tenant: Tenant = Depends(cu
     except CFDIError as exc:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc))
 
-    viaje = guardar_viaje(tenant, cfdi)
+    # Sin factura relacionada (el Excel no la trae aún) se crea con los datos del XML; el Excel posterior la actualiza.
+    factura_id, factura_creada = asegurar_factura_xml(tenant, content) if tenant.rfc == cfdi.rfc_emisor else (None, False)
+    viaje = guardar_viaje(tenant, cfdi, factura_id=factura_id)
     return {
         "viaje_id": viaje["id"],
+        "factura_id": factura_id,
+        "factura_creada": factura_creada,
         "uuid": cfdi.uuid,
         "folio": cfdi.folio,
         "distancia_xml": float(cfdi.distancia_xml),
