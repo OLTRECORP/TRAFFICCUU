@@ -11,10 +11,11 @@ from fastapi import HTTPException, status
 from .db import get_admin_client
 from .mapas import MapaError, distancia_km, geocodificar
 
-log = logging.getLogger("rutas")
+logger = logging.getLogger("rutas")
 
 MAX_UBICAR = 20         # lugares por corrida que se ubican en el mapa a partir de su dirección
 MAX_RUTAS_NUEVAS = 40   # por corrida, para no saturar el servidor público de OSRM
+PRESUPUESTO_SEG = 40    # tiempo máximo por corrida; el proxy de Vercel corta a los 55 s y devolvería 502
 
 
 def _norm(texto: str | None) -> str:
@@ -131,7 +132,7 @@ def asignar_viaje(empresa_id: str, viaje_id: str, origen_id: str | None, destino
     return {"distancia_km": None, "km_operativos": None}
 
 
-def ubicar_lugares(empresa_id: str, log=None) -> int:
+def ubicar_lugares(empresa_id: str, log=None, limite: float | None = None) -> int:
     """Pone latitud/longitud a los lugares sin ubicar usando su dirección (o su nombre). Devuelve cuántos ubicó."""
     db = get_admin_client()
     pendientes = (
@@ -140,6 +141,8 @@ def ubicar_lugares(empresa_id: str, log=None) -> int:
     )
     ubicados = 0
     for i, l in enumerate(pendientes):
+        if limite is not None and time.monotonic() > limite:
+            break
         if i:
             time.sleep(1.1)   # política de uso de Nominatim: máximo ~1 consulta por segundo
         consulta = l.get("direccion") or f"{l['nombre']}, México"
@@ -159,7 +162,8 @@ def calcular_km_viajes(empresa_id: str, log=None) -> dict:
     """1) A los viajes sin lugares les pone origen/destino cuyo nombre coincide con el de la Carta Porte
     (sin acentos ni mayúsculas). 2) Calcula los km de los que ya tienen ambos lugares y les falta la distancia."""
     db = get_admin_client()
-    ubicados = ubicar_lugares(empresa_id, log)
+    limite = time.monotonic() + PRESUPUESTO_SEG
+    ubicados = ubicar_lugares(empresa_id, log, limite)
     lugares = db.table("lugares").select("id, nombre, lat, lng").eq("empresa_id", empresa_id).eq("activo", True).execute().data
     por_nombre = {_norm(l["nombre"]): l["id"] for l in lugares}
     viajes = db.table("viajes").select(
@@ -187,7 +191,7 @@ def calcular_km_viajes(empresa_id: str, log=None) -> dict:
             continue
         existe = db.table("rutas").select("id").eq("empresa_id", empresa_id).eq("origen_id", o).eq("destino_id", d).limit(1).execute().data
         if not existe:
-            if nuevas >= MAX_RUTAS_NUEVAS:
+            if nuevas >= MAX_RUTAS_NUEVAS or time.monotonic() > limite:
                 res["pendientes"] += 1
                 continue
             nuevas += 1
@@ -198,5 +202,5 @@ def calcular_km_viajes(empresa_id: str, log=None) -> dict:
         except HTTPException as exc:
             res["sin_mapa"] += 1
             hechos[(o, d)] = False
-            log.warning("Viaje %s: %s", v["id"], exc.detail)
+            logger.warning("Viaje %s: %s", v["id"], exc.detail)
     return res
