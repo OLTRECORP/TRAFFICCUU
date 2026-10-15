@@ -52,7 +52,7 @@ export function ViajesTable({ viajes, loading, onSelect }: { viajes: Viaje[]; lo
                 <TableCell>{v.chofer?.nombre ?? "—"}</TableCell>
                 <TableCell>{origenLabel(v)}</TableCell>
                 <TableCell>{destinoLabel(v)}</TableCell>
-                <TableCell className="whitespace-nowrap text-right last:rounded-r-lg" title={v.km_por_mapa ? (v.km_operativos != null ? "Del mapa (ida x 2)" : "Pendiente del mapa") : v.km_operativos != null ? `Del XML (ida x 2). Por mapa: ${km(v.km_operativos)}` : "Del XML (ida x 2)"}>
+                <TableCell className="whitespace-nowrap text-right last:rounded-r-lg" title={v.distancia_mapa_km != null ? "Del mapa (ida x 2)" : "Del XML (ida x 2) hasta calcular el mapa"}>
                   {km(v.distancia_operativa)}
                 </TableCell>
               </TableRow>

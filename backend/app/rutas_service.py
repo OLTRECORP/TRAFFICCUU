@@ -13,9 +13,22 @@ from .mapas import MapaError, distancia_km, geocodificar
 
 logger = logging.getLogger("rutas")
 
+PAGINA = 1000           # PostgREST devuelve máximo 1000 filas por consulta aunque se pida más con .limit()
 MAX_UBICAR = 20         # lugares por corrida que se ubican en el mapa a partir de su dirección
 MAX_RUTAS_NUEVAS = 40   # por corrida, para no saturar el servidor público de OSRM
 PRESUPUESTO_SEG = 40    # tiempo máximo por corrida; el proxy de Vercel corta a los 55 s y devolvería 502
+
+
+def _todo(consulta) -> list[dict]:
+    """Todas las filas de una consulta (`consulta(desde, hasta)` ya con order estable), en páginas de PAGINA."""
+    filas: list[dict] = []
+    desde = 0
+    while True:
+        lote = consulta(desde, desde + PAGINA - 1).data or []
+        filas.extend(lote)
+        if len(lote) < PAGINA:
+            return filas
+        desde += PAGINA
 
 
 def _norm(texto: str | None) -> str:
@@ -30,7 +43,8 @@ class LugaresCatalogo:
     def __init__(self, db, empresa_id: str):
         self.db, self.empresa_id = db, empresa_id
         self.avisos: list[str] = []   # cambios hechos a lugares existentes, para la bitácora
-        filas = db.table("lugares").select("id, nombre, tipo, direccion, precio_tonelada, cliente").eq("empresa_id", empresa_id).limit(10000).execute().data
+        filas = _todo(lambda a, b: db.table("lugares").select("id, nombre, tipo, direccion, precio_tonelada, cliente")
+                      .eq("empresa_id", empresa_id).order("id").range(a, b).execute())
         self.por_nombre = {_norm(f["nombre"]): f for f in filas}
 
     def asegurar(self, u, tipo: str, precio_tonelada=None) -> str | None:
@@ -168,12 +182,15 @@ def calcular_km_viajes(empresa_id: str, log=None) -> dict:
     db = get_admin_client()
     limite = time.monotonic() + PRESUPUESTO_SEG
     ubicados = ubicar_lugares(empresa_id, log, limite)
-    lugares = db.table("lugares").select("id, nombre, lat, lng").eq("empresa_id", empresa_id).eq("activo", True).execute().data
+    lugares = _todo(lambda a, b: db.table("lugares").select("id, nombre, lat, lng")
+                    .eq("empresa_id", empresa_id).eq("activo", True).order("id").range(a, b).execute())
     por_nombre = {_norm(l["nombre"]): l["id"] for l in lugares}
-    viajes = db.table("viajes").select(
+    # Todos los viajes sin distancia, del más antiguo al más nuevo (se leen completos antes de actualizar nada,
+    # para que las páginas no se corran). Si una corrida no alcanza, la siguiente continúa con los que falten.
+    viajes = _todo(lambda a, b: db.table("viajes").select(
         "id, lugar_origen_id, lugar_destino_id, distancia_mapa_km, "
         "origen:ubicaciones!origen_id(nombre, municipio), destino:ubicaciones!destino_id(nombre, municipio)"
-    ).eq("empresa_id", empresa_id).is_("distancia_mapa_km", "null").limit(5000).execute().data
+    ).eq("empresa_id", empresa_id).is_("distancia_mapa_km", "null").order("fecha").order("id").range(a, b).execute())
 
     def buscar(u: dict | None) -> str | None:
         return next((por_nombre[k] for k in (_norm((u or {}).get("nombre")), _norm((u or {}).get("municipio"))) if k in por_nombre), None)

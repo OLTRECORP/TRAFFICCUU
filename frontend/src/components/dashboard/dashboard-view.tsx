@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Banknote, MapPin, Route, Truck } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { todo } from "@/lib/paginar";
@@ -35,7 +35,9 @@ export function DashboardView() {
   const [ordenes, setOrdenes] = useState<OrdenResumen[]>([]);
   const [errorFacturas, setErrorFacturas] = useState<string | null>(null);
 
+  const cargaVigente = useRef(0);   // si dos cargas se cruzan, solo la más reciente actualiza viajes y KPIs
   const load = useCallback(async () => {
+    const mia = ++cargaVigente.current;
     // Supabase corta en 1000 filas por consulta: se pagina hasta traer todos los viajes.
     const sb = createClient();
     try {
@@ -43,6 +45,7 @@ export function DashboardView() {
         todo<Viaje>((d, h) => sb.from("viajes").select(SELECT).order("fecha", { ascending: false }).order("id").range(d, h)),
         sb.from("viajes").select("id", { count: "exact", head: true }),
       ]);
+      if (mia !== cargaVigente.current) return;
       setViajes(rows);
       setError(conteo.count != null && conteo.count !== rows.length
         ? `Se cargaron ${rows.length} de ${conteo.count} viajes; recarga la página para completar.` : null);
