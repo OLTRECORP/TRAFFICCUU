@@ -249,13 +249,14 @@ function Rendimiento({ filas, nombre, placa }: { filas: RendChofer[]; nombre: Ma
               <TableHead className="text-right">Viajes entre cargas</TableHead>
               <TableHead className="text-right">km/l</TableHead>
               <TableHead className="text-right">Viajes (rango)</TableHead>
+              <TableHead className="text-right">km de todos sus viajes</TableHead>
               <TableHead className="text-right">Litros por viaje</TableHead>
               <TableHead className="text-right">Viajes por carga</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {filas.length === 0 ? (
-              <TableRow><TableCell colSpan={9} className="py-8 text-center text-muted-foreground">Sin cargas en el rango seleccionado.</TableCell></TableRow>
+              <TableRow><TableCell colSpan={10} className="py-8 text-center text-muted-foreground">Sin cargas ni viajes en el rango seleccionado.</TableCell></TableRow>
             ) : filas.map((r) => {
               const id = r.choferId ?? "sin";
               return (
@@ -267,7 +268,7 @@ function Rendimiento({ filas, nombre, placa }: { filas: RendChofer[]; nombre: Ma
         </Table>
       </Card>
       <div className="grid gap-1 text-xs text-muted-foreground">
-        <p><b>Cómo se calcula:</b> basta registrar la fecha de cada carga. Si un tracto tiene dos o más cargas el mismo día, se suman como una sola carga de ese día. Entre un día de carga y el siguiente se suman los km (redondo, de la Carta Porte) y se cuentan los viajes con fecha de salida después del día de la carga anterior y hasta el día de la siguiente carga.</p>
+        <p><b>Cómo se calcula:</b> basta registrar la fecha de cada carga. Si un tracto tiene dos o más cargas el mismo día, se suman como una sola carga de ese día. Entre un día de carga y el siguiente se suman los km (redondo, del mapa) y se cuentan los viajes con fecha de salida después del día de la carga anterior y hasta el día de la siguiente carga.</p>
         <p><b>km/l</b> = km del tramo ÷ litros del día que cierra el tramo, sumando todas sus cargas (se asume tanque lleno en cada carga). Sin litros capturados el tramo muestra km y viajes, pero no km/l. El primer día con carga de un tracto solo marca el inicio del primer tramo.</p>
         <p>La carga sin chofer se atribuye al chofer asignado al tracto (pestaña «Chofer y tracto»); si no hay, al del último viaje de ese tracto a su fecha; si tampoco, va en «Sin chofer». Facturas canceladas excluidas.</p>
       </div>
@@ -289,12 +290,13 @@ function FilaRend({ r, abierto, onToggle, etiqueta, placa }: { r: RendChofer; ab
         <TableCell className="text-right">{r.tramos.length ? r.viajesTramos : "—"}</TableCell>
         <TableCell className="whitespace-nowrap text-right font-semibold">{r.kmPorLitro == null ? <span className="font-normal text-muted-foreground">sin datos</span> : num(r.kmPorLitro, 2)}</TableCell>
         <TableCell className="text-right">{r.choferId ? r.viajes : "—"}</TableCell>
+        <TableCell className="whitespace-nowrap text-right">{r.choferId ? km(r.kmViajes) : "—"}</TableCell>
         <TableCell className="whitespace-nowrap text-right">{r.litrosPorViaje == null ? "—" : litros(r.litrosPorViaje)}</TableCell>
         <TableCell className="text-right">{num(r.viajesPorCarga, 2)}</TableCell>
       </TableRow>
       {abierto && (
         <TableRow className="bg-secondary/40 hover:bg-secondary/40">
-          <TableCell colSpan={9}>
+          <TableCell colSpan={10}>
             {r.tramos.length === 0 ? (
               <p className="text-sm text-muted-foreground">Sin tramos: se necesitan cargas del mismo tracto en al menos dos días distintos.</p>
             ) : (

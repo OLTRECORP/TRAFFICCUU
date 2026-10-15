@@ -2,7 +2,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { semanaPago, semanaPagoDesplazada, estadisticas, etiquetaSemanaPago } from "../src/lib/comisiones.ts";
-import { tramos, cargasPorDia } from "../src/lib/combustible.ts";
+import { tramos, cargasPorDia, rendimientoPorChofer } from "../src/lib/combustible.ts";
 
 // ---- Comisiones: semana de pago vie–jue --------------------------------------------------
 test("viernes inicia la semana y jueves la cierra; se paga el viernes siguiente", () => {
@@ -92,4 +92,16 @@ test("cada viaje usa su tasa: Purísima 11 %, ruta Rumorosa→Venados 10 %, sin 
   assert.equal(t.comision, 1947.2);
   assert.equal(etiquetaTasas([v(1, 11), v(1, 10)]), "10–11 %");
   assert.equal(etiquetaTasas([v(1, 11)]), "11 %");
+});
+
+test("rendimiento: todos los viajes del chofer entran, también los previos a su primera carga y los de choferes sin cargas", () => {
+  const cargas = [carga("a", "2026-10-05", 400), carga("b", "2026-10-09", 200)];
+  const viajes = [viaje("2026-09-01", 100), viaje("2026-10-07", 300), viaje("2026-10-20", 50),
+    { viaje_id: "x", chofer_id: "c2", tracto_id: "T2", fecha_viaje: "2026-10-08", km: 700 }];
+  const filas = rendimientoPorChofer(cargas, viajes, "", "");
+  const c1 = filas.find((f) => f.choferId === "c1"), c2 = filas.find((f) => f.choferId === "c2");
+  assert.equal(c1.km, 300);                       // entre cargas: solo el del 7 oct
+  assert.equal(c1.kmViajes, 450);                 // todos sus viajes, del más antiguo al más nuevo
+  assert.equal(c1.viajes, 3);
+  assert.equal(c2.kmViajes, 700);                 // sin cargas, pero su viaje cuenta
 });

@@ -91,11 +91,11 @@ export function ViajeModal({ viaje, onClose, onChanged }: { viaje: Viaje | null;
                   <Field label="Salida" value={viaje.fecha_salida ? fechaMx(viaje.fecha_salida) : null} />
                   <Field label="Llegada" value={viaje.fecha_llegada ? fechaMx(viaje.fecha_llegada) : null} />
                   {viaje.origen_registro !== "excel" && <Field label="Distancia oficial (XML, ida)" value={km(viaje.distancia_xml)} />}
-                  <Field label={`Distancia operativa (redondo${viaje.km_por_mapa ? ", del mapa" : ""})`}
-                    value={viaje.km_por_mapa && viaje.distancia_mapa_km == null ? (viaje.origen_registro === "excel" ? "Pendiente: ubica origen y destino en el mapa" : `${km(viaje.distancia_operativa)} (del XML hasta tener el mapa)`) : km(viaje.distancia_operativa)} />
+                  <Field label={`Distancia operativa (redondo${viaje.distancia_mapa_km != null ? ", del mapa" : ""})`}
+                    value={viaje.distancia_mapa_km == null ? (viaje.origen_registro === "excel" ? "Pendiente: ubica origen y destino en el mapa" : `${km(viaje.distancia_operativa)} (del XML hasta tener el mapa)`) : km(viaje.distancia_operativa)} />
                 </dl>
                 <div className="mt-4 grid gap-3 rounded-md border p-3">
-                  <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{viaje.km_por_mapa ? "Distancia por mapa (este cliente usa los km del mapa como km operativos)" : "Distancia por mapa (solo comparación; no afecta los km operativos)"}</h4>
+                  <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Distancia por mapa (los km operativos del viaje son esta distancia x 2)</h4>
                   {error && <Alert variant="error">{error}</Alert>}
                   <div className="grid gap-3 sm:grid-cols-2">
                     <label className="grid gap-1 text-xs font-medium">Origen

@@ -14,7 +14,7 @@ const startOfDay = (d: Date) => new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMo
 
 export interface Kpis { viajes: number; km: number; destinoTop: string }
 
-/** Km operativos de un viaje: los de la Carta Porte del XML (ida x 2). Los del mapa quedan aparte, solo para comparar. */
+/** Km operativos de un viaje: los del mapa (ida x 2) cuando ya los tiene; si no, los de la Carta Porte (ida x 2). El valor lo fija la base. */
 export const kmOperativos = (v: Viaje) => Number(v.distancia_operativa);
 
 /** Indicadores de los últimos `dias` días (el rango elegido en el dashboard). */
