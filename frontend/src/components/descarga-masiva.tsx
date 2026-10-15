@@ -15,12 +15,16 @@ const MESES = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "O
 const SONDEO_MS = 3000;
 const LATIDO_MAX_MS = 5 * 60_000;   // sin señales de vida de la corrida en este tiempo = interrumpida
 const ZIP_MAX_BYTES = 4 * 1024 * 1024;   // límite de Vercel para el cuerpo de la petición
+const MESES_LARGO = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"];
 const sel = "h-10 rounded-md border bg-background px-3 text-sm";
 
 /** Descarga masiva de los XML de las facturas emitidas (y sus complementos de pago) desde el SAT. */
 export function DescargaMasiva({ onDone }: { onDone: () => void }) {
   const [anio, setAnio] = useState(new Date().getFullYear());
   const [modo, setModo] = useState<"faltantes" | "anio">("faltantes");
+  const [mes, setMes] = useState(0);            // 0 = según el modo (faltantes / todo el año)
+  const [clienteId, setClienteId] = useState("");   // "" = todos los clientes
+  const [clientes, setClientes] = useState<{ id: string; nombre: string; rfc: string | null }[]>([]);
   const [meses, setMeses] = useState<FacturaXmlMes[]>([]);
   const [corrida, setCorrida] = useState<SatDescarga | null>(null);
   const [pidiendo, setPidiendo] = useState(false);
@@ -33,11 +37,13 @@ export function DescargaMasiva({ onDone }: { onDone: () => void }) {
 
   const leer = useCallback(async () => {
     const sb = createClient();
-    const [m, c] = await Promise.all([
+    const [m, c, cl] = await Promise.all([
       sb.from("facturas_xml_por_mes").select("anio, mes, total, con_xml").eq("anio", anio).order("mes"),
       sb.from("sat_descargas").select("*").order("created_at", { ascending: false }).limit(1),
+      sb.from("clientes").select("id, nombre, rfc").order("nombre"),
     ]);
-    if (m.error || c.error) { setError({ message: (m.error ?? c.error)!.message }); return null; }
+    if (m.error || c.error || cl.error) { setError({ message: (m.error ?? c.error ?? cl.error)!.message }); return null; }
+    setClientes((cl.data ?? []) as { id: string; nombre: string; rfc: string | null }[]);
     setMeses((m.data ?? []) as FacturaXmlMes[]);
     const ultima = ((c.data ?? [])[0] as SatDescarga | undefined) ?? null;
     setCorrida(ultima);
@@ -98,7 +104,7 @@ export function DescargaMasiva({ onDone }: { onDone: () => void }) {
   async function iniciar(m: "faltantes" | "anio" | "reprocesar" = modo) {
     setPidiendo(true); setError(null);
     try {
-      await postBackend("sat/descarga-masiva", JSON.stringify({ anio, modo: m }), "application/json");
+      await postBackend("sat/descarga-masiva", JSON.stringify({ anio, modo: m, ...(m !== "reprocesar" && mes ? { mes } : {}), ...(m !== "reprocesar" && clienteId ? { cliente_id: clienteId } : {}) }), "application/json");
       await leer();
     } catch (e) {
       const a = e as ApiError;
@@ -123,11 +129,22 @@ export function DescargaMasiva({ onDone }: { onDone: () => void }) {
           <select className={sel} value={anio} onChange={(e) => setAnio(Number(e.target.value))} aria-label="Año">
             {anios.map((a) => <option key={a} value={a}>{a}</option>)}
           </select>
-          <select className={sel} value={modo} onChange={(e) => setModo(e.target.value as "faltantes" | "anio")} aria-label="Meses a descargar">
-            <option value="faltantes">Solo meses con XML faltante</option>
-            <option value="anio">Todo el año</option>
+          <select className={sel} value={mes} onChange={(e) => setMes(Number(e.target.value))} aria-label="Mes">
+            <option value={0}>Todos los meses</option>
+            {MESES_LARGO.map((n, i) => <option key={n} value={i + 1}>{n}</option>)}
           </select>
-          <Button onClick={() => void iniciar()} disabled={pidiendo || activa || (modo === "faltantes" && faltantes.length === 0)}>
+          <select className={sel} value={clienteId} onChange={(e) => setClienteId(e.target.value)} aria-label="Cliente"
+            title="Pide al SAT solo las facturas emitidas a ese cliente (por su RFC)">
+            <option value="">Todos los clientes</option>
+            {clientes.map((c) => <option key={c.id} value={c.id} disabled={!c.rfc}>{c.nombre}{c.rfc ? "" : " (sin RFC)"}</option>)}
+          </select>
+          {!mes && (
+            <select className={sel} value={modo} onChange={(e) => setModo(e.target.value as "faltantes" | "anio")} aria-label="Meses a descargar">
+              <option value="faltantes">Solo meses con XML faltante</option>
+              <option value="anio">Todo el año</option>
+            </select>
+          )}
+          <Button onClick={() => void iniciar()} disabled={pidiendo || activa || (!mes && modo === "faltantes" && faltantes.length === 0)}>
             {pidiendo || activa ? <Loader2 className="h-4 w-4 animate-spin" /> : <CloudDownload className="h-4 w-4" />}
             {activa ? "Descargando…" : "Descargar XML"}
           </Button>

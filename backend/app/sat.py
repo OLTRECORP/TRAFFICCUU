@@ -217,6 +217,7 @@ def descargar_emitidos_rango(
     log=None,
     parar=None,
     id_existente: str | None = None,
+    rfc_receptor: str | None = None,
 ) -> Iterator[bytes]:
     """Descarga masiva de los CFDI EMITIDOS por la empresa entre `desde` y `hasta` (facturas y
     complementos de pago, solo vigentes). Un generador de XML en bytes; vacío si el SAT no tiene
@@ -233,8 +234,9 @@ def descargar_emitidos_rango(
         token = Autenticacion(fiel).obtener_token()
         _avisar(log, "Autenticado. Enviando solicitud de CFDI emitidos "
                      f"{desde:%Y-%m-%d} a {hasta:%Y-%m-%d}…")
+        extra = {"rfc_receptor": rfc_receptor} if rfc_receptor else {}   # solo las facturas de ese cliente
         res = SolicitaDescargaEmitidos(fiel).solicitar_descarga(
-            token, rfc, desde, hasta, rfc_emisor=rfc, tipo_solicitud="CFDI", estado_comprobante="Vigente"
+            token, rfc, desde, hasta, rfc_emisor=rfc, tipo_solicitud="CFDI", estado_comprobante="Vigente", **extra
         )
         _avisar(log, f"SAT respondió a la solicitud: código {res.get('cod_estatus')} — {res.get('mensaje')}")
         if _es_limite(res.get("cod_estatus"), res.get("mensaje")):

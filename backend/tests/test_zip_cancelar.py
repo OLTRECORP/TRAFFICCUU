@@ -298,3 +298,32 @@ def test_meses_cerrados_de_corridas_terminadas_no_se_vuelven_a_pedir():
     hechos = dm._meses_guardados(db, "e1", hoy.year, "otro")
     assert 1 in hechos or hoy.month == 1
     assert hoy.month not in hechos   # el mes en curso sigue cambiando: se vuelve a pedir
+
+
+def test_iniciar_con_mes_pide_solo_ese_mes(monkeypatch):
+    db = ChainDB(sat_descargas=[])
+    monkeypatch.setattr(dm, "get_admin_client", lambda: db)
+    monkeypatch.setattr(dm, "meses_pendientes", lambda *a: pytest.fail("con mes no se calculan los faltantes"))
+    fila = dm.iniciar("e1", 2024, "faltantes", mes=3)
+    assert fila["meses"] == [3]
+    with pytest.raises(dm.HTTPException):
+        dm.iniciar("e1", 2024, "faltantes", mes=13)
+    with pytest.raises(dm.HTTPException):
+        dm.iniciar("e1", datetime.now().year, "anio", mes=datetime.now().month % 12 + 1 if datetime.now().month < 12 else 13)
+
+
+def test_cliente_pide_al_sat_solo_su_rfc_y_no_marca_el_mes_como_guardado(monkeypatch):
+    db = ChainDB(empresa_configuracion=[{"id": "e1", "rfc": "AAA010101AAA"}], facturas=facturas(), sat_descargas=[])
+    monkeypatch.setattr(dm, "get_admin_client", lambda: db)
+    monkeypatch.setattr(dm, "get_settings", lambda: type("S", (), {"max_xml_bytes": 5 * 1024 * 1024})())
+    pedidos = []
+
+    def falso(empresa_id, ini, fin, on_solicitud=None, log=None, parar=None, id_existente=None, rfc_receptor=None):
+        pedidos.append(rfc_receptor)
+        yield cfdi(U1)
+
+    monkeypatch.setattr(dm, "descargar_emitidos_rango", falso)
+    dm.ejecutar("e1", "job7", 2026, [1], None, "BBB020202BBB")
+    assert pedidos == ["BBB020202BBB"]
+    final = [p for t, p in db.updates if t == "sat_descargas"][-1]
+    assert final["detalle"][0]["estado"] == "ok" and final["detalle"][0]["guardado"] is False
