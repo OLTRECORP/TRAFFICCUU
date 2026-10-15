@@ -5,6 +5,7 @@ import { Loader2, Pencil, Plus, Trash2 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { todo } from "@/lib/paginar";
 import { rendimientoPorChofer, type Carga, type RendChofer, type ViajeRend } from "@/lib/combustible";
+import { aniosDisponibles, gananciaPorChofer, gananciaPorTracto, type FilaGanancia, type ServicioGan, type ViajeGan } from "@/lib/ganancia";
 import type { Chofer, Tracto } from "@/lib/types";
 import { fechaMx, km, mxn } from "@/lib/utils";
 import { Alert } from "@/components/ui/alert";
@@ -39,6 +40,9 @@ export function CombustiblePanel() {
   const [choferes, setChoferes] = useState<ChoferOp[]>([]);
   const [cargas, setCargas] = useState<Carga[]>([]);
   const [viajes, setViajes] = useState<ViajeRend[]>([]);
+  const [viajesGan, setViajesGan] = useState<ViajeGan[]>([]);
+  const [servicios, setServicios] = useState<ServicioGan[]>([]);
+  const [anio, setAnio] = useState(new Date().getFullYear());
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [desde, setDesde] = useState("");
@@ -49,13 +53,15 @@ export function CombustiblePanel() {
   const load = useCallback(async () => {
     const sb = createClient();
     try {
-      const [t, c, cg, v] = await Promise.all([
+      const [t, c, cg, v, vg, sv] = await Promise.all([
         todo<TractoOp>((d, h) => sb.from("tractocamiones").select("id, empresa_id, placa").order("placa").range(d, h)),
         todo<ChoferOp>((d, h) => sb.from("choferes").select("id, nombre, tracto_asignado_id").order("nombre").range(d, h)),
         todo<Carga>((d, h) => sb.from("cargas_combustible").select("*").order("fecha", { ascending: false }).order("id").range(d, h)),
         todo<ViajeRend>((d, h) => sb.from("rendimiento_viajes").select("viaje_id, chofer_id, tracto_id, fecha_viaje, km").order("fecha_viaje").order("viaje_id").range(d, h)),
+        todo<ViajeGan>((d, h) => sb.from("ganancia_viajes").select("viaje_id, chofer_id, tracto_id, fecha_viaje, subtotal, tasa_comision").order("fecha_viaje").order("viaje_id").range(d, h)),
+        todo<ServicioGan>((d, h) => sb.from("servicios_mantenimiento").select("id, tracto_id, fecha, costo").not("tracto_id", "is", null).order("fecha").order("id").range(d, h)),
       ]);
-      setTractos(t); setChoferes(c); setCargas(cg); setViajes(v); setError(null);
+      setTractos(t); setChoferes(c); setCargas(cg); setViajes(v); setViajesGan(vg); setServicios(sv); setError(null);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     }
@@ -76,6 +82,13 @@ export function CombustiblePanel() {
     [choferes],
   );
   const rend = useMemo(() => rendimientoPorChofer(cargas, viajes, desde, hasta, asignados), [cargas, viajes, desde, hasta, asignados]);
+
+  const anios = useMemo(
+    () => aniosDisponibles([...viajesGan.map((v) => v.fecha_viaje), ...cargas.map((c) => c.fecha), ...servicios.map((x) => x.fecha)], new Date().getFullYear()),
+    [viajesGan, cargas, servicios],
+  );
+  const ganTracto = useMemo(() => gananciaPorTracto(viajesGan, cargas, servicios, anio), [viajesGan, cargas, servicios, anio]);
+  const ganChofer = useMemo(() => gananciaPorChofer(viajesGan, cargas, servicios, anio, viajes, asignados), [viajesGan, cargas, servicios, anio, viajes, asignados]);
 
   async function borrar(c: Carga) {
     if (!window.confirm(`¿Eliminar la carga de ${c.litros == null ? "carga" : litros(c.litros)} del ${fechaMx(c.fecha)} (${placa.get(c.tracto_id) ?? "tracto"})?`)) return;
@@ -115,6 +128,7 @@ export function CombustiblePanel() {
         <TabsList>
           <TabsTrigger value="cargas">Cargas</TabsTrigger>
           <TabsTrigger value="rendimiento">Rendimiento por chofer</TabsTrigger>
+          <TabsTrigger value="ganancia">Ganancia</TabsTrigger>
           <TabsTrigger value="asignacion">Chofer y tracto</TabsTrigger>
         </TabsList>
 
@@ -178,6 +192,21 @@ export function CombustiblePanel() {
           </div>
           {rangoInvalido && <Alert variant="error">La fecha inicial es posterior a la final.</Alert>}
           <Rendimiento filas={rend} nombre={nombre} placa={placa} />
+        </TabsContent>
+
+        <TabsContent value="ganancia" className="grid gap-4">
+          <div className="grid max-w-xs gap-1.5">
+            <Label htmlFor="cb-anio">Año</Label>
+            <select id="cb-anio" className={sel} value={anio} onChange={(e) => setAnio(Number(e.target.value))}>
+              {anios.map((y) => <option key={y} value={y}>{y}</option>)}
+            </select>
+          </div>
+          <Ganancia titulo="Por tracto" filas={ganTracto} etiqueta={(id) => (id ? placa.get(id) ?? "—" : "Sin tracto")} />
+          <Ganancia titulo="Por chofer" filas={ganChofer} etiqueta={(id) => (id ? nombre.get(id) ?? "—" : "Sin chofer")} />
+          <div className="grid gap-1 text-xs text-muted-foreground">
+            <p><b>Cómo se calcula:</b> ganancia = facturación − combustible − mantenimiento − comisiones, con los datos del año elegido. Facturación = subtotal (antes de IVA) de los viajes del tracto o chofer por su fecha de salida; las facturas canceladas no cuentan.</p>
+            <p>Combustible = costo de las cargas (las cargas sin costo capturado cuentan como $0). Mantenimiento = servicios de tractocamión; en «Por chofer» se reparte entre los choferes del tracto según lo que facturó cada uno con él (las góndolas no entran). Comisiones = tasa de cada viaje (tarifa de la ruta, cliente o 12 %) sobre su subtotal.</p>
+          </div>
         </TabsContent>
 
         <TabsContent value="asignacion">
@@ -273,6 +302,61 @@ function Rendimiento({ filas, nombre, placa }: { filas: RendChofer[]; nombre: Ma
         <p>La carga sin chofer se atribuye al chofer asignado al tracto (pestaña «Chofer y tracto»); si no hay, al del último viaje de ese tracto a su fecha; si tampoco, va en «Sin chofer». Facturas canceladas excluidas.</p>
       </div>
     </>
+  );
+}
+
+function Ganancia({ titulo, filas, etiqueta }: { titulo: string; filas: FilaGanancia[]; etiqueta: (id: string | null) => string }) {
+  const tot = filas.reduce((t, f) => ({ fact: t.fact + f.facturacion, cb: t.cb + f.combustible, mt: t.mt + f.mantenimiento, cm: t.cm + f.comisiones, g: t.g + f.ganancia }), { fact: 0, cb: 0, mt: 0, cm: 0, g: 0 });
+  return (
+    <Card>
+      <CardContent className="p-0">
+        <p className="p-4 pb-2 text-sm font-semibold">{titulo}</p>
+        <Table>
+          <TableHeader>
+            <TableRow className="hover:bg-transparent">
+              <TableHead>{titulo === "Por tracto" ? "Tracto" : "Chofer"}</TableHead>
+              <TableHead className="text-right">Viajes</TableHead>
+              <TableHead className="text-right">Facturación</TableHead>
+              <TableHead className="text-right">Combustible</TableHead>
+              <TableHead className="text-right">Mantenimiento</TableHead>
+              <TableHead className="text-right">Comisiones</TableHead>
+              <TableHead className="text-right">Ganancia</TableHead>
+              <TableHead className="text-right">Margen</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {filas.length === 0 ? (
+              <TableRow><TableCell colSpan={8} className="py-8 text-center text-muted-foreground">Sin viajes, cargas ni servicios en el año.</TableCell></TableRow>
+            ) : filas.map((f) => (
+              <TableRow key={f.id ?? "sin"}>
+                <TableCell className="font-medium">
+                  {etiqueta(f.id)}
+                  {f.cargasSinCosto > 0 && <span className="block text-xs font-normal text-amber-600">{f.cargasSinCosto} carga(s) sin costo, cuentan $0</span>}
+                </TableCell>
+                <TableCell className="text-right">{f.viajes}</TableCell>
+                <TableCell className="whitespace-nowrap text-right">{mxn(f.facturacion)}</TableCell>
+                <TableCell className="whitespace-nowrap text-right">{mxn(f.combustible)}</TableCell>
+                <TableCell className="whitespace-nowrap text-right">{mxn(f.mantenimiento)}</TableCell>
+                <TableCell className="whitespace-nowrap text-right">{mxn(f.comisiones)}</TableCell>
+                <TableCell className={`whitespace-nowrap text-right font-semibold ${f.ganancia < 0 ? "text-red-600" : ""}`}>{mxn(f.ganancia)}</TableCell>
+                <TableCell className="whitespace-nowrap text-right">{f.margen == null ? "—" : `${num(f.margen * 100, 1)} %`}</TableCell>
+              </TableRow>
+            ))}
+            {filas.length > 0 && (
+              <TableRow className="bg-secondary/40 font-semibold hover:bg-secondary/40">
+                <TableCell>Total</TableCell><TableCell />
+                <TableCell className="whitespace-nowrap text-right">{mxn(tot.fact)}</TableCell>
+                <TableCell className="whitespace-nowrap text-right">{mxn(tot.cb)}</TableCell>
+                <TableCell className="whitespace-nowrap text-right">{mxn(tot.mt)}</TableCell>
+                <TableCell className="whitespace-nowrap text-right">{mxn(tot.cm)}</TableCell>
+                <TableCell className="whitespace-nowrap text-right">{mxn(tot.g)}</TableCell>
+                <TableCell className="whitespace-nowrap text-right">{tot.fact > 0 ? `${num((tot.g / tot.fact) * 100, 1)} %` : "—"}</TableCell>
+              </TableRow>
+            )}
+          </TableBody>
+        </Table>
+      </CardContent>
+    </Card>
   );
 }
 
