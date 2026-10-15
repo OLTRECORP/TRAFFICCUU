@@ -71,7 +71,18 @@ async def procesar_xml(file: UploadFile = File(...), tenant: Tenant = Depends(cu
     try:
         cfdi = parse_cfdi(content)
     except CFDIError as exc:
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc))
+        # Factura de ingreso emitida por la empresa sin Carta Porte (p. ej. la de un cliente que factura por semana o
+        # por periodo): no es un viaje, pero sí una factura; se crea o se liga y sus viajes se ligan después.
+        try:
+            r = resumen_cfdi(content)
+        except CFDIError:
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc))
+        if r.get("tipo_comprobante") != "I" or (r["emisor"]["rfc"] or "").upper() != tenant.rfc.upper():
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc))
+        factura_id, factura_creada = asegurar_factura_xml(tenant, content)
+        return {"factura_id": factura_id, "factura_creada": factura_creada, "uuid": r["uuid"], "folio": r.get("folio"),
+                "sin_carta_porte": True, "ligadas": [],
+                "warnings": ["El XML no trae Carta Porte: se guardó como factura. Liga sus viajes desde la factura (pestaña Viajes)."]}
 
     # Sin factura relacionada (el Excel no la trae aún) se crea con los datos del XML; el Excel posterior la actualiza.
     factura_id, factura_creada = asegurar_factura_xml(tenant, content) if tenant.rfc == cfdi.rfc_emisor else (None, False)
@@ -210,6 +221,31 @@ def clientes_ligar_semana(cliente_id: uuidlib.UUID, body: LigarSemanaRequest, te
 def clientes_ligar_auto(cliente_id: uuidlib.UUID, tenant: Tenant = Depends(current_tenant)) -> dict:
     """Liga por monto las facturas del cliente a la semana cuyo subtotal coincide."""
     return semanal.ligar_auto(get_admin_client(), tenant.empresa_id, _cliente(tenant, cliente_id))
+
+
+@app.post("/api/facturas/{factura_id}/viajes-disponibles")
+def factura_viajes_disponibles(factura_id: uuidlib.UUID, tenant: Tenant = Depends(current_tenant)) -> dict:
+    """Viajes que se pueden ligar a la factura (varios viajes pueden compartir un mismo XML)."""
+    db = get_admin_client()
+    f = db.table("facturas").select("id, folio").eq("empresa_id", tenant.empresa_id).eq("id", str(factura_id)).limit(1).execute().data
+    if not f:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Factura no encontrada")
+    sat = db.table("facturas_sat").select("receptor:datos->receptor").eq("factura_id", str(factura_id)).limit(1).execute().data
+    return semanal.viajes_disponibles(db, tenant.empresa_id, str(factura_id), (sat[0]["receptor"] if sat else None))
+
+
+class LigarViajesRequest(BaseModel):
+    ligar: list[uuidlib.UUID] = Field(default_factory=list, max_length=2000)
+    desligar: list[uuidlib.UUID] = Field(default_factory=list, max_length=2000)
+
+
+@app.post("/api/facturas/{factura_id}/ligar-viajes")
+def factura_ligar_viajes(factura_id: uuidlib.UUID, body: LigarViajesRequest, tenant: Tenant = Depends(current_tenant)) -> dict:
+    db = get_admin_client()
+    f = db.table("facturas").select("id, folio").eq("empresa_id", tenant.empresa_id).eq("id", str(factura_id)).limit(1).execute().data
+    if not f:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Factura no encontrada")
+    return semanal.ligar_viajes(db, tenant.empresa_id, f[0], [str(i) for i in body.ligar], [str(i) for i in body.desligar])
 
 
 class SyncRequest(BaseModel):

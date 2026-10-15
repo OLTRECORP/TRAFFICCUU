@@ -91,10 +91,13 @@ export interface FacturaSat {
   factura_id: string; uuid: string; estado: "pendiente" | "ok" | "error"; error: string | null;
   datos: CfdiResumen | null; xml?: string | null; actualizado_en: string | null; updated_at: string;
 }
+/** Impuestos del comprobante: lo trasladado (IVA) y lo retenido (IVA e ISR), que el Total ya trae descontado. */
+export interface ImpuestosCfdi { iva_trasladado: string; retencion_iva: string; retencion_isr: string; total_trasladados: string; total_retenidos: string }
 export interface CfdiResumen {
   uuid: string; version: string | null; tipo_comprobante: string | null; serie: string | null; folio: string | null;
   fecha: string | null; fecha_timbrado: string | null; moneda: string | null; subtotal: string | null; total: string | null;
   emisor: { rfc: string | null; nombre: string | null }; receptor: { rfc: string | null; nombre: string | null };
+  impuestos?: ImpuestosCfdi; descuento?: string | null;
   conceptos: { descripcion: string | null; cantidad: string | null; importe: string | null; clave_prod_serv: string | null }[];
   carta_porte: {
     version: string | null; id_ccp: string | null; total_dist_rec: string | null;

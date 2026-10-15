@@ -259,6 +259,35 @@ def _referencia_ubicacion(u: ET.Element) -> str | None:
     return " - ".join(p for p in (nombre, calle) if p) or None
 
 
+_IMPUESTOS = {"001": "ISR", "002": "IVA", "003": "IEPS"}
+
+
+def impuestos_cfdi(root: ET.Element) -> dict:
+    """Impuestos del comprobante (nodo Impuestos del propio CFDI, no los de cada concepto): lo trasladado (IVA) y lo
+    retenido (IVA e ISR), que el Total ya trae descontado. Importes como texto con 2 decimales."""
+    nodo = _child(root, "Impuestos")
+    por_tipo = {"traslados": {}, "retenciones": {}}
+    if nodo is not None:
+        for clave, lista, hijo in (("traslados", "Traslados", "Traslado"), ("retenciones", "Retenciones", "Retencion")):
+            padre = _child(nodo, lista)
+            for t in (_children(padre, hijo) if padre is not None else []):
+                nombre = _IMPUESTOS.get(t.get("Impuesto") or "", t.get("Impuesto") or "?")
+                por_tipo[clave][nombre] = por_tipo[clave].get(nombre, Decimal(0)) + (_opt_dec(t.get("Importe")) or Decimal(0))
+
+    def total(clave: str, atributo: str) -> Decimal:
+        declarado = _opt_dec(nodo.get(atributo)) if nodo is not None else None
+        return declarado if declarado is not None else sum(por_tipo[clave].values(), Decimal(0))
+
+    f = lambda d: str(d.quantize(Decimal("0.01")))
+    return {
+        "iva_trasladado": f(por_tipo["traslados"].get("IVA", Decimal(0))),
+        "retencion_iva": f(por_tipo["retenciones"].get("IVA", Decimal(0))),
+        "retencion_isr": f(por_tipo["retenciones"].get("ISR", Decimal(0))),
+        "total_trasladados": f(total("traslados", "TotalImpuestosTrasladados")),
+        "total_retenidos": f(total("retenciones", "TotalImpuestosRetenidos")),
+    }
+
+
 def resumen_cfdi(xml_bytes: bytes) -> dict:
     """Resumen JSON de un CFDI para mostrarlo en el portal. A diferencia de `parse_cfdi`,
     no exige Carta Porte: un CFDI de pago o sin traslado devuelve `carta_porte: None`."""
@@ -333,6 +362,8 @@ def resumen_cfdi(xml_bytes: bytes) -> dict:
         "moneda": root.get("Moneda"),
         "subtotal": root.get("SubTotal"),
         "total": root.get("Total"),
+        "descuento": root.get("Descuento"),
+        "impuestos": impuestos_cfdi(root),
         "emisor": {"rfc": emisor.get("Rfc") if emisor is not None else None,
                    "nombre": emisor.get("Nombre") if emisor is not None else None},
         "receptor": {"rfc": receptor.get("Rfc") if receptor is not None else None,
