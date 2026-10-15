@@ -105,3 +105,34 @@ test("rendimiento: todos los viajes del chofer entran, también los previos a su
   assert.equal(c1.viajes, 3);
   assert.equal(c2.kmViajes, 700);                 // sin cargas, pero su viaje cuenta
 });
+
+// ---- Ganancia por tracto / chofer ---------------------------------------------------------
+import { gananciaPorTracto, gananciaPorChofer } from "../src/lib/ganancia.ts";
+
+const gv = (id, chofer, tracto, fecha, subtotal, tasa) => ({ viaje_id: id, chofer_id: chofer, tracto_id: tracto, fecha_viaje: fecha, subtotal, tasa_comision: tasa });
+const gc = (id, tracto, chofer, fecha, costo) => ({ id, empresa_id: "e", tracto_id: tracto, chofer_id: chofer, fecha, litros: 100, costo, kilometraje: null, estacion: null, notas: null });
+
+test("ganancia por tracto = facturación − combustible − mantenimiento − comisiones, solo del año", () => {
+  const viajes = [gv("1", "A", "T1", "2026-03-01", 10000), gv("2", "A", "T1", "2026-04-01", 5000, 10), gv("3", "A", "T1", "2025-12-31", 99999)];
+  const cargas = [gc("c1", "T1", "A", "2026-03-02", 3000), gc("c2", "T1", "A", "2026-05-02", null), gc("c3", "T1", "A", "2025-01-01", 777)];
+  const servicios = [{ tracto_id: "T1", fecha: "2026-06-01", costo: 1000 }, { tracto_id: "T1", fecha: "2025-06-01", costo: 500 }];
+  const [f] = gananciaPorTracto(viajes, cargas, servicios, 2026);
+  assert.equal(f.facturacion, 15000);
+  assert.equal(f.comisiones, 1200 + 500);   // 12 % de 10000 (tasa general) + 10 % de 5000
+  assert.equal(f.combustible, 3000);
+  assert.equal(f.cargasSinCosto, 1);
+  assert.equal(f.mantenimiento, 1000);
+  assert.equal(f.ganancia, 15000 - 3000 - 1000 - 1700);
+});
+
+test("ganancia por chofer prorratea el mantenimiento del tracto por facturación", () => {
+  const viajes = [gv("1", "A", "T1", "2026-03-01", 7500), gv("2", "B", "T1", "2026-03-02", 2500)];
+  const cargas = [gc("c1", "T1", "B", "2026-03-02", 400)];
+  const servicios = [{ tracto_id: "T1", fecha: "2026-06-01", costo: 1000 }];
+  const r = Object.fromEntries(gananciaPorChofer(viajes, cargas, servicios, 2026).map((f) => [f.id, f]));
+  assert.equal(r.A.mantenimiento, 750);
+  assert.equal(r.B.mantenimiento, 250);
+  assert.equal(r.B.combustible, 400);
+  assert.equal(r.A.ganancia, 7500 - 750 - 900);
+  assert.equal(r.B.ganancia, 2500 - 250 - 400 - 300);
+});
