@@ -5,6 +5,7 @@ import { Download, Loader2, RefreshCw } from "lucide-react";
 import { descargarXml } from "@/lib/descarga";
 import { createClient } from "@/lib/supabase/client";
 import { ApiError, postBackend } from "@/lib/api";
+import { impuestosDe } from "@/lib/cfdi";
 import { ubicacionLabel } from "@/lib/format";
 import type { Factura, FacturaSat, ViajeSobrepeso } from "@/lib/types";
 import { fechaMx, mxn } from "@/lib/utils";
@@ -88,6 +89,7 @@ export function FacturaModal({ factura, onClose }: { factura: Factura | null; on
   const uuidValido = !!factura?.uuid && UUID_RE.test(factura.uuid);
   const d = sat?.datos ?? null;
   const cp = d?.carta_porte ?? null;
+  const imp = impuestosDe(sat);
 
   return (
     <Dialog open={!!factura} onOpenChange={(o) => !o && onClose()}>
@@ -138,7 +140,7 @@ export function FacturaModal({ factura, onClose }: { factura: Factura | null; on
               </TabsList>
 
               <TabsContent value="viajes">
-                <ViajesFactura facturaId={factura.id} />
+                <ViajesFactura facturaId={factura.id} sat={sat} editable />
               </TabsContent>
 
               <TabsContent value="factura">
@@ -161,7 +163,14 @@ export function FacturaModal({ factura, onClose }: { factura: Factura | null; on
                       <Field label="Serie y folio" value={[d.serie, d.folio].filter(Boolean).join(" ")} />
                       <Field label="Timbrado" value={d.fecha_timbrado ? fechaHora(d.fecha_timbrado) : null} />
                       <Field label="Subtotal" value={num(d.subtotal) != null ? mxn(num(d.subtotal)) : null} />
-                      <Field label="Total (SAT)" value={num(d.total) != null ? <>{mxn(num(d.total))} {d.moneda}</> : null} />
+                      {imp && (
+                        <>
+                          <Field label="IVA trasladado" value={mxn(Number(imp.iva_trasladado))} />
+                          <Field label="Retención de IVA" value={mxn(Number(imp.retencion_iva))} />
+                          <Field label="Retención de ISR" value={mxn(Number(imp.retencion_isr))} />
+                        </>
+                      )}
+                      <Field label="Total (SAT, ya con retenciones)" value={num(d.total) != null ? <>{mxn(num(d.total))} {d.moneda}</> : null} />
                     </>
                   )}
                 </dl>

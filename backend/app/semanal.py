@@ -158,3 +158,51 @@ def ligar_todos(db, empresa_id: str) -> int:
         except Exception:
             log.exception("No se pudieron ligar las facturas semanales de %s", c["nombre"])
     return total
+
+
+# --- Viajes de una factura (varios viajes bajo un mismo XML), a mano --------------------------------------------------
+
+def _clientes_de_receptor(db, empresa_id: str, rfc: str | None, nombre: str | None, extra_ids: set[str]) -> list[dict]:
+    clientes = db.table("clientes").select("id, nombre, rfc, alias").eq("empresa_id", empresa_id).execute().data or []
+    return [c for c in clientes if c["id"] in extra_ids or es_del_cliente(c, rfc, nombre)]
+
+
+def viajes_disponibles(db, empresa_id: str, factura_id: str, receptor: dict | None) -> dict:
+    """Viajes que se pueden ligar a una factura: los de los clientes que coinciden con su receptor (RFC o nombre)
+    que no tienen factura, más los ya ligados a ella. Devuelve también los clientes encontrados."""
+    receptor = receptor or {}
+    ligados = (db.table("viajes").select("id, cliente_id").eq("empresa_id", empresa_id).eq("factura_id", factura_id).execute().data or [])
+    clientes = _clientes_de_receptor(db, empresa_id, receptor.get("rfc"), receptor.get("nombre"),
+                                     {v["cliente_id"] for v in ligados if v.get("cliente_id")})
+    viajes: list[dict] = []
+    campos = "id, fecha, remision, material, cantidad, unidad, subtotal, total, factura_id, folio_factura, cliente_id"
+    for c in clientes:
+        for filtro in ("libres", "ligados"):
+            desde = 0
+            while True:
+                q = db.table("viajes").select(campos).eq("empresa_id", empresa_id).eq("cliente_id", c["id"])
+                q = q.is_("factura_id", "null") if filtro == "libres" else q.eq("factura_id", factura_id)
+                lote = q.order("fecha", desc=True).order("id").range(desde, desde + 999).execute().data or []
+                viajes += lote
+                if len(lote) < 1000:
+                    break
+                desde += 1000
+    viajes.sort(key=lambda v: (v["fecha"], v["id"]), reverse=True)
+    return {"clientes": [{"id": c["id"], "nombre": c["nombre"]} for c in clientes], "viajes": viajes}
+
+
+def ligar_viajes(db, empresa_id: str, factura: dict, ligar: list[str], desligar: list[str]) -> dict:
+    """Liga a la factura los viajes sin factura y desliga los que ya tenía. No quita viajes de otra factura."""
+    n_ligados = n_desligados = 0
+    for i in range(0, len(ligar), 100):
+        lote = ligar[i:i + 100]
+        filas = (db.table("viajes").update({"factura_id": factura["id"], "folio_factura": factura["folio"]})
+                 .eq("empresa_id", empresa_id).in_("id", lote).is_("factura_id", "null").execute().data or [])
+        n_ligados += len(filas)
+    for i in range(0, len(desligar), 100):
+        lote = desligar[i:i + 100]
+        filas = (db.table("viajes").update({"factura_id": None, "folio_factura": None})
+                 .eq("empresa_id", empresa_id).eq("factura_id", factura["id"]).in_("id", lote).execute().data or [])
+        n_desligados += len(filas)
+    return {"ligados": n_ligados, "desligados": n_desligados,
+            "omitidos": len(ligar) - n_ligados}
