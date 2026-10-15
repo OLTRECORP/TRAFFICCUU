@@ -12,7 +12,7 @@ from app.cfdi_parser import CFDIError, parse_cfdi, resumen_cfdi
 from app.config import get_settings
 from app.crypto import encrypt
 from app.db import get_admin_client
-from app.descarga_masiva import asegurar_factura_xml, cancelar as descarga_cancelar, ejecutar as descarga_ejecutar, iniciar as descarga_iniciar, iniciar_zip
+from app.descarga_masiva import asegurar_factura_xml, cancelar as descarga_cancelar, ejecutar as descarga_ejecutar, iniciar as descarga_iniciar, iniciar_zip, rfc_cliente as descarga_rfc_cliente
 from app.sat import diagnosticar as sat_diagnosticar
 from app.mapas import MapaError, geocodificar
 from app.rutas_service import asignar_viaje, calcular_km_viajes, calcular_ruta
@@ -315,14 +315,18 @@ class DescargaMasivaRequest(BaseModel):
     # "anio" = los 12 meses; "faltantes" = solo los meses (por fecha de emisión) con facturas sin XML;
     # "reprocesar" = no consulta al SAT: registra la Carta Porte de los XML ya guardados
     modo: Literal["anio", "faltantes", "reprocesar"] = "faltantes"
+    # Opcionales: `mes` pide solo ese mes (ignora `modo`); `cliente_id` pide solo las facturas a ese cliente (su RFC).
+    mes: int | None = Field(default=None, ge=1, le=12)
+    cliente_id: str | None = None
 
 
 @app.post("/api/sat/descarga-masiva", status_code=status.HTTP_202_ACCEPTED)
 def descarga_masiva(body: DescargaMasivaRequest, background: BackgroundTasks, tenant: Tenant = Depends(current_tenant)) -> dict:
     """Descarga del SAT los XML de las facturas emitidas (y sus complementos de pago), los asigna por UUID o
     folio+total y los guarda. Corre en segundo plano; el avance se lee de la tabla `sat_descargas`."""
-    job = descarga_iniciar(tenant.empresa_id, body.anio, body.modo)
-    background.add_task(descarga_ejecutar, tenant.empresa_id, job["id"], body.anio, job["meses"])
+    job = descarga_iniciar(tenant.empresa_id, body.anio, body.modo, body.mes, body.cliente_id)
+    rfc = descarga_rfc_cliente(tenant.empresa_id, body.cliente_id) if body.cliente_id else None
+    background.add_task(descarga_ejecutar, tenant.empresa_id, job["id"], body.anio, job["meses"], None, rfc)
     return {"id": job["id"], "meses": job["meses"]}
 
 

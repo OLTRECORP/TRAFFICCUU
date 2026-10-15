@@ -101,11 +101,28 @@ def meses_pendientes(empresa_id: str, anio: int) -> list[int]:
     return sorted(meses)
 
 
-def iniciar(empresa_id: str, anio: int, modo: str) -> dict:
-    """Valida, calcula los meses a pedir y crea la corrida (estado 'pendiente'). Devuelve la fila."""
+def rfc_cliente(empresa_id: str, cliente_id: str) -> str:
+    """RFC receptor del cliente, para pedirle al SAT solo sus facturas."""
+    filas = (get_admin_client().table("clientes").select("rfc, nombre").eq("empresa_id", empresa_id)
+             .eq("id", cliente_id).limit(1).execute().data)
+    if not filas:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Cliente no encontrado")
+    rfc = (filas[0].get("rfc") or "").strip().upper()
+    if not rfc:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, f"El cliente {filas[0]['nombre']} no tiene RFC; captúralo en Clientes")
+    return rfc
+
+
+def iniciar(empresa_id: str, anio: int, modo: str, mes: int | None = None, cliente_id: str | None = None) -> dict:
+    """Valida, calcula los meses a pedir y crea la corrida (estado 'pendiente'). Devuelve la fila.
+    Con `mes` se pide solo ese mes (sin importar `modo`); con `cliente_id` solo las facturas de ese cliente."""
     hoy = date.today()
     if anio > hoy.year or anio < 2014:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Año fuera de rango")
+    if mes is not None and (not 1 <= mes <= 12 or (anio, mes) > (hoy.year, hoy.month)):
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Mes fuera de rango")
+    if cliente_id:
+        rfc_cliente(empresa_id, cliente_id)   # falla ya, no a media corrida
     db = get_admin_client()
 
     activas = (
@@ -117,6 +134,8 @@ def iniciar(empresa_id: str, anio: int, modo: str) -> dict:
 
     if modo == "reprocesar":
         meses = []
+    elif mes is not None:
+        meses = [mes]
     elif modo == "faltantes":
         meses = meses_pendientes(empresa_id, anio)
         if not meses:
@@ -463,12 +482,13 @@ def _meses_guardados(db, empresa_id: str, anio: int, job_id: str) -> set[int]:
     return hechos
 
 
-def _xmls_mes(empresa_id: str, ini, fin, avisar, parar, previa: str | None, guardar_solicitud):
+def _xmls_mes(empresa_id: str, ini, fin, avisar, parar, previa: str | None, guardar_solicitud, rfc_receptor: str | None = None):
     """XML de un mes. Si la solicitud anterior ya no sirve (el SAT la rechaza o venció), pide una nueva."""
+    extra = {"rfc_receptor": rfc_receptor} if rfc_receptor else {}
     if previa:
         entregados = False
         try:
-            for xml in descargar_emitidos_rango(empresa_id, ini, fin, log=avisar, parar=parar, id_existente=previa):
+            for xml in descargar_emitidos_rango(empresa_id, ini, fin, log=avisar, parar=parar, id_existente=previa, **extra):
                 entregados = True
                 yield xml
             return
@@ -478,7 +498,7 @@ def _xmls_mes(empresa_id: str, ini, fin, avisar, parar, previa: str | None, guar
             if entregados:
                 raise
             avisar(f"La solicitud anterior ya no sirve ({exc}); se pide una nueva (máximo una por mes)", "aviso")
-    yield from descargar_emitidos_rango(empresa_id, ini, fin, on_solicitud=guardar_solicitud, log=avisar, parar=parar)
+    yield from descargar_emitidos_rango(empresa_id, ini, fin, on_solicitud=guardar_solicitud, log=avisar, parar=parar, **extra)
 
 
 def _rango_mes(anio: int, mes: int) -> tuple[datetime, datetime]:
@@ -520,17 +540,19 @@ def _reprocesar(db, empresa_id: str, ctx: dict, acu: dict) -> None:
            "error" if d["viajes_error"] else "ok")
 
 
-def ejecutar(empresa_id: str, job_id: str, anio: int, meses: list[int], zip_bytes: bytes | None = None) -> None:
+def ejecutar(empresa_id: str, job_id: str, anio: int, meses: list[int], zip_bytes: bytes | None = None,
+             rfc_receptor: str | None = None) -> None:
     """Tarea de fondo: toda excepción termina con la corrida en un estado final (ok, error o cancelado) y un mensaje."""
     try:
         with mantener_despierto():
-            _ejecutar(empresa_id, job_id, anio, meses, zip_bytes)
+            _ejecutar(empresa_id, job_id, anio, meses, zip_bytes, rfc_receptor)
     except Exception as exc:
         log.exception("Descarga masiva %s falló", job_id)
         marcar_error(job_id, f"Error inesperado: {type(exc).__name__}: {str(exc)[:200]}")
 
 
-def _ejecutar(empresa_id: str, job_id: str, anio: int, meses: list[int], zip_bytes: bytes | None = None) -> None:
+def _ejecutar(empresa_id: str, job_id: str, anio: int, meses: list[int], zip_bytes: bytes | None = None,
+              rfc_receptor: str | None = None) -> None:
     """Un mes a la vez (o los XML de un .zip, o el reproceso de Carta Porte). Un mes que falla no detiene a los
     demás; el usuario puede detener la corrida; todo queda en la corrida y en su bitácora."""
     db = get_admin_client()
@@ -551,7 +573,8 @@ def _ejecutar(empresa_id: str, job_id: str, anio: int, meses: list[int], zip_byt
     if zip_bytes is not None:
         avisar(f"Procesando .zip subido ({len(zip_bytes) // 1024} KB)")
     else:
-        avisar(f"Descarga iniciada: {'reproceso de Carta Porte' if not meses else f'año {anio}, meses {meses}'}")
+        avisar(f"Descarga iniciada: {'reproceso de Carta Porte' if not meses else f'año {anio}, meses {meses}'}"
+               + (f", solo facturas al RFC {rfc_receptor}" if rfc_receptor else ""))
     guardar("en_proceso")
     try:
         rfc = db.table("empresa_configuracion").select("rfc").eq("id", empresa_id).single().execute().data["rfc"]
@@ -569,7 +592,9 @@ def _ejecutar(empresa_id: str, job_id: str, anio: int, meses: list[int], zip_byt
         return
 
     ya_guardados: set[int] = set()
-    if meses:
+    # Una descarga de un solo cliente trae solo parte del mes: no se salta ni retoma meses completos ni deja el mes
+    # marcado como guardado (una descarga completa posterior lo omitiría).
+    if meses and not rfc_receptor:
         try:
             ya_guardados = _meses_guardados(db, empresa_id, anio, job_id) & set(meses)
         except Exception as exc:   # no es crítico: sin esto simplemente se repiten esos meses
@@ -607,13 +632,14 @@ def _ejecutar(empresa_id: str, job_id: str, anio: int, meses: list[int], zip_byt
 
                 try:
                     ini, fin = _rango_mes(anio, mes)
-                    previa = _solicitud_previa(db, empresa_id, anio, mes)
+                    previa = None if rfc_receptor else _solicitud_previa(db, empresa_id, anio, mes)
                     if previa:
                         entrada["solicitud"] = previa
                         acu["solicitudes_retomadas"] += 1
                     procesar_xmls(db, empresa_id, indice,
-                                  _xmls_mes(empresa_id, ini, fin, avisar, bit.cancelado, previa, guardar_solicitud), None, acu, ctx)
-                    entrada.update(estado="ok", guardado=True)   # punto de control: el mes quedó descargado, asignado y guardado
+                                  _xmls_mes(empresa_id, ini, fin, avisar, bit.cancelado, previa,
+                                            None if rfc_receptor else guardar_solicitud, rfc_receptor), None, acu, ctx)
+                    entrada.update(estado="ok", guardado=not rfc_receptor)   # punto de control: el mes quedó descargado, asignado y guardado
                     avisar(f"Mes {mes:02d} guardado: {acu['xml_recibidos'] - antes} XML recibidos, "
                            f"{acu['facturas_asignadas']} facturas asignadas en total", "ok")
                 except SatLimite as exc:
