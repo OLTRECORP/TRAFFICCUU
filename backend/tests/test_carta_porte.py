@@ -11,6 +11,9 @@ class Q:
     def select(self, *_): return self
     def eq(self, *_): return self
     def limit(self, *_): return self
+    def order(self, *_): return self
+    def range(self, a, *_):   # paginación: la segunda página ya viene vacía
+        self.pagina = a; return self
     def insert(self, row): self.op, self.p = "insert", row; return self
     def update(self, row): self.op, self.p = "update", row; return self
 
@@ -21,7 +24,7 @@ class Q:
             return type("R", (), {"data": [t[-1]]})()
         if self.op == "update":
             self.db.updates.append((self.name, self.p))
-        return type("R", (), {"data": list(t)})()
+        return type("R", (), {"data": [] if getattr(self, "pagina", 0) else list(t)})()
 
 
 class DB:

@@ -57,8 +57,14 @@ export interface ViajeSobrepeso {
   toneladas_facturadas: number; exceso_kg: number;
 }
 
-export interface Regla { id: string; tipo_servicio: string; intervalo_km: number }
-export interface ServicioMant { id: string; empresa_id: string; tracto_id: string | null; gondola_id: string | null; fecha: string; kilometraje: number | null; servicio: string; categoria: string | null; costo: number; notas: string | null }
+/** Servicio programado: cada `intervalo_km` y/o cada `intervalo_dias`, dentro de un rubro (categoría de la bitácora). */
+export interface Regla { id: string; empresa_id?: string; tipo_servicio: string; intervalo_km: number | null; intervalo_dias: number | null; categoria: string | null }
+/** Cómo se estimó el odómetro del tracto (vista tractos_odometro). */
+export interface OdometroTracto {
+  tracto_id: string; km_base: number | null; fecha_base: string | null; fuente: "servicio" | "inicial";
+  km_viajes: number; viajes: number; kilometraje_estimado: number; kilometraje_inicial: number;
+}
+export interface ServicioMant { id: string; empresa_id: string; tracto_id: string | null; gondola_id: string | null; fecha: string; kilometraje: number | null; servicio: string; categoria: string | null; costo: number; notas: string | null; regla_id?: string | null }
 export interface Bitacora { id: string; tracto_id: string; servicio_id: string; kilometraje_al_servicio: number; fecha: string; observaciones: string | null }
 
 export interface EmpresaConfig {

@@ -4,9 +4,9 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Loader2, Search, User, Wrench } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { todo } from "@/lib/paginar";
-import { calcularAlertas, peorNivel, type Alerta, type Nivel } from "@/lib/mantenimiento";
+import { calcularAlertas, peorNivel, textoRestante, type Alerta, type Medida, type Nivel } from "@/lib/mantenimiento";
 import { tramos, type Carga, type ViajeRend } from "@/lib/combustible";
-import type { Bitacora, Chofer, Regla, ServicioMant, Tracto } from "@/lib/types";
+import type { Bitacora, Chofer, OdometroTracto, Regla, ServicioMant, Tracto } from "@/lib/types";
 import { cn, fechaMx, km, mxn } from "@/lib/utils";
 import { CATEGORIAS_SERVICIO, FichaServicios } from "@/components/ficha-servicios";
 import { Alert } from "@/components/ui/alert";
@@ -17,6 +17,9 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { BarraVida, FlotaMantenimiento, rubro, TEXTO } from "@/components/mantenimiento/flota";
+import { ReglasMantenimiento } from "@/components/mantenimiento/reglas";
 
 const ETIQUETA: Record<Nivel, string> = { rojo: "Vencido", amarillo: "Próximo", verde: "OK" };
 const BARRA: Record<Nivel, string> = { rojo: "bg-red-500", amarillo: "bg-amber-400", verde: "bg-emerald-500" };
@@ -70,6 +73,8 @@ export function MantenimientoPanel() {
   const [registro, setRegistro] = useState<{ tracto: Tracto; regla: Regla } | null>(null);
   const [sel, setSel] = useState<string | null>(null);
   const [q, setQ] = useState("");
+  const [vista, setVista] = useState<"flota" | "vehiculo">("flota");
+  const [odometros, setOdometros] = useState<Map<string, OdometroTracto>>(new Map());
 
   const load = useCallback(async () => {
     const sb = createClient();
@@ -84,6 +89,9 @@ export function MantenimientoPanel() {
         todo<ViajeRend>((d, h) => sb.from("rendimiento_viajes").select("viaje_id, chofer_id, tracto_id, fecha_viaje, km").order("fecha_viaje").order("viaje_id").range(d, h)),
       ]);
       setTractos(t); setReglas(r); setBitacora(b); setServicios(s); setChoferes(c); setCargas(cg); setViajes(v); setError(null);
+      // Cómo se estimó cada odómetro (migración 026); sin ella el detalle solo muestra el número
+      const od = await sb.from("tractos_odometro").select("*").limit(5000);
+      setOdometros(new Map(((od.data ?? []) as OdometroTracto[]).map((o) => [o.tracto_id, o])));
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     }
@@ -93,8 +101,8 @@ export function MantenimientoPanel() {
   useEffect(() => { void load(); }, [load]);
 
   const filas = useMemo(
-    () => tractos.map((t) => ({ tracto: t, alertas: calcularAlertas(t, reglas, bitacora) })),
-    [tractos, reglas, bitacora],
+    () => tractos.map((t) => ({ tracto: t, alertas: calcularAlertas(t, reglas, bitacora, servicios) })),
+    [tractos, reglas, bitacora, servicios],
   );
   const visibles = useMemo(() => {
     const t = q.trim().toLowerCase();
@@ -123,6 +131,16 @@ export function MantenimientoPanel() {
   const actual = filas.find((f) => f.tracto.id === sel) ?? visibles[0] ?? filas[0];
 
   return (
+    <Tabs value={vista} onValueChange={(v) => setVista(v as "flota" | "vehiculo")} className="grid gap-4">
+      <TabsList className="w-fit">
+        <TabsTrigger value="flota">Toda la flota</TabsTrigger>
+        <TabsTrigger value="vehiculo">Por vehículo</TabsTrigger>
+      </TabsList>
+      <TabsContent value="flota" className="mt-0 grid gap-4">
+        <FlotaMantenimiento filas={filas} reglas={reglas} odometros={odometros} onElegir={(id) => { setSel(id); setVista("vehiculo"); }} />
+        <ReglasMantenimiento reglas={reglas} empresaId={tractos[0]?.empresa_id ?? null} onChange={() => void load()} />
+      </TabsContent>
+      <TabsContent value="vehiculo" className="mt-0">
     <div className="grid gap-4 lg:grid-cols-[320px_1fr]">
       <Card className="rounded-xl">
         <CardHeader className="gap-3">
@@ -163,10 +181,13 @@ export function MantenimientoPanel() {
           kmPorLitro={rendimiento.get(actual.tracto.id) ?? null} mejorKmPorLitro={mejorRend}
           ultimaCarga={cargas.find((c) => c.tracto_id === actual.tracto.id)?.fecha ?? null}
           onRegistrar={(regla) => setRegistro({ tracto: actual.tracto, regla })}
+          odometro={odometros.get(actual.tracto.id) ?? null} reglas={reglas}
         />
       )}
       <RegistrarServicio registro={registro} onClose={() => setRegistro(null)} onSaved={() => { setRegistro(null); void load(); }} />
     </div>
+      </TabsContent>
+    </Tabs>
   );
 }
 
@@ -179,11 +200,14 @@ function Dato({ k, v }: { k: string; v: string }) {
   );
 }
 
-function Detalle({ tracto, alertas, chofer, servicios, cargas, kmViajes, onServiciosChange, kmPorLitro, mejorKmPorLitro, ultimaCarga, onRegistrar }: {
+function Detalle({ tracto, alertas, chofer, servicios, cargas, kmViajes, onServiciosChange, kmPorLitro, mejorKmPorLitro, ultimaCarga, onRegistrar, odometro, reglas }: {
   tracto: Tracto; alertas: Alerta[]; chofer: ChoferAsig | null; servicios: ServicioMant[]; cargas: Carga[];
   kmViajes: number; onServiciosChange: () => void;
   kmPorLitro: number | null; mejorKmPorLitro: number; ultimaCarga: string | null; onRegistrar: (r: Regla) => void;
+  odometro: OdometroTracto | null; reglas: Regla[];
 }) {
+  const porRubro = new Map<string, Alerta[]>();
+  for (const a of alertas) porRubro.set(rubro(a.regla.categoria), [...(porRubro.get(rubro(a.regla.categoria)) ?? []), a]);
   const relativo = kmPorLitro != null && mejorKmPorLitro > 0 ? (kmPorLitro / mejorKmPorLitro) * 100 : null;
   return (
     <div className="grid content-start gap-4">
@@ -196,8 +220,17 @@ function Detalle({ tracto, alertas, chofer, servicios, cargas, kmViajes, onServi
           <Semaforo nivel={peorNivel(alertas)} />
         </CardHeader>
         <CardContent className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          <Dato k="Odómetro actual" v={km(tracto.kilometraje_actual)} />
-          <Dato k="Odómetro inicial" v={km(tracto.kilometraje_inicial)} />
+          <div className="grid gap-0.5 sm:col-span-2">
+            <span className="text-xs text-muted-foreground">Odómetro {odometro?.fuente === "servicio" ? "estimado" : "actual"}</span>
+            <span className="text-lg font-semibold">{km(tracto.kilometraje_actual)}</span>
+            {odometro && (
+              <span className="text-xs text-muted-foreground">
+                {odometro.fuente === "servicio"
+                  ? <>Último servicio con kilometraje: {km(Number(odometro.km_base))} el {fechaMx(odometro.fecha_base!)} + {km(Number(odometro.km_viajes))} de {odometro.viajes} viaje{odometro.viajes === 1 ? "" : "s"} posteriores. Se corrige al registrar el siguiente servicio con su km.</>
+                  : <>Kilometraje inicial {km(Number(odometro.kilometraje_inicial))} + {km(Number(odometro.km_viajes))} de {odometro.viajes} viajes. Registra un servicio con el km del tablero para fijarlo.</>}
+              </span>
+            )}
+          </div>
           <div className="grid gap-0.5">
             <span className="flex items-center gap-1 text-xs text-muted-foreground"><User className="h-3 w-3" aria-hidden /> Chofer asignado</span>
             <span className="text-sm font-medium">{chofer?.nombre ?? "—"}</span>
@@ -208,15 +241,22 @@ function Detalle({ tracto, alertas, chofer, servicios, cargas, kmViajes, onServi
       </Card>
 
       <Card className="rounded-xl">
-        <CardHeader><CardTitle className="text-base">Estado por servicio (vida restante)</CardTitle></CardHeader>
-        <CardContent className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
-          {alertas.map((a) => (
-            <Anillo key={a.regla.id} valor={100 - a.porcentaje} nivel={a.nivel} etiqueta={a.regla.tipo_servicio}
-              detalle={a.restante >= 0 ? `faltan ${km(a.restante)}` : `excedido ${km(-a.restante)}`} />
-          ))}
-          <Anillo valor={relativo} vacio={relativo == null} nivel="verde" etiqueta="Rendimiento de combustible"
-            detalle={kmPorLitro != null ? `${kmPorLitro.toFixed(2)} km/l (vs. mejor de la flota)` : "Sin dos cargas con litros"} />
-          {alertas.length === 0 && <p className="col-span-full text-sm text-muted-foreground">No hay reglas de mantenimiento configuradas.</p>}
+        <CardHeader><CardTitle className="text-base">Siguiente servicio por rubro (vida restante)</CardTitle></CardHeader>
+        <CardContent className="grid gap-5">
+          <div className="grid grid-cols-2 gap-x-4 gap-y-6 sm:grid-cols-3 lg:grid-cols-5">
+            {[...porRubro.entries()].sort((a, b) => a[0].localeCompare(b[0])).flatMap(([r, lista]) => lista.map((a) => (
+              <div key={a.regla.id} className="grid justify-items-center gap-1">
+                <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">{r}</span>
+                <Anillo valor={100 - a.porcentaje} vacio={!a.km && !a.dias} nivel={a.nivel} etiqueta={a.regla.tipo_servicio} detalle={textoRestante(a, km)} />
+              </div>
+            )))}
+            <div className="grid justify-items-center gap-1">
+              <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Combustible</span>
+              <Anillo valor={relativo} vacio={relativo == null} nivel="verde" etiqueta="Rendimiento"
+                detalle={kmPorLitro != null ? `${kmPorLitro.toFixed(2)} km/l (vs. mejor de la flota)` : "Sin dos cargas con litros"} />
+            </div>
+          </div>
+          {alertas.length === 0 && <p className="text-sm text-muted-foreground">No hay servicios programados. Agrégalos en «Toda la flota».</p>}
         </CardContent>
       </Card>
 
@@ -232,7 +272,7 @@ function Detalle({ tracto, alertas, chofer, servicios, cargas, kmViajes, onServi
       <Card className="rounded-xl">
         <CardHeader><CardTitle className="flex items-center gap-2 text-base"><Wrench className="h-4 w-4" aria-hidden /> Servicios y reparaciones</CardTitle></CardHeader>
         <CardContent>
-          <FichaServicios tipo="tracto" unidadId={tracto.id} empresaId={tracto.empresa_id} kmActual={tracto.kilometraje_actual} onChange={onServiciosChange} />
+          <FichaServicios tipo="tracto" unidadId={tracto.id} empresaId={tracto.empresa_id} kmActual={tracto.kilometraje_actual} onChange={onServiciosChange} reglas={reglas} />
         </CardContent>
       </Card>
     </div>
@@ -278,23 +318,29 @@ function CostoOperacion({ servicios, cargas, kmViajes }: { servicios: ServicioMa
   );
 }
 
+function Linea({ m, unidad }: { m: Medida; unidad: "km" | "días" }) {
+  const txt = unidad === "km"
+    ? `${km(m.usado)} de ${km(m.intervalo)} · ${m.restante >= 0 ? `faltan ${km(m.restante)}` : `excedido ${km(-m.restante)}`}`
+    : `${m.usado} de ${m.intervalo} días · ${m.restante >= 0 ? `faltan ${m.restante} días` : `vencido hace ${-m.restante} días`}`;
+  return <p className={cn("text-xs", TEXTO[m.nivel])}>{txt}</p>;
+}
+
 function AlertaRow({ a, onRegistrar }: { a: Alerta; onRegistrar: () => void }) {
   return (
     <div className="grid gap-1.5">
       <div className="flex items-center justify-between gap-2">
-        <span className="text-sm font-medium">{a.regla.tipo_servicio}</span>
+        <span className="text-sm font-medium">{a.regla.tipo_servicio} <span className="text-xs font-normal text-muted-foreground">· {rubro(a.regla.categoria)}</span></span>
         <div className="flex items-center gap-2">
           <Semaforo nivel={a.nivel} />
           <Button variant="outline" size="sm" onClick={onRegistrar}><Wrench className="h-3.5 w-3.5" /> Registrar</Button>
         </div>
       </div>
-      <div className="h-2 overflow-hidden rounded-full bg-secondary" role="progressbar" aria-valuenow={Math.round(a.porcentaje)} aria-valuemin={0} aria-valuemax={100}>
-        <div className={cn("h-full", BARRA[a.nivel])} style={{ width: `${Math.min(100, a.porcentaje)}%` }} />
-      </div>
+      <BarraVida a={a} />
+      {a.km && <Linea m={a.km} unidad="km" />}
+      {a.dias && <Linea m={a.dias} unidad="días" />}
       <p className="text-xs text-muted-foreground">
-        {km(a.recorrido)} de {km(a.regla.intervalo_km)} ·{" "}
-        {a.restante >= 0 ? `faltan ${km(a.restante)}` : `excedido por ${km(-a.restante)}`}
-        {a.sinRegistro && " · sin servicio registrado (base: km inicial)"}
+        {a.ultimo ? `Último: ${a.ultimo.servicio} el ${fechaMx(a.ultimo.fecha)}${a.ultimo.km != null ? ` a ${km(a.ultimo.km)}` : ""}`
+          : `Sin servicio registrado${a.km ? " (km desde el kilometraje inicial)" : ""}${a.regla.intervalo_dias ? "; los días empiezan a contar al registrarlo" : ""}`}
       </p>
     </div>
   );
@@ -305,27 +351,27 @@ function RegistrarServicio({
 }: { registro: { tracto: Tracto; regla: Regla } | null; onClose: () => void; onSaved: () => void }) {
   const [kmServicio, setKmServicio] = useState("");
   const [fecha, setFecha] = useState(() => new Date().toISOString().slice(0, 10));
+  const [costo, setCosto] = useState("");
   const [obs, setObs] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (registro) { setKmServicio(String(registro.tracto.kilometraje_actual)); setObs(""); setError(null); }
+    if (registro) { setKmServicio(String(Math.round(Number(registro.tracto.kilometraje_actual)))); setCosto(""); setObs(""); setError(null); }
   }, [registro]);
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!registro) return;
-    const n = Number(kmServicio);
+    const n = Number(kmServicio), c = Number(costo || 0);
     if (!Number.isFinite(n) || n < 0) return setError("Kilometraje inválido");
+    if (!Number.isFinite(c) || c < 0) return setError("Costo inválido");
     setSaving(true);
-    const { error } = await createClient().from("bitacora_mantenimiento").insert({
-      empresa_id: registro.tracto.empresa_id,
-      tracto_id: registro.tracto.id,
-      servicio_id: registro.regla.id,
-      kilometraje_al_servicio: n,
-      fecha,
-      observaciones: obs || null,
+    // Se guarda en la bitácora de servicios del tracto (con su costo); el km capturado se vuelve el nuevo punto de partida del odómetro.
+    const { error } = await createClient().from("servicios_mantenimiento").insert({
+      empresa_id: registro.tracto.empresa_id, tracto_id: registro.tracto.id, regla_id: registro.regla.id,
+      servicio: registro.regla.tipo_servicio, categoria: registro.regla.categoria ?? "otro",
+      kilometraje: n, fecha, costo: c, notas: obs || null,
     });
     setSaving(false);
     if (error) setError(error.message);
@@ -338,18 +384,25 @@ function RegistrarServicio({
         <div>
           <DialogTitle className="text-lg font-semibold">Registrar servicio</DialogTitle>
           <DialogDescription className="text-sm text-muted-foreground">
-            {registro?.regla.tipo_servicio} · {registro?.tracto.placa}
+            {registro?.regla.tipo_servicio} · {rubro(registro?.regla.categoria ?? null)} · {registro?.tracto.placa}
           </DialogDescription>
         </div>
         <form onSubmit={onSubmit} className="grid gap-4">
           {error && <ErrorAlert where="mantenimiento-registro" message={error} />}
           <div className="grid gap-2">
-            <Label htmlFor="km">Kilometraje al servicio</Label>
+            <Label htmlFor="km">Kilometraje del tablero al servicio</Label>
             <Input id="km" type="number" min={0} step="0.1" required value={kmServicio} onChange={(e) => setKmServicio(e.target.value)} />
+            <span className="text-xs text-muted-foreground">Viene sugerido el odómetro estimado; corrígelo con el real. Desde aquí se vuelve a calcular el odómetro del tracto.</span>
           </div>
-          <div className="grid gap-2">
-            <Label htmlFor="fecha">Fecha</Label>
-            <Input id="fecha" type="date" required value={fecha} onChange={(e) => setFecha(e.target.value)} />
+          <div className="grid gap-2 sm:grid-cols-2">
+            <div className="grid gap-2">
+              <Label htmlFor="fecha">Fecha</Label>
+              <Input id="fecha" type="date" required value={fecha} onChange={(e) => setFecha(e.target.value)} />
+            </div>
+            <div className="grid gap-2">
+              <Label htmlFor="costo">Costo (MXN)</Label>
+              <Input id="costo" type="number" min={0} step="0.01" value={costo} onChange={(e) => setCosto(e.target.value)} placeholder="0" />
+            </div>
           </div>
           <div className="grid gap-2">
             <Label htmlFor="obs">Observaciones</Label>
