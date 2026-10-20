@@ -8,6 +8,8 @@ import { fechaMx, km, mxn } from "@/lib/utils";
 import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { instalarLlantasDeServicio, SelectorLlantas, totalSeleccion, type SeleccionLlantas, type UnidadSel } from "@/components/mantenimiento/llantas";
+import { listaLlantas } from "@/lib/llantas";
 import { Label } from "@/components/ui/label";
 
 interface Props {
@@ -47,17 +49,32 @@ export function FichaServicios({ tipo, unidadId, empresaId, kmActual, onChange, 
   const [editar, setEditar] = useState<ServicioMant | "nuevo" | null>(null);
   const [f, setF] = useState({ fecha: hoy(), km: "", servicio: "", categoria: "", costo: "", notas: "", regla: "" });
   const [saving, setSaving] = useState(false);
+  const [unidad, setUnidad] = useState<UnidadSel | null>(null);
+  const [sel, setSel] = useState<SeleccionLlantas>({});
+  const [ll, setLl] = useState({ marca: "", medida: "", vida: "" });
+  const [ligadas, setLigadas] = useState<Map<string, string[]>>(new Map());   // servicio → posiciones instaladas
 
   const load = useCallback(async () => {
     const { data, error: err } = await createClient().from("servicios_mantenimiento").select("*")
       .eq(col, unidadId).order("fecha", { ascending: false }).order("created_at", { ascending: false });
     if (err) setError(err.message); else { setError(null); setRows((data ?? []) as ServicioMant[]); }
     setLoading(false);
-  }, [col, unidadId]);
+    // Llantas instaladas por cada servicio (migración 028); sin ella no se muestran
+    const sb = createClient();
+    const [u, l] = await Promise.all([
+      sb.from(esTracto ? "tractocamiones" : "gondolas").select("id, placa, ejes").eq("id", unidadId).maybeSingle(),
+      sb.from("llantas").select("servicio_id, posicion").eq(col, unidadId).not("servicio_id", "is", null),
+    ]);
+    if (u.data) setUnidad({ tipo, id: unidadId, placa: u.data.placa, ejes: u.data.ejes ?? (esTracto ? 3 : 2) });
+    const m = new Map<string, string[]>();
+    for (const x of (l.error ? [] : l.data ?? []) as { servicio_id: string; posicion: string }[]) m.set(x.servicio_id, [...(m.get(x.servicio_id) ?? []), x.posicion]);
+    setLigadas(m);
+  }, [col, unidadId, tipo, esTracto]);
   useEffect(() => { void load(); }, [load]);
 
   function abrir(s: ServicioMant | "nuevo") {
-    setError(null);
+    setError(null); setSel({});
+    setLl({ marca: "", medida: "", vida: String(reglas.find((r) => r.categoria === "llantas" && r.intervalo_km)?.intervalo_km ?? 120000) });
     setF(s === "nuevo"
       ? { fecha: hoy(), km: kmActual != null ? String(Math.round(Number(kmActual))) : "", servicio: "", categoria: "", costo: "", notas: "", regla: "" }
       : { fecha: s.fecha, km: s.kilometraje != null ? String(s.kilometraje) : "", servicio: s.servicio, categoria: s.categoria ?? "", costo: String(s.costo), notas: s.notas ?? "", regla: s.regla_id ?? "" });
@@ -71,15 +88,26 @@ export function FichaServicios({ tipo, unidadId, empresaId, kmActual, onChange, 
     const kilometraje = esTracto ? Number(f.km) : null;
     if (!Number.isFinite(costo) || costo < 0) return setError("Costo inválido");
     if (esTracto && (f.km === "" || !Number.isFinite(kilometraje) || (kilometraje as number) < 0)) return setError("Kilometraje inválido");
+    const conLlantas = editar === "nuevo" && f.categoria === "llantas" && !!unidad, vida = Math.round(Number(ll.vida));
+    if (conLlantas && !totalSeleccion(sel)) return setError("Toca en el diagrama las llantas que se cambiaron");
+    if (conLlantas && !(vida > 0)) return setError("Vida esperada inválida");
     setSaving(true); setError(null);
     const datos = { fecha: f.fecha, kilometraje, servicio: f.servicio.trim(), categoria: f.categoria || null, costo, notas: f.notas.trim() || null,
       ...(esTracto && reglas.length ? { regla_id: f.regla || null } : {}) };
     const sb = createClient();
-    const { error: err } = editar === "nuevo"
-      ? await sb.from("servicios_mantenimiento").insert({ ...datos, empresa_id: empresaId, [col]: unidadId })
-      : await sb.from("servicios_mantenimiento").update(datos).eq("id", editar.id);
+    // al editar, la fecha y el km se copian solos a las llantas ligadas (trigger de la 028)
+    const { data: nuevo, error: err } = editar === "nuevo"
+      ? await sb.from("servicios_mantenimiento").insert({ ...datos, empresa_id: empresaId, [col]: unidadId }).select("id").single()
+      : await sb.from("servicios_mantenimiento").update(datos).eq("id", editar.id).select("id").single();
+    if (err) { setSaving(false); return setError(err.message); }
+    if (conLlantas && unidad) {
+      const e2 = await instalarLlantasDeServicio(sb, {
+        empresaId, unidades: [unidad], seleccion: sel, servicios: { [unidadId]: (nuevo as { id: string }).id },
+        fecha: f.fecha, kmTracto: kilometraje, vidaKm: vida, marca: ll.marca.trim() || null, medida: ll.medida.trim() || null, costoTotal: costo,
+      });
+      if (e2) { setSaving(false); void load(); return setError(`El servicio se guardó, pero las llantas no: ${e2}`); }
+    }
     setSaving(false);
-    if (err) return setError(err.message);
     setEditar(null); void load(); onChange?.();
   }
 
@@ -133,6 +161,25 @@ export function FichaServicios({ tipo, unidadId, empresaId, kmActual, onChange, 
               {CATEGORIAS_SERVICIO.map((c) => <option key={c.value} value={c.value}>{c.label}</option>)}
             </select>
           </div>
+          {f.categoria === "llantas" && unidad && (editar === "nuevo" ? (
+            <div className="grid gap-2">
+              <Label>Llantas que se cambiaron</Label>
+              <SelectorLlantas unidades={[unidad]} value={sel} onChange={setSel} />
+              <div className="grid gap-3 sm:grid-cols-3">
+                <div className="grid gap-1.5"><Label htmlFor="sv-marca">Marca</Label><Input id="sv-marca" value={ll.marca} onChange={(e) => setLl({ ...ll, marca: e.target.value })} /></div>
+                <div className="grid gap-1.5"><Label htmlFor="sv-medida">Medida</Label><Input id="sv-medida" placeholder="11R22.5" value={ll.medida} onChange={(e) => setLl({ ...ll, medida: e.target.value })} /></div>
+                <div className="grid gap-1.5"><Label htmlFor="sv-vida">Vida esperada (km)</Label><Input id="sv-vida" type="number" min={1} value={ll.vida} onChange={(e) => setLl({ ...ll, vida: e.target.value })} /></div>
+              </div>
+              <span className="text-xs text-muted-foreground">
+                Las llantas elegidas quedan instaladas con la fecha{esTracto ? " y el kilometraje" : ""} de este servicio y el costo se reparte entre ellas.
+              </span>
+            </div>
+          ) : ligadas.get(editar.id)?.length ? (
+            <p className="text-xs text-muted-foreground">
+              Instaladas en este servicio: {listaLlantas(tipo, ligadas.get(editar.id)!)}.
+              Si cambias la fecha{esTracto ? " o el kilometraje" : ""}, también se corrigen en ellas.
+            </p>
+          ) : null)}
           <div className="grid gap-1.5">
             <Label htmlFor="sv-serv">Servicio realizado</Label>
             <Input id="sv-serv" required value={f.servicio} onChange={(e) => setF({ ...f, servicio: e.target.value })} placeholder={esTracto ? "Cambio de aceite y filtros" : "Cambio de balatas"} />
@@ -162,6 +209,7 @@ export function FichaServicios({ tipo, unidadId, empresaId, kmActual, onChange, 
                   <p className="font-medium">{s.servicio}</p>
                   <p className="text-xs text-muted-foreground">
                     {etiquetaCategoria(s.categoria) && `${etiquetaCategoria(s.categoria)} · `}{fechaMx(s.fecha)}{s.kilometraje != null && ` · ${km(s.kilometraje)}`}{s.notas && ` · ${s.notas}`}
+                    {ligadas.get(s.id)?.length ? ` · ${listaLlantas(tipo, ligadas.get(s.id)!)}` : ""}
                   </p>
                 </div>
                 <div className="flex items-center gap-1 whitespace-nowrap">

@@ -14,6 +14,7 @@ export interface LlantaEstado {
   id: string; empresa_id: string; tracto_id: string | null; gondola_id: string | null; posicion: string;
   fecha_instalacion: string; km_instalacion: number | null; vida_km: number;
   marca: string | null; medida: string | null; numero_serie: string | null; costo: number; notas: string | null;
+  servicio_id?: string | null;
   km_recorridos: number; dias: number; porcentaje: number;
 }
 
@@ -43,6 +44,34 @@ export function etiquetaPosicion(codigo: string): string {
   if (!m) return codigo;
   const lado = { I: "izquierda", D: "derecha", IE: "izquierda exterior", II: "izquierda interior", DI: "derecha interior", DE: "derecha exterior" }[m[2]];
   return `Eje ${m[1]} ${lado}`;
+}
+
+/**
+ * Número de llanta en la unidad, de adelante hacia atrás y de izquierda a derecha (exterior → interior → interior →
+ * exterior). Tracto: 1-2 direccionales, 3-6 eje 2, 7-10 eje 3… Góndola: 1-4 eje 1, 5-8 eje 2…
+ */
+export function numeroLlanta(tipo: TipoUnidad, codigo: string): number {
+  const m = /^E(\d)-(I|D|IE|II|DI|DE)$/.exec(codigo);
+  if (!m) return 0;
+  const eje = Number(m[1]);
+  if (tipo === "tracto" && eje === 1) return m[2] === "I" ? 1 : 2;
+  const i = ["IE", "II", "DI", "DE"].indexOf(m[2]) + 1;
+  return tipo === "tracto" ? 2 + (eje - 2) * 4 + i : (eje - 1) * 4 + i;
+}
+
+export const nombreLlanta = (tipo: TipoUnidad, codigo: string) => `Llanta ${numeroLlanta(tipo, codigo)} · ${etiquetaPosicion(codigo)}`;
+
+/** «llantas 3, 4» / «llanta 7» */
+export function listaLlantas(tipo: TipoUnidad, codigos: string[]): string {
+  const n = codigos.map((c) => numeroLlanta(tipo, c)).sort((a, b) => a - b);
+  return `${n.length === 1 ? "llanta" : "llantas"} ${n.join(", ")}`;
+}
+
+/** Reparte un costo entre n llantas en centavos, sin perder ni sobrar centavos. */
+export function repartirCosto(total: number, n: number): number[] {
+  if (n <= 0) return [];
+  const c = Math.round(total * 100), base = Math.floor(c / n);
+  return Array.from({ length: n }, (_, i) => (base + (i < c - base * n ? 1 : 0)) / 100);
 }
 
 export const nivelLlanta = (l: Pick<LlantaEstado, "km_recorridos" | "vida_km">): Nivel => nivelDe(Number(l.km_recorridos), Number(l.vida_km));

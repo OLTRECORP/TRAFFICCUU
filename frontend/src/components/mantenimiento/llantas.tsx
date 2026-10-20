@@ -3,7 +3,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { Loader2 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
-import { etiquetaPosicion, nivelLlanta, posiciones, resumenLlantas, type LlantaEstado, type Posicion, type ResumenLlantas, type TipoUnidad } from "@/lib/llantas";
+import type { SupabaseClient } from "@supabase/supabase-js";
+import { listaLlantas, nivelLlanta, nombreLlanta, numeroLlanta, posiciones, repartirCosto, resumenLlantas, type LlantaEstado, type Posicion, type ResumenLlantas, type TipoUnidad } from "@/lib/llantas";
 import type { Nivel } from "@/lib/mantenimiento";
 import { cn, fechaMx, km, mxn } from "@/lib/utils";
 import { Alert } from "@/components/ui/alert";
@@ -17,8 +18,13 @@ const RELLENO: Record<Nivel, string> = { rojo: "fill-red-500", amarillo: "fill-a
 
 export interface UnidadLlantas { tipo: TipoUnidad; id: string; placa: string; ejes: number; empresaId: string; odometro?: number }
 
-/** Vista superior de la unidad (frente arriba): cada llanta pintada por su vida usada; gris punteado = sin registro. */
-export function DiagramaLlantas({ unidad, llantas, onElegir }: { unidad: UnidadLlantas; llantas: LlantaEstado[]; onElegir: (p: Posicion) => void }) {
+/**
+ * Vista superior de la unidad (frente arriba): cada llanta pintada por su vida usada; gris punteado = sin registro.
+ * Con `seleccion` muestra el número de cada llanta y resalta las elegidas.
+ */
+export function DiagramaLlantas({ unidad, llantas, onElegir, seleccion }: {
+  unidad: Pick<UnidadLlantas, "tipo" | "placa" | "ejes">; llantas: LlantaEstado[]; onElegir: (p: Posicion) => void; seleccion?: Set<string>;
+}) {
   const pos = posiciones(unidad.tipo, unidad.ejes);
   const W = 236, LL = 26, AL = 46, gap = 4;
   const yEje = (e: number) => (unidad.tipo === "tracto" ? (e === 1 ? 46 : 120 + (e - 2) * 64) : 40 + (e - 1) * 64);
@@ -42,15 +48,20 @@ export function DiagramaLlantas({ unidad, llantas, onElegir }: { unidad: UnidadL
         const n = l ? nivelLlanta(l) : null;
         const vida = l ? Math.max(0, 100 - Number(l.porcentaje)) : null;
         const x = xDe(p), y = yEje(p.eje) - AL / 2;
+        const num = numeroLlanta(unidad.tipo, p.codigo), elegida = seleccion?.has(p.codigo);
         return (
-          <g key={p.codigo} role="button" tabIndex={0} className="cursor-pointer focus:outline-none [&:focus>rect]:stroke-ring [&:hover>rect]:opacity-80"
-            onClick={() => onElegir(p)} onKeyDown={(ev) => (ev.key === "Enter" || ev.key === " ") && onElegir(p)}
-            aria-label={`${etiquetaPosicion(p.codigo)}: ${l ? `${Math.round(vida!)}% de vida` : "sin registro"}`}>
-            <title>{`${etiquetaPosicion(p.codigo)}${l ? ` · ${km(Number(l.km_recorridos))} de ${km(Number(l.vida_km))}` : " · sin registro"}`}</title>
+          <g key={p.codigo} role={seleccion ? "checkbox" : "button"} aria-checked={seleccion ? !!elegida : undefined} tabIndex={0}
+            className="cursor-pointer focus:outline-none [&:focus>rect]:stroke-ring [&:hover>rect]:opacity-80"
+            onClick={() => onElegir(p)} onKeyDown={(ev) => { if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); onElegir(p); } }}
+            aria-label={`${nombreLlanta(unidad.tipo, p.codigo)}: ${l ? `${Math.round(vida!)}% de vida` : "sin registro"}`}>
+            <title>{`${nombreLlanta(unidad.tipo, p.codigo)}${l ? ` · ${km(Number(l.km_recorridos))} de ${km(Number(l.vida_km))}` : " · sin registro"}`}</title>
+            {elegida && <rect x={x - 4} y={y - 4} width={LL + 8} height={AL + 8} rx={9} className="fill-none stroke-primary" strokeWidth={3} />}
             <rect x={x} y={y} width={LL} height={AL} rx={6} strokeWidth={2}
-              className={n ? cn(RELLENO[n], "stroke-background") : "fill-transparent stroke-muted-foreground"} strokeDasharray={n ? undefined : "4 3"} />
-            <text x={x + LL / 2} y={y + AL / 2 + 4} textAnchor="middle" className={cn("pointer-events-none text-[10px] font-semibold", n ? "fill-white" : "fill-muted-foreground")}>
-              {vida == null ? "?" : `${Math.round(vida)}`}
+              className={elegida ? "fill-primary stroke-background" : n ? cn(RELLENO[n], "stroke-background", seleccion && "opacity-60") : "fill-transparent stroke-muted-foreground"}
+              strokeDasharray={n || elegida ? undefined : "4 3"} />
+            <text x={x + LL / 2} y={y + AL / 2 + 4} textAnchor="middle"
+              className={cn("pointer-events-none font-semibold", seleccion ? "text-[12px]" : "text-[10px]", n || elegida ? "fill-white" : "fill-muted-foreground")}>
+              {seleccion ? num : vida == null ? "?" : `${Math.round(vida)}`}
             </text>
           </g>
         );
@@ -134,17 +145,21 @@ function LlantaDialogo({ unidad, pos, vigente, vidaDefault, onClose, onSaved }: 
     if (unidad.tipo === "tracto" && (f.km === "" || !(kmN! >= 0))) return setError("Captura el odómetro del tracto al instalarla");
     setBusy(true); setError(null);
     const sb = createClient();
+    let servicioId: string | null = null;
+    if (f.bitacora && costo > 0) {
+      // el costo entra al costo de operación; en el tracto, su km también corrige el odómetro estimado
+      const { data, error: e0 } = await sb.from("servicios_mantenimiento").insert({
+        empresa_id: unidad.empresaId, [col]: unidad.id, fecha: f.fecha, kilometraje: kmN, categoria: "llantas", costo,
+        servicio: `${nombreLlanta(unidad.tipo, pos.codigo)}${f.marca.trim() ? ` (${f.marca.trim()})` : ""}`,
+      }).select("id").single();
+      if (e0) { setBusy(false); return setError(e0.message); }
+      servicioId = (data as { id: string }).id;
+    }
     const { error: e1 } = await sb.from("llantas").insert({
       empresa_id: unidad.empresaId, [col]: unidad.id, posicion: pos.codigo, fecha_instalacion: f.fecha, km_instalacion: kmN,
       vida_km: vida, marca: f.marca.trim() || null, medida: f.medida.trim() || null, numero_serie: f.serie.trim() || null, costo,
+      ...(servicioId ? { servicio_id: servicioId } : {}),
     });
-    if (!e1 && f.bitacora && costo > 0) {
-      // el costo entra al costo de operación; en el tracto, su km también corrige el odómetro estimado
-      await sb.from("servicios_mantenimiento").insert({
-        empresa_id: unidad.empresaId, [col]: unidad.id, fecha: f.fecha, kilometraje: kmN, categoria: "llantas", costo,
-        servicio: `Llanta ${etiquetaPosicion(pos.codigo).toLowerCase()}${f.marca.trim() ? ` (${f.marca.trim()})` : ""}`,
-      });
-    }
     setBusy(false);
     if (e1) setError(e1.message); else onSaved();
   }
@@ -164,7 +179,7 @@ function LlantaDialogo({ unidad, pos, vigente, vidaDefault, onClose, onSaved }: 
         {pos && (
           <>
             <div className="pr-6">
-              <DialogTitle className="text-lg font-semibold">{etiquetaPosicion(pos.codigo)}</DialogTitle>
+              <DialogTitle className="text-lg font-semibold">{nombreLlanta(unidad.tipo, pos.codigo)}</DialogTitle>
               <DialogDescription className="text-sm text-muted-foreground">{unidad.tipo === "tracto" ? "Tracto" : "Góndola"} {unidad.placa}</DialogDescription>
             </div>
             {error && <ErrorAlert where="llantas" message={error} />}
@@ -217,4 +232,69 @@ function LlantaDialogo({ unidad, pos, vigente, vidaDefault, onClose, onSaved }: 
       </DialogContent>
     </Dialog>
   );
+}
+
+export interface UnidadSel { tipo: TipoUnidad; id: string; placa: string; ejes: number }
+/** Llantas elegidas por unidad: { [unidadId]: ["E1-I", ...] } */
+export type SeleccionLlantas = Record<string, string[]>;
+
+/** Elegir en el diagrama qué llantas (por número) cambia un servicio. Carga sola las llantas vigentes de las unidades. */
+export function SelectorLlantas({ unidades, value, onChange }: { unidades: UnidadSel[]; value: SeleccionLlantas; onChange: (v: SeleccionLlantas) => void }) {
+  const [llantas, setLlantas] = useState<LlantaEstado[]>([]);
+  const ids = unidades.map((u) => u.id).join(",");
+  useEffect(() => {
+    if (!ids) return;
+    const lista = ids.split(",");
+    void createClient().from("llantas_estado").select("*").or(`tracto_id.in.(${lista}),gondola_id.in.(${lista})`).limit(500)
+      .then(({ data }) => setLlantas((data ?? []) as LlantaEstado[]));
+  }, [ids]);
+  const toggle = (u: UnidadSel, codigo: string) => {
+    const act = value[u.id] ?? [];
+    onChange({ ...value, [u.id]: act.includes(codigo) ? act.filter((c) => c !== codigo) : [...act, codigo] });
+  };
+  const todas = (u: UnidadSel, si: boolean) => onChange({ ...value, [u.id]: si ? posiciones(u.tipo, u.ejes).map((p) => p.codigo) : [] });
+  return (
+    <div className="grid gap-3 sm:grid-cols-2">
+      {unidades.map((u) => {
+        const sel = new Set(value[u.id] ?? []);
+        const total = posiciones(u.tipo, u.ejes).length;
+        return (
+          <div key={u.id} className="grid content-start gap-2 rounded-lg border p-2">
+            <div className="flex items-center justify-between gap-2 text-sm">
+              <span className="font-medium">{u.tipo === "tracto" ? "Tracto" : "Góndola"} {u.placa}</span>
+              <button type="button" className="text-xs text-primary underline-offset-2 hover:underline" onClick={() => todas(u, sel.size < total)}>
+                {sel.size < total ? "Todas" : "Ninguna"}
+              </button>
+            </div>
+            <DiagramaLlantas unidad={u} llantas={llantas.filter((l) => (u.tipo === "tracto" ? l.tracto_id : l.gondola_id) === u.id)}
+              seleccion={sel} onElegir={(p) => toggle(u, p.codigo)} />
+            <p className="min-h-4 text-xs text-muted-foreground">
+              {sel.size ? `Elegidas: ${listaLlantas(u.tipo, [...sel])}` : "Toca las llantas que se cambiaron"}
+            </p>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+export const totalSeleccion = (v: SeleccionLlantas) => Object.values(v).reduce((t, l) => t + l.length, 0);
+
+/**
+ * Registra las llantas elegidas como instaladas por un servicio: toman su fecha y kilometraje (solo tracto) y quedan
+ * ligadas a él (al corregir el servicio se corrigen). `servicios` = id del servicio de cada unidad.
+ */
+export async function instalarLlantasDeServicio(sb: SupabaseClient, d: {
+  empresaId: string; unidades: UnidadSel[]; seleccion: SeleccionLlantas; servicios: Record<string, string>;
+  fecha: string; kmTracto: number | null; vidaKm: number; marca: string | null; medida: string | null; costoTotal: number;
+}): Promise<string | null> {
+  const filas = d.unidades.flatMap((u) => (d.seleccion[u.id] ?? []).map((codigo) => ({ u, codigo })));
+  const costos = repartirCosto(d.costoTotal, filas.length);
+  if (!filas.length) return null;
+  const { error } = await sb.from("llantas").insert(filas.map(({ u, codigo }, i) => ({
+    empresa_id: d.empresaId, [u.tipo === "tracto" ? "tracto_id" : "gondola_id"]: u.id, posicion: codigo,
+    fecha_instalacion: d.fecha, km_instalacion: u.tipo === "tracto" ? d.kmTracto : null, vida_km: d.vidaKm,
+    marca: d.marca, medida: d.medida, costo: costos[i], servicio_id: d.servicios[u.id] ?? null,
+  })));
+  return error ? error.message : null;
 }
