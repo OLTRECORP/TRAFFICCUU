@@ -210,3 +210,11 @@ test("la regla de llantas se mide con la llanta vigente más gastada", () => {
   assert.match(r.ultimo.servicio, /Eje 2 izquierda exterior/);
   assert.equal(alertaConLlantas({ ...a, regla: { ...a.regla, categoria: "motor" } }, llantas).km.usado, 12000);   // otros rubros no cambian
 });
+
+test("numeroLlanta y repartirCosto", async () => {
+  const { numeroLlanta, posiciones, repartirCosto } = await import("../src/lib/llantas.ts");
+  assert.deepEqual(posiciones("tracto", 3).map((p) => numeroLlanta("tracto", p.codigo)), [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
+  assert.deepEqual(posiciones("gondola", 2).map((p) => numeroLlanta("gondola", p.codigo)), [1, 2, 3, 4, 5, 6, 7, 8]);
+  assert.deepEqual(repartirCosto(100, 3), [33.34, 33.33, 33.33]);
+  assert.equal(repartirCosto(7800.01, 4).reduce((a, b) => a + b, 0).toFixed(2), "7800.01");
+});

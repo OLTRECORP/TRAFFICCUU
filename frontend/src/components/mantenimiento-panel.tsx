@@ -20,8 +20,8 @@ import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { BarraVida, FlotaMantenimiento, rubro, TEXTO } from "@/components/mantenimiento/flota";
 import { ReglasMantenimiento } from "@/components/mantenimiento/reglas";
-import { LlantasUnidad } from "@/components/mantenimiento/llantas";
-import { alertaConLlantas, posiciones, resumenLlantas, sumarResumen, type LlantaEstado, type ResumenLlantas } from "@/lib/llantas";
+import { instalarLlantasDeServicio, LlantasUnidad, SelectorLlantas, totalSeleccion, type SeleccionLlantas, type UnidadSel } from "@/components/mantenimiento/llantas";
+import { alertaConLlantas, listaLlantas, posiciones, resumenLlantas, sumarResumen, type LlantaEstado, type ResumenLlantas } from "@/lib/llantas";
 
 const ETIQUETA: Record<Nivel, string> = { rojo: "Vencido", amarillo: "Próximo", verde: "OK" };
 const BARRA: Record<Nivel, string> = { rojo: "bg-red-500", amarillo: "bg-amber-400", verde: "bg-emerald-500" };
@@ -61,6 +61,7 @@ function Anillo({ valor, nivel, etiqueta, detalle, vacio }: { valor: number | nu
 }
 
 type GondolaLl = { id: string; placa: string; ejes: number | null };
+type Registro = { tracto: Tracto; regla: Regla; gondola: GondolaLl | null };
 type ChoferAsig = Pick<Chofer, "id" | "nombre" | "licencia"> & { tracto_asignado_id: string | null };
 
 export function MantenimientoPanel() {
@@ -73,7 +74,7 @@ export function MantenimientoPanel() {
   const [viajes, setViajes] = useState<ViajeRend[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [registro, setRegistro] = useState<{ tracto: Tracto; regla: Regla } | null>(null);
+  const [registro, setRegistro] = useState<Registro | null>(null);
   const [sel, setSel] = useState<string | null>(null);
   const [q, setQ] = useState("");
   const [vista, setVista] = useState<"flota" | "vehiculo">("flota");
@@ -211,13 +212,13 @@ export function MantenimientoPanel() {
           onServiciosChange={() => void load()}
           kmPorLitro={rendimiento.get(actual.tracto.id) ?? null} mejorKmPorLitro={mejorRend}
           ultimaCarga={cargas.find((c) => c.tracto_id === actual.tracto.id)?.fecha ?? null}
-          onRegistrar={(regla) => setRegistro({ tracto: actual.tracto, regla })}
+          onRegistrar={(regla) => setRegistro({ tracto: actual.tracto, regla, gondola: gondolas.get(gondolaDe.get(actual.tracto.id) ?? "") ?? null })}
           odometro={odometros.get(actual.tracto.id) ?? null} reglas={reglas}
           llantas={llantas} gondola={gondolas.get(gondolaDe.get(actual.tracto.id) ?? "") ?? null} vidaLlanta={vidaLlanta}
           resumenLlantas={resumenLl.get(actual.tracto.id) ?? null}
         />
       )}
-      <RegistrarServicio registro={registro} onClose={() => setRegistro(null)} onSaved={() => { setRegistro(null); void load(); }} />
+      <RegistrarServicio registro={registro} vidaLlanta={vidaLlanta} onClose={() => setRegistro(null)} onSaved={() => { setRegistro(null); void load(); }} />
     </div>
       </TabsContent>
     </Tabs>
@@ -331,7 +332,7 @@ function Detalle({ tracto, alertas, chofer, servicios, cargas, kmViajes, onServi
       <Card className="rounded-xl">
         <CardHeader><CardTitle className="flex items-center gap-2 text-base"><Wrench className="h-4 w-4" aria-hidden /> Servicios y reparaciones</CardTitle></CardHeader>
         <CardContent>
-          <FichaServicios tipo="tracto" unidadId={tracto.id} empresaId={tracto.empresa_id} kmActual={tracto.kilometraje_actual} onChange={onServiciosChange} reglas={reglas} />
+          <FichaServicios key={`${tracto.id}-${servicios.length}`} tipo="tracto" unidadId={tracto.id} empresaId={tracto.empresa_id} kmActual={tracto.kilometraje_actual} onChange={onServiciosChange} reglas={reglas} />
         </CardContent>
       </Card>
     </div>
@@ -406,40 +407,75 @@ function AlertaRow({ a, onRegistrar }: { a: Alerta; onRegistrar: () => void }) {
 }
 
 function RegistrarServicio({
-  registro, onClose, onSaved,
-}: { registro: { tracto: Tracto; regla: Regla } | null; onClose: () => void; onSaved: () => void }) {
+  registro, vidaLlanta, onClose, onSaved,
+}: { registro: Registro | null; vidaLlanta: number; onClose: () => void; onSaved: () => void }) {
   const [kmServicio, setKmServicio] = useState("");
   const [fecha, setFecha] = useState(() => new Date().toISOString().slice(0, 10));
   const [costo, setCosto] = useState("");
   const [obs, setObs] = useState("");
+  const [sel, setSel] = useState<SeleccionLlantas>({});
+  const [ll, setLl] = useState({ marca: "", medida: "", vida: "" });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const esLlantas = registro?.regla.categoria === "llantas";
+  const unidades: UnidadSel[] = registro ? [
+    { tipo: "tracto", id: registro.tracto.id, placa: registro.tracto.placa, ejes: registro.tracto.ejes ?? 3 },
+    ...(registro.gondola ? [{ tipo: "gondola" as const, id: registro.gondola.id, placa: registro.gondola.placa, ejes: registro.gondola.ejes ?? 2 }] : []),
+  ] : [];
 
   useEffect(() => {
-    if (registro) { setKmServicio(String(Math.round(Number(registro.tracto.kilometraje_actual)))); setCosto(""); setObs(""); setError(null); }
-  }, [registro]);
+    if (registro) {
+      setKmServicio(String(Math.round(Number(registro.tracto.kilometraje_actual)))); setCosto(""); setObs(""); setError(null);
+      setSel({}); setLl({ marca: "", medida: "", vida: String(registro.regla.intervalo_km ?? vidaLlanta) });
+    }
+  }, [registro, vidaLlanta]);
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!registro) return;
-    const n = Number(kmServicio), c = Number(costo || 0);
+    const n = Number(kmServicio), c = Number(costo || 0), vida = Math.round(Number(ll.vida));
     if (!Number.isFinite(n) || n < 0) return setError("Kilometraje inválido");
     if (!Number.isFinite(c) || c < 0) return setError("Costo inválido");
-    setSaving(true);
+    const total = totalSeleccion(sel);
+    if (esLlantas && !total) return setError("Toca en el diagrama las llantas que se cambiaron");
+    if (esLlantas && !(vida > 0)) return setError("Vida esperada inválida");
+    setSaving(true); setError(null);
+    const sb = createClient(), t = registro.tracto;
+    // Con llantas de góndola, su parte del costo va a la bitácora de la góndola (por número de llantas)
+    const nG = registro.gondola ? (sel[registro.gondola.id] ?? []).length : 0;
+    const cG = esLlantas && nG ? Math.round((c * nG / total) * 100) / 100 : 0, cT = Math.round((c - cG) * 100) / 100;
+    const nombre = (u: UnidadSel) => esLlantas ? `${registro.regla.tipo_servicio}: ${listaLlantas(u.tipo, sel[u.id] ?? [])}` : registro.regla.tipo_servicio;
+    const servicios: Record<string, string> = {};
     // Se guarda en la bitácora de servicios del tracto (con su costo); el km capturado se vuelve el nuevo punto de partida del odómetro.
-    const { error } = await createClient().from("servicios_mantenimiento").insert({
-      empresa_id: registro.tracto.empresa_id, tracto_id: registro.tracto.id, regla_id: registro.regla.id,
-      servicio: registro.regla.tipo_servicio, categoria: registro.regla.categoria ?? "otro",
-      kilometraje: n, fecha, costo: c, notas: obs || null,
-    });
+    if (!esLlantas || total - nG > 0) {
+      const { data, error } = await sb.from("servicios_mantenimiento").insert({
+        empresa_id: t.empresa_id, tracto_id: t.id, regla_id: registro.regla.id,
+        servicio: nombre(unidades[0]), categoria: registro.regla.categoria ?? "otro",
+        kilometraje: n, fecha, costo: cT, notas: obs || null,
+      }).select("id").single();
+      if (error) { setSaving(false); return setError(error.message); }
+      servicios[t.id] = (data as { id: string }).id;
+    }
+    if (esLlantas && registro.gondola && nG) {
+      const { data, error } = await sb.from("servicios_mantenimiento").insert({
+        empresa_id: t.empresa_id, gondola_id: registro.gondola.id, servicio: nombre(unidades[1]), categoria: "llantas",
+        kilometraje: null, fecha, costo: cG, notas: obs || `Con el tracto ${t.placa}`,
+      }).select("id").single();
+      if (error) { setSaving(false); return setError(error.message); }
+      servicios[registro.gondola.id] = (data as { id: string }).id;
+    }
+    const err = esLlantas ? await instalarLlantasDeServicio(sb, {
+      empresaId: t.empresa_id, unidades, seleccion: sel, servicios, fecha, kmTracto: n, vidaKm: vida,
+      marca: ll.marca.trim() || null, medida: ll.medida.trim() || null, costoTotal: c,
+    }) : null;
     setSaving(false);
-    if (error) setError(error.message);
+    if (err) setError(err);
     else onSaved();
   }
 
   return (
     <Dialog open={!!registro} onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="max-w-md">
+      <DialogContent className={esLlantas ? "max-h-[92vh] max-w-2xl overflow-y-auto" : "max-w-md"}>
         <div>
           <DialogTitle className="text-lg font-semibold">Registrar servicio</DialogTitle>
           <DialogDescription className="text-sm text-muted-foreground">
@@ -448,6 +484,16 @@ function RegistrarServicio({
         </div>
         <form onSubmit={onSubmit} className="grid gap-4">
           {error && <ErrorAlert where="mantenimiento-registro" message={error} />}
+          {esLlantas && (
+            <div className="grid gap-2">
+              <Label>Llantas que se cambiaron</Label>
+              <SelectorLlantas unidades={unidades} value={sel} onChange={setSel} />
+              <span className="text-xs text-muted-foreground">
+                Cada llanta elegida queda instalada con la fecha y el kilometraje de este servicio (la góndola solo toma la fecha;
+                su vida se mide con sus viajes). La llanta anterior de esa posición pasa al historial.
+              </span>
+            </div>
+          )}
           <div className="grid gap-2">
             <Label htmlFor="km">Kilometraje del tablero al servicio</Label>
             <Input id="km" type="number" min={0} step="0.1" required value={kmServicio} onChange={(e) => setKmServicio(e.target.value)} />
@@ -459,16 +505,23 @@ function RegistrarServicio({
               <Input id="fecha" type="date" required value={fecha} onChange={(e) => setFecha(e.target.value)} />
             </div>
             <div className="grid gap-2">
-              <Label htmlFor="costo">Costo (MXN)</Label>
+              <Label htmlFor="costo">Costo (MXN){esLlantas ? " total" : ""}</Label>
               <Input id="costo" type="number" min={0} step="0.01" value={costo} onChange={(e) => setCosto(e.target.value)} placeholder="0" />
             </div>
           </div>
+          {esLlantas && (
+            <div className="grid gap-2 sm:grid-cols-3">
+              <div className="grid gap-2"><Label htmlFor="rs-marca">Marca</Label><Input id="rs-marca" value={ll.marca} onChange={(e) => setLl({ ...ll, marca: e.target.value })} /></div>
+              <div className="grid gap-2"><Label htmlFor="rs-medida">Medida</Label><Input id="rs-medida" placeholder="11R22.5" value={ll.medida} onChange={(e) => setLl({ ...ll, medida: e.target.value })} /></div>
+              <div className="grid gap-2"><Label htmlFor="rs-vida">Vida esperada (km)</Label><Input id="rs-vida" type="number" min={1} value={ll.vida} onChange={(e) => setLl({ ...ll, vida: e.target.value })} /></div>
+            </div>
+          )}
           <div className="grid gap-2">
             <Label htmlFor="obs">Observaciones</Label>
             <Input id="obs" value={obs} onChange={(e) => setObs(e.target.value)} />
           </div>
           <Button type="submit" disabled={saving}>
-            {saving && <Loader2 className="h-4 w-4 animate-spin" />} Guardar
+            {saving && <Loader2 className="h-4 w-4 animate-spin" />} Guardar{esLlantas && totalSeleccion(sel) ? ` (${totalSeleccion(sel)} llanta${totalSeleccion(sel) === 1 ? "" : "s"})` : ""}
           </Button>
         </form>
       </DialogContent>
