@@ -180,3 +180,33 @@ test("excedido en días aunque falten km", () => {
   assert.equal(a.nivel, "rojo");
   assert.equal(textoRestante(a, (n) => `${n} km`), "faltan 16000 km · vencido hace 51 días");
 });
+
+// ---- Llantas por posición ------------------------------------------------------------------------------------------
+import { posiciones, resumenLlantas, alertaConLlantas, etiquetaPosicion } from "../src/lib/llantas.ts";
+
+test("posiciones: tracto 3 ejes = 10 llantas, góndola 2 ejes = 8", () => {
+  assert.equal(posiciones("tracto", 3).length, 10);
+  assert.equal(posiciones("gondola", 2).length, 8);
+  assert.deepEqual(posiciones("tracto", 2).map((p) => p.codigo), ["E1-I", "E1-D", "E2-IE", "E2-II", "E2-DI", "E2-DE"]);
+  assert.equal(etiquetaPosicion("E2-IE"), "Eje 2 izquierda exterior");
+});
+
+test("resumen: vencidas, próximas y sin registro; recomendadas = vencidas + próximas", () => {
+  const l = (posicion, km_recorridos, vida_km = 100000) => ({ posicion, km_recorridos, vida_km, porcentaje: km_recorridos / vida_km * 100 });
+  const r = resumenLlantas(posiciones("tracto", 2), [l("E1-I", 105000), l("E1-D", 95000), l("E2-IE", 20000), l("E2-II", 100000)]);
+  assert.deepEqual(r, { total: 6, vencidas: 2, proximas: 1, bien: 1, sinRegistro: 2, recomendadas: 3 });
+});
+
+test("la regla de llantas se mide con la llanta vigente más gastada", () => {
+  const a = { regla: { id: "r", tipo_servicio: "Llantas", intervalo_km: 120000, intervalo_dias: null, categoria: "llantas" },
+    nivel: "verde", porcentaje: 10, km: { usado: 12000, intervalo: 120000, restante: 108000, porcentaje: 10, nivel: "verde" }, dias: null, ultimo: null, sinRegistro: true };
+  const llantas = [
+    { posicion: "E1-I", km_recorridos: 50000, vida_km: 100000, porcentaje: 50, fecha_instalacion: "2026-01-01", km_instalacion: 300000 },
+    { posicion: "E2-IE", km_recorridos: 93000, vida_km: 100000, porcentaje: 93, fecha_instalacion: "2025-06-01", km_instalacion: 250000 },
+  ];
+  const r = alertaConLlantas(a, llantas);
+  assert.equal(r.km.usado, 93000);
+  assert.equal(r.nivel, "amarillo");
+  assert.match(r.ultimo.servicio, /Eje 2 izquierda exterior/);
+  assert.equal(alertaConLlantas({ ...a, regla: { ...a.regla, categoria: "motor" } }, llantas).km.usado, 12000);   // otros rubros no cambian
+});
