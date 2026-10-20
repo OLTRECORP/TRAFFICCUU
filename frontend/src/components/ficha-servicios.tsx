@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { Loader2, Pencil, Plus, Trash2 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
-import type { ServicioMant } from "@/lib/types";
+import type { Regla, ServicioMant } from "@/lib/types";
 import { fechaMx, km, mxn } from "@/lib/utils";
 import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -16,6 +16,7 @@ interface Props {
   empresaId: string;
   kmActual?: number | null;   // sugerencia de odómetro (tractos)
   onChange?: () => void;      // se llama al agregar, editar o eliminar (para refrescar totales fuera de la bitácora)
+  reglas?: Regla[];           // servicios programados: el registro reinicia su conteo de km y días
 }
 
 // Tipos de servicio; aplican igual a tractos y góndolas.
@@ -37,14 +38,14 @@ const etiquetaCategoria = (v: string | null) => CATEGORIAS_SERVICIO.find((c) => 
 const hoy = () => new Date().toISOString().slice(0, 10);
 
 // Bitácora de mantenimiento de una unidad. Tracto: fecha + km + servicio + costo. Góndola: fecha + servicio + costo.
-export function FichaServicios({ tipo, unidadId, empresaId, kmActual, onChange }: Props) {
+export function FichaServicios({ tipo, unidadId, empresaId, kmActual, onChange, reglas = [] }: Props) {
   const esTracto = tipo === "tracto";
   const col = esTracto ? "tracto_id" : "gondola_id";
   const [rows, setRows] = useState<ServicioMant[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [editar, setEditar] = useState<ServicioMant | "nuevo" | null>(null);
-  const [f, setF] = useState({ fecha: hoy(), km: "", servicio: "", categoria: "", costo: "", notas: "" });
+  const [f, setF] = useState({ fecha: hoy(), km: "", servicio: "", categoria: "", costo: "", notas: "", regla: "" });
   const [saving, setSaving] = useState(false);
 
   const load = useCallback(async () => {
@@ -58,8 +59,8 @@ export function FichaServicios({ tipo, unidadId, empresaId, kmActual, onChange }
   function abrir(s: ServicioMant | "nuevo") {
     setError(null);
     setF(s === "nuevo"
-      ? { fecha: hoy(), km: kmActual != null ? String(Math.round(Number(kmActual))) : "", servicio: "", categoria: "", costo: "", notas: "" }
-      : { fecha: s.fecha, km: s.kilometraje != null ? String(s.kilometraje) : "", servicio: s.servicio, categoria: s.categoria ?? "", costo: String(s.costo), notas: s.notas ?? "" });
+      ? { fecha: hoy(), km: kmActual != null ? String(Math.round(Number(kmActual))) : "", servicio: "", categoria: "", costo: "", notas: "", regla: "" }
+      : { fecha: s.fecha, km: s.kilometraje != null ? String(s.kilometraje) : "", servicio: s.servicio, categoria: s.categoria ?? "", costo: String(s.costo), notas: s.notas ?? "", regla: s.regla_id ?? "" });
     setEditar(s);
   }
 
@@ -71,7 +72,8 @@ export function FichaServicios({ tipo, unidadId, empresaId, kmActual, onChange }
     if (!Number.isFinite(costo) || costo < 0) return setError("Costo inválido");
     if (esTracto && (f.km === "" || !Number.isFinite(kilometraje) || (kilometraje as number) < 0)) return setError("Kilometraje inválido");
     setSaving(true); setError(null);
-    const datos = { fecha: f.fecha, kilometraje, servicio: f.servicio.trim(), categoria: f.categoria || null, costo, notas: f.notas.trim() || null };
+    const datos = { fecha: f.fecha, kilometraje, servicio: f.servicio.trim(), categoria: f.categoria || null, costo, notas: f.notas.trim() || null,
+      ...(esTracto && reglas.length ? { regla_id: f.regla || null } : {}) };
     const sb = createClient();
     const { error: err } = editar === "nuevo"
       ? await sb.from("servicios_mantenimiento").insert({ ...datos, empresa_id: empresaId, [col]: unidadId })
@@ -110,6 +112,20 @@ export function FichaServicios({ tipo, unidadId, empresaId, kmActual, onChange }
               <Input id="sv-costo" type="number" min={0} step="0.01" required value={f.costo} onChange={(e) => setF({ ...f, costo: e.target.value })} />
             </div>
           </div>
+          {esTracto && reglas.length > 0 && (
+            <div className="grid gap-1.5">
+              <Label htmlFor="sv-regla">Servicio programado (opcional)</Label>
+              <select id="sv-regla" className="h-10 rounded-md border bg-background px-3 text-sm" value={f.regla}
+                onChange={(e) => {
+                  const r = reglas.find((x) => x.id === e.target.value);
+                  setF({ ...f, regla: e.target.value, servicio: f.servicio || r?.tipo_servicio || "", categoria: r?.categoria ?? f.categoria });
+                }}>
+                <option value="">Ninguno</option>
+                {reglas.map((r) => <option key={r.id} value={r.id}>{r.tipo_servicio}</option>)}
+              </select>
+              <span className="text-xs text-muted-foreground">Si cumple un servicio programado, su conteo de km y días vuelve a empezar desde esta fecha y kilometraje.</span>
+            </div>
+          )}
           <div className="grid gap-1.5">
             <Label htmlFor="sv-cat">Tipo de servicio</Label>
             <select id="sv-cat" className="h-10 rounded-md border bg-background px-3 text-sm" value={f.categoria} onChange={(e) => setF({ ...f, categoria: e.target.value })}>

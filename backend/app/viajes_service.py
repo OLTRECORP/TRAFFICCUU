@@ -129,7 +129,7 @@ def guardar_viaje(tenant: Tenant, v: CFDIViaje, factura_id: str | None = None, c
     if row["cliente_id"] is None:
         del row["cliente_id"]
     try:
-        # El trigger trg_viaje_suma_kilometraje actualiza tractocamiones.kilometraje_actual
+        # El trigger trg_viaje_odometro recalcula tractocamiones.kilometraje_actual (último servicio + viajes posteriores)
         res = db.table("viajes").insert(row).execute()
     except Exception as exc:
         raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, f"No se pudo guardar el viaje: {exc}")

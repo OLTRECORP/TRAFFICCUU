@@ -136,3 +136,47 @@ test("ganancia por chofer prorratea el mantenimiento del tracto por facturación
   assert.equal(r.A.ganancia, 7500 - 750 - 900);
   assert.equal(r.B.ganancia, 2500 - 250 - 400 - 300);
 });
+
+// ---- Mantenimiento: servicios programados por km y/o días ----------------------------------------------------
+import { calcularAlertas, peorNivel, textoRestante } from "../src/lib/mantenimiento.ts";
+
+test("cada regla cuenta desde su último servicio; km y días, el peor manda", () => {
+  const tracto = { id: "t1", empresa_id: "e", placa: "X", modelo: null, kilometraje_inicial: 100000, kilometraje_actual: 148500 };
+  const reglas = [
+    { id: "aceite", tipo_servicio: "Aceite", intervalo_km: 20000, intervalo_dias: 180, categoria: "motor" },
+    { id: "afinacion", tipo_servicio: "Afinación", intervalo_km: 60000, intervalo_dias: null, categoria: "motor" },
+    { id: "balatas", tipo_servicio: "Balatas", intervalo_km: 60000, intervalo_dias: null, categoria: "frenos" },
+    { id: "verif", tipo_servicio: "Verificación", intervalo_km: null, intervalo_dias: 365, categoria: "otro" },
+  ];
+  const servicios = [
+    { id: "s1", empresa_id: "e", tracto_id: "t1", gondola_id: null, fecha: "2026-05-01", kilometraje: 130000, servicio: "Cambio de aceite", categoria: "motor", costo: 0, notas: null, regla_id: "aceite" },
+    { id: "s2", empresa_id: "e", tracto_id: "t1", gondola_id: null, fecha: "2026-06-01", kilometraje: 135000, servicio: "Balatas traseras", categoria: "frenos", costo: 0, notas: null, regla_id: null },
+    { id: "s3", empresa_id: "e", tracto_id: "t1", gondola_id: null, fecha: "2026-07-01", kilometraje: 140000, servicio: "Revisión motor", categoria: "motor", costo: 0, notas: null, regla_id: null },
+  ];
+  const [aceite, afinacion, balatas, verif] = calcularAlertas(tracto, reglas, [], servicios, "2026-10-20");
+  assert.equal(aceite.km.usado, 18500);                 // 148,500 − 130,000
+  assert.equal(aceite.km.nivel, "amarillo");            // 92.5 %
+  assert.equal(aceite.dias.usado, 172);                 // 1 may → 20 oct
+  assert.equal(aceite.dias.nivel, "amarillo");          // 95.6 %
+  assert.equal(aceite.nivel, "amarillo");
+  assert.equal(afinacion.sinRegistro, true);            // el servicio de motor sin regla no cuenta: el rubro tiene dos reglas
+  assert.equal(afinacion.km.usado, 48500);              // desde el kilometraje inicial
+  assert.equal(balatas.ultimo.servicio, "Balatas traseras");   // único del rubro frenos: cuenta aunque no se ligó
+  assert.equal(balatas.km.restante, 46500);
+  assert.equal(verif.km, null);
+  assert.equal(verif.dias, null);                       // sin servicio no hay fecha base
+  assert.equal(textoRestante(verif, String), "sin servicio registrado");
+  assert.equal(peorNivel([aceite, afinacion, balatas, verif]), "amarillo");
+  assert.equal(textoRestante(aceite, (n) => `${n} km`), "faltan 1500 km · 8 días");
+});
+
+test("excedido en días aunque falten km", () => {
+  const tracto = { id: "t1", empresa_id: "e", placa: "X", modelo: null, kilometraje_inicial: 0, kilometraje_actual: 5000 };
+  const reglas = [{ id: "r", tipo_servicio: "Aceite", intervalo_km: 20000, intervalo_dias: 90, categoria: "motor" }];
+  const bitacora = [{ id: "b", tracto_id: "t1", servicio_id: "r", kilometraje_al_servicio: 1000, fecha: "2026-06-01", observaciones: null }];
+  const [a] = calcularAlertas(tracto, reglas, bitacora, [], "2026-10-20");
+  assert.equal(a.km.nivel, "verde");
+  assert.equal(a.dias.nivel, "rojo");
+  assert.equal(a.nivel, "rojo");
+  assert.equal(textoRestante(a, (n) => `${n} km`), "faltan 16000 km · vencido hace 51 días");
+});
