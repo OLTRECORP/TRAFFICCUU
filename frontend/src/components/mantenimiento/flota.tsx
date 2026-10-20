@@ -5,6 +5,7 @@ import type { Alerta, Nivel } from "@/lib/mantenimiento";
 import { textoRestante } from "@/lib/mantenimiento";
 import type { OdometroTracto, Regla, Tracto } from "@/lib/types";
 import { cn, km } from "@/lib/utils";
+import type { ResumenLlantas } from "@/lib/llantas";
 import { CATEGORIAS_SERVICIO } from "@/components/ficha-servicios";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
@@ -25,8 +26,9 @@ export function BarraVida({ a, delgada }: { a: Alerta; delgada?: boolean }) {
 }
 
 /** Todos los tractos contra todos los servicios programados (agrupados por rubro), del más urgente al menos urgente. */
-export function FlotaMantenimiento({ filas, reglas, odometros, onElegir }: {
-  filas: { tracto: Tracto; alertas: Alerta[] }[]; reglas: Regla[]; odometros: Map<string, OdometroTracto>; onElegir: (id: string) => void;
+export function FlotaMantenimiento({ filas, reglas, odometros, llantas, onElegir }: {
+  filas: { tracto: Tracto; alertas: Alerta[] }[]; reglas: Regla[]; odometros: Map<string, OdometroTracto>;
+  llantas: Map<string, ResumenLlantas>; onElegir: (id: string) => void;
 }) {
   const orden = useMemo(() => {
     const peso = (f: { alertas: Alerta[] }) => Math.max(0, ...f.alertas.map((a) => a.porcentaje));
@@ -61,6 +63,11 @@ export function FlotaMantenimiento({ filas, reglas, odometros, onElegir }: {
                   <span className="block font-normal">{[r.intervalo_km ? km(r.intervalo_km) : null, r.intervalo_dias ? `${r.intervalo_dias} días` : null].filter(Boolean).join(" o ")}</span>
                 </th>
               ))}
+              <th className="px-2 pb-1 font-medium">
+                <span className="block text-[11px] uppercase tracking-wide">Llantas</span>
+                <span className="text-foreground">Por cambiar</span>
+                <span className="block font-normal">tracto + góndola</span>
+              </th>
             </tr>
           </thead>
           <tbody>
@@ -82,6 +89,7 @@ export function FlotaMantenimiento({ filas, reglas, odometros, onElegir }: {
                       </td>
                     );
                   })}
+                  <td className="px-2 py-2 align-top last:rounded-r-lg"><ConteoLlantas r={llantas.get(tracto.id)} /></td>
                 </tr>
               );
             })}
@@ -89,9 +97,26 @@ export function FlotaMantenimiento({ filas, reglas, odometros, onElegir }: {
         </table>
         <p className="mt-2 text-xs text-muted-foreground">
           La barra es la vida que le queda al servicio (por km o por días, lo que llegue primero). «est.» = odómetro estimado con el último
-          servicio registrado más los km de los viajes posteriores. Haz clic en un tracto para ver su detalle.
+          servicio registrado más los km de los viajes posteriores. «Llantas por cambiar» cuenta las vencidas y las que pasan del 90 % de
+          su vida, del tracto y de la góndola de su último viaje. Haz clic en un tracto para ver su detalle.
         </p>
       </CardContent>
     </Card>
+  );
+}
+
+/** Mini barra apilada de las llantas de un tracto (y su góndola) por nivel, con cuántas conviene cambiar. */
+function ConteoLlantas({ r }: { r?: ResumenLlantas }) {
+  if (!r || r.sinRegistro === r.total) return <span className="text-xs text-muted-foreground">sin registro</span>;
+  const seg: [number, string][] = [[r.vencidas, COLOR.rojo], [r.proximas, COLOR.amarillo], [r.bien, COLOR.verde], [r.sinRegistro, "bg-secondary"]];
+  return (
+    <div className="grid gap-1" aria-label={`${r.recomendadas} de ${r.total} llantas por cambiar`}>
+      <div className="flex h-2.5 gap-px overflow-hidden rounded-full">
+        {seg.filter(([n]) => n > 0).map(([n, c], i) => <span key={i} className={c} style={{ flexGrow: n }} />)}
+      </div>
+      <span className={cn("text-xs", r.vencidas ? TEXTO.rojo : r.proximas ? TEXTO.amarillo : TEXTO.verde)}>
+        {r.recomendadas ? `${r.recomendadas} de ${r.total}` : "ninguna"}{r.vencidas ? ` (${r.vencidas} ya)` : ""}
+      </span>
+    </div>
   );
 }

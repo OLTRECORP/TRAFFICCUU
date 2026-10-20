@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Loader2, Search, User, Wrench } from "lucide-react";
+import { CircleDot, Loader2, Search, User, Wrench } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { todo } from "@/lib/paginar";
 import { calcularAlertas, peorNivel, textoRestante, type Alerta, type Medida, type Nivel } from "@/lib/mantenimiento";
@@ -20,6 +20,8 @@ import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { BarraVida, FlotaMantenimiento, rubro, TEXTO } from "@/components/mantenimiento/flota";
 import { ReglasMantenimiento } from "@/components/mantenimiento/reglas";
+import { LlantasUnidad } from "@/components/mantenimiento/llantas";
+import { alertaConLlantas, posiciones, resumenLlantas, sumarResumen, type LlantaEstado, type ResumenLlantas } from "@/lib/llantas";
 
 const ETIQUETA: Record<Nivel, string> = { rojo: "Vencido", amarillo: "Próximo", verde: "OK" };
 const BARRA: Record<Nivel, string> = { rojo: "bg-red-500", amarillo: "bg-amber-400", verde: "bg-emerald-500" };
@@ -58,6 +60,7 @@ function Anillo({ valor, nivel, etiqueta, detalle, vacio }: { valor: number | nu
   );
 }
 
+type GondolaLl = { id: string; placa: string; ejes: number | null };
 type ChoferAsig = Pick<Chofer, "id" | "nombre" | "licencia"> & { tracto_asignado_id: string | null };
 
 export function MantenimientoPanel() {
@@ -75,6 +78,9 @@ export function MantenimientoPanel() {
   const [q, setQ] = useState("");
   const [vista, setVista] = useState<"flota" | "vehiculo">("flota");
   const [odometros, setOdometros] = useState<Map<string, OdometroTracto>>(new Map());
+  const [llantas, setLlantas] = useState<LlantaEstado[]>([]);
+  const [gondolas, setGondolas] = useState<Map<string, GondolaLl>>(new Map());
+  const [gondolaDe, setGondolaDe] = useState<Map<string, string>>(new Map());
 
   const load = useCallback(async () => {
     const sb = createClient();
@@ -92,6 +98,15 @@ export function MantenimientoPanel() {
       // Cómo se estimó cada odómetro (migración 026); sin ella el detalle solo muestra el número
       const od = await sb.from("tractos_odometro").select("*").limit(5000);
       setOdometros(new Map(((od.data ?? []) as OdometroTracto[]).map((o) => [o.tracto_id, o])));
+      // Llantas vigentes y góndola actual de cada tracto (migración 027)
+      const [ll, g, ga] = await Promise.all([
+        sb.from("llantas_estado").select("*").limit(20000),
+        sb.from("gondolas").select("id, placa, ejes").limit(5000),
+        sb.from("tractos_gondola_actual").select("tracto_id, gondola_id").limit(5000),
+      ]);
+      setLlantas(ll.error ? [] : ((ll.data ?? []) as LlantaEstado[]));
+      setGondolas(new Map(((g.data ?? []) as GondolaLl[]).map((x) => [x.id, x])));
+      setGondolaDe(new Map(((ga.data ?? []) as { tracto_id: string; gondola_id: string }[]).map((x) => [x.tracto_id, x.gondola_id])));
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     }
@@ -100,10 +115,26 @@ export function MantenimientoPanel() {
 
   useEffect(() => { void load(); }, [load]);
 
+  // la regla de llantas se mide con las llantas vigentes del tracto, no con el último servicio del rubro
   const filas = useMemo(
-    () => tractos.map((t) => ({ tracto: t, alertas: calcularAlertas(t, reglas, bitacora, servicios) })),
-    [tractos, reglas, bitacora, servicios],
+    () => tractos.map((t) => {
+      const propias = llantas.filter((l) => l.tracto_id === t.id);
+      return { tracto: t, alertas: calcularAlertas(t, reglas, bitacora, servicios).map((a) => alertaConLlantas(a, propias)) };
+    }),
+    [tractos, reglas, bitacora, servicios, llantas],
   );
+  // cuántas llantas conviene cambiar por tracto: las suyas más las de la góndola que jala hoy
+  const resumenLl = useMemo(() => {
+    const out = new Map<string, ResumenLlantas>();
+    for (const t of tractos) {
+      let r = resumenLlantas(posiciones("tracto", t.ejes ?? 3), llantas.filter((l) => l.tracto_id === t.id));
+      const g = gondolas.get(gondolaDe.get(t.id) ?? "");
+      if (g) r = sumarResumen(r, resumenLlantas(posiciones("gondola", g.ejes ?? 2), llantas.filter((l) => l.gondola_id === g.id)));
+      out.set(t.id, r);
+    }
+    return out;
+  }, [tractos, llantas, gondolas, gondolaDe]);
+  const vidaLlanta = Number(reglas.find((r) => r.categoria === "llantas" && r.intervalo_km)?.intervalo_km ?? 120000);
   const visibles = useMemo(() => {
     const t = q.trim().toLowerCase();
     return t ? filas.filter((f) => `${f.tracto.placa} ${f.tracto.modelo ?? ""}`.toLowerCase().includes(t)) : filas;
@@ -137,7 +168,7 @@ export function MantenimientoPanel() {
         <TabsTrigger value="vehiculo">Por vehículo</TabsTrigger>
       </TabsList>
       <TabsContent value="flota" className="mt-0 grid gap-4">
-        <FlotaMantenimiento filas={filas} reglas={reglas} odometros={odometros} onElegir={(id) => { setSel(id); setVista("vehiculo"); }} />
+        <FlotaMantenimiento filas={filas} reglas={reglas} odometros={odometros} llantas={resumenLl} onElegir={(id) => { setSel(id); setVista("vehiculo"); }} />
         <ReglasMantenimiento reglas={reglas} empresaId={tractos[0]?.empresa_id ?? null} onChange={() => void load()} />
       </TabsContent>
       <TabsContent value="vehiculo" className="mt-0">
@@ -182,6 +213,8 @@ export function MantenimientoPanel() {
           ultimaCarga={cargas.find((c) => c.tracto_id === actual.tracto.id)?.fecha ?? null}
           onRegistrar={(regla) => setRegistro({ tracto: actual.tracto, regla })}
           odometro={odometros.get(actual.tracto.id) ?? null} reglas={reglas}
+          llantas={llantas} gondola={gondolas.get(gondolaDe.get(actual.tracto.id) ?? "") ?? null} vidaLlanta={vidaLlanta}
+          resumenLlantas={resumenLl.get(actual.tracto.id) ?? null}
         />
       )}
       <RegistrarServicio registro={registro} onClose={() => setRegistro(null)} onSaved={() => { setRegistro(null); void load(); }} />
@@ -200,11 +233,12 @@ function Dato({ k, v }: { k: string; v: string }) {
   );
 }
 
-function Detalle({ tracto, alertas, chofer, servicios, cargas, kmViajes, onServiciosChange, kmPorLitro, mejorKmPorLitro, ultimaCarga, onRegistrar, odometro, reglas }: {
+function Detalle({ tracto, alertas, chofer, servicios, cargas, kmViajes, onServiciosChange, kmPorLitro, mejorKmPorLitro, ultimaCarga, onRegistrar, odometro, reglas, llantas, gondola, vidaLlanta, resumenLlantas: rl }: {
   tracto: Tracto; alertas: Alerta[]; chofer: ChoferAsig | null; servicios: ServicioMant[]; cargas: Carga[];
   kmViajes: number; onServiciosChange: () => void;
   kmPorLitro: number | null; mejorKmPorLitro: number; ultimaCarga: string | null; onRegistrar: (r: Regla) => void;
   odometro: OdometroTracto | null; reglas: Regla[];
+  llantas: LlantaEstado[]; gondola: GondolaLl | null; vidaLlanta: number; resumenLlantas: ResumenLlantas | null;
 }) {
   const porRubro = new Map<string, Alerta[]>();
   for (const a of alertas) porRubro.set(rubro(a.regla.categoria), [...(porRubro.get(rubro(a.regla.categoria)) ?? []), a]);
@@ -257,6 +291,31 @@ function Detalle({ tracto, alertas, chofer, servicios, cargas, kmViajes, onServi
             </div>
           </div>
           {alertas.length === 0 && <p className="text-sm text-muted-foreground">No hay servicios programados. Agrégalos en «Toda la flota».</p>}
+        </CardContent>
+      </Card>
+
+      <Card className="rounded-xl">
+        <CardHeader className="gap-1">
+          <CardTitle className="flex flex-wrap items-center justify-between gap-2 text-base">
+            <span className="flex items-center gap-2"><CircleDot className="h-4 w-4" aria-hidden /> Llantas vigentes</span>
+            {rl && (
+              <Badge variant={rl.vencidas ? "rojo" : rl.proximas ? "amarillo" : "verde"}>
+                {rl.recomendadas ? `Recomendado cambiar ${rl.recomendadas} de ${rl.total}` : `Ninguna por cambiar (${rl.total})`}
+              </Badge>
+            )}
+          </CardTitle>
+          <p className="text-sm text-muted-foreground">
+            Cada llanta se mide desde su instalación: en el tracto con su odómetro, en la góndola con los km de sus viajes posteriores.
+            {gondola ? ` Góndola actual (último viaje): ${gondola.placa}.` : " Sin góndola en sus viajes."}
+          </p>
+        </CardHeader>
+        <CardContent className="grid gap-4 md:grid-cols-2">
+          <LlantasUnidad unidad={{ tipo: "tracto", id: tracto.id, placa: tracto.placa, ejes: tracto.ejes ?? 3, empresaId: tracto.empresa_id, odometro: Number(tracto.kilometraje_actual) }}
+            llantas={llantas.filter((l) => l.tracto_id === tracto.id)} vidaDefault={vidaLlanta} onChange={onServiciosChange} />
+          {gondola && (
+            <LlantasUnidad unidad={{ tipo: "gondola", id: gondola.id, placa: gondola.placa, ejes: gondola.ejes ?? 2, empresaId: tracto.empresa_id }}
+              llantas={llantas.filter((l) => l.gondola_id === gondola.id)} vidaDefault={vidaLlanta} onChange={onServiciosChange} />
+          )}
         </CardContent>
       </Card>
 

@@ -20,7 +20,7 @@ export interface ViajeLigado {
   id: string; uuid: string; folio_factura: string | null; fecha: string; total: number;
   origen: Ubicacion | null; destino: Ubicacion | null;
 }
-export interface Tracto { id: string; empresa_id: string; placa: string; modelo: string | null; kilometraje_inicial: number; kilometraje_actual: number }
+export interface Tracto { id: string; empresa_id: string; placa: string; modelo: string | null; kilometraje_inicial: number; kilometraje_actual: number; ejes?: number }
 export interface Gondola { id: string; placa: string; subtipo: string | null }
 
 export interface Viaje {
