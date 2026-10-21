@@ -1,12 +1,12 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Calculator, Clock, Loader2, Route as RouteIcon, Save, Trash2, Truck } from "lucide-react";
+import { Calculator, Clock, FilePlus2, Loader2, Printer, Route as RouteIcon, Save, Truck, X } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { ApiError, postBackend } from "@/lib/api";
 import { todo } from "@/lib/paginar";
 import { tramos, type Carga, type ViajeRend } from "@/lib/combustible";
-import { cotizar, IVA, parametrosDesdeHistorial, PARAMETROS_BASE, RETENCION_IVA, validar, type EntradaCotizacion, type Parametros, type ParametrosSugeridos, type UnidadCobro } from "@/lib/cotizador";
+import { condicionesBase, cotizar, ESTADOS, ETIQUETA_ESTADO, evaluarOferta, IVA, parametrosDesdeHistorial, PARAMETROS_BASE, RETENCION_IVA, validar, VIGENCIA_BASE, type DocumentoCotizacion, type EntradaCotizacion, type EstadoCotizacion, type Parametros, type ParametrosSugeridos, type UnidadCobro } from "@/lib/cotizador";
 import { decodificarPolilinea, duracionTexto, FUENTE_RUTA } from "@/lib/rutas";
 import type { Lugar } from "@/lib/types";
 import { cn, fechaMx, km, mxn } from "@/lib/utils";
@@ -18,13 +18,16 @@ import { ErrorAlert } from "@/components/error-alert";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Mapa } from "@/components/mapa-dinamico";
+import { CotizacionesGuardadas, type Guardada } from "@/components/cotizaciones-guardadas";
+import { ImprimirCotizacion } from "@/components/cotizacion-documento";
 
 const sel = "h-10 w-full rounded-md border bg-background px-3 text-sm";
 const num = (s: string) => (s.trim() === "" ? NaN : Number(s));
+const hoyLocal = () => new Date().toLocaleDateString("en-CA");
+const unidadTexto = (u: UnidadCobro) => (u === "tonelada" ? "t" : "m³");
 
 interface Punto { texto: string; lat: number | null; lng: number | null }
-interface RutaCot { origen: { lat: number; lng: number; nombre: string | null }; destino: { lat: number; lng: number; nombre: string | null }; km: number; minutos: number; geometria: string | null; fuente: string }
-interface Guardada { id: string; cliente: string | null; origen: string; destino: string; unidad: UnidadCobro; cantidad: number; precio: number; precio_unidad: number; precio_minimo: number; km_ida: number; created_at: string; resultado: { total: number } }
+interface RutaCot { origen: { lat: number | null; lng: number | null; nombre: string | null }; destino: { lat: number | null; lng: number | null; nombre: string | null }; km: number; minutos: number; geometria: string | null; fuente: string }
 
 const CAMPOS: { k: keyof Parametros; label: string; sufijo: string; paso?: string }[] = [
   { k: "diesel_precio_litro", label: "Precio del diésel", sufijo: "$/L", paso: "0.01" },
@@ -78,6 +81,17 @@ export function CotizadorPanel() {
   const [redondo, setRedondo] = useState(true);
   const [guardando, setGuardando] = useState(false);
 
+  // Datos del documento y edición
+  const [mercancia, setMercancia] = useState("");
+  const [vigencia, setVigencia] = useState(String(VIGENCIA_BASE));
+  const [condiciones, setCondiciones] = useState(() => condicionesBase(PARAMETROS_BASE.horas_carga_descarga));
+  const [estado, setEstado] = useState<EstadoCotizacion>("borrador");
+  const [precioOfertado, setPrecioOfertado] = useState("");
+  const [editId, setEditId] = useState<string | null>(null);
+  const [folio, setFolio] = useState<number | null>(null);
+  const [fechaDoc, setFechaDoc] = useState(hoyLocal());
+  const [imprimir, setImprimir] = useState<DocumentoCotizacion | null>(null);
+
   const cargar = useCallback(async () => {
     const sb = createClient();
     try {
@@ -86,7 +100,7 @@ export function CotizadorPanel() {
         sb.from("lugares").select("*").eq("activo", true).not("lat", "is", null).order("nombre").limit(2000),
         sb.from("empresa_configuracion").select("id").maybeSingle(),
         sb.from("cotizador_parametros").select("parametros").maybeSingle(),
-        sb.from("cotizaciones").select("id, cliente, origen, destino, unidad, cantidad, precio, precio_unidad, precio_minimo, km_ida, created_at, resultado").order("created_at", { ascending: false }).limit(15),
+        sb.from("cotizaciones").select("*").order("created_at", { ascending: false }).limit(300),
         todo<Carga>((d, h) => sb.from("cargas_combustible").select("*").order("fecha", { ascending: false }).order("id").range(d, h)),
         todo<ViajeRend>((d, h) => sb.from("rendimiento_viajes").select("viaje_id, chofer_id, tracto_id, fecha_viaje, km").order("fecha_viaje").order("viaje_id").range(d, h)),
         todo<{ fecha: string; costo: number; tracto_id: string | null }>((d, h) => sb.from("servicios_mantenimiento").select("id, fecha, costo, tracto_id").gte("fecha", hace1a).order("id").range(d, h)),
@@ -105,12 +119,18 @@ export function CotizadorPanel() {
       const guardado = par.error ? null : (par.data as { parametros: Partial<Parametros> } | null)?.parametros;
       setGuardados(!!guardado && Object.keys(guardado).length > 0);
       setParams({ ...sug.params, ...(guardado ?? {}) });
+      setCondiciones(condicionesBase({ ...sug.params, ...(guardado ?? {}) }.horas_carga_descarga));
     } catch (e) {
       setError({ message: e instanceof Error ? e.message : String(e) });
     }
     setCargando(false);
   }, []);
   useEffect(() => { void cargar(); }, [cargar]);
+
+  const refrescarHistorial = useCallback(async () => {
+    const { data, error: e } = await createClient().from("cotizaciones").select("*").order("created_at", { ascending: false }).limit(300);
+    if (!e) setHistorial((data ?? []) as Guardada[]);
+  }, []);
 
   async function calcularRuta() {
     setCalculando(true); setError(null); setAviso(null);
@@ -130,7 +150,19 @@ export function CotizadorPanel() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [ruta, redondo, cantidad, unidad, casetas, otros, params]);
   const trazo = useMemo(() => (ruta?.geometria ? decodificarPolilinea(ruta.geometria) : undefined), [ruta?.geometria]);
-  const puntos = ruta ? [{ lat: ruta.origen.lat, lng: ruta.origen.lng, etiqueta: origen.texto || "Origen" }, { lat: ruta.destino.lat, lng: ruta.destino.lng, etiqueta: destino.texto || "Destino" }] : [];
+  const puntos = ruta && ruta.origen.lat != null && ruta.origen.lng != null && ruta.destino.lat != null && ruta.destino.lng != null
+    ? [{ lat: ruta.origen.lat, lng: ruta.origen.lng, etiqueta: origen.texto || "Origen" }, { lat: ruta.destino.lat, lng: ruta.destino.lng, etiqueta: destino.texto || "Destino" }] : [];
+  // Lo que se cobra: el precio sugerido o el propio que se capture
+  const propio = num(precioOfertado);
+  const oferta = useMemo(() => (r && entrada ? evaluarOferta(r, params, entrada.cantidad, propio > 0 ? propio : undefined) : null),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [r, params, precioOfertado]);
+  const vigenciaDias = Math.round(num(vigencia));
+  const documento: DocumentoCotizacion | null = r && oferta && entrada && ruta ? {
+    folio, fecha: fechaDoc, vigencia_dias: vigenciaDias > 0 ? vigenciaDias : VIGENCIA_BASE, cliente: cliente.trim() || null,
+    origen: origen.texto || ruta.origen.nombre || "Origen", destino: destino.texto || ruta.destino.nombre || "Destino", mercancia: mercancia.trim() || null,
+    km_ida: ruta.km, minutos_ida: ruta.minutos, redondo, cantidad: entrada.cantidad, unidad, precio_unidad: oferta.precioPorUnidad, condiciones,
+  } : null;
   const etiquetaUnidad = unidad === "tonelada" ? "tonelada" : "m³";
 
   async function guardarSupuestos() {
@@ -140,22 +172,78 @@ export function CotizadorPanel() {
     else { setGuardados(true); setAviso("Supuestos guardados: se usarán en las próximas cotizaciones."); }
   }
 
-  async function guardarCotizacion() {
-    if (!r || !entrada || !empresaId || !ruta) return;
-    setGuardando(true); setError(null);
-    const { error: e } = await createClient().from("cotizaciones").insert({
-      empresa_id: empresaId, cliente: cliente.trim() || null, origen: origen.texto || ruta.origen.nombre || "Origen", destino: destino.texto || ruta.destino.nombre || "Destino",
-      km_ida: ruta.km, minutos_ida: ruta.minutos, unidad, cantidad: entrada.cantidad, precio: r.precio, precio_unidad: r.precioPorUnidad, precio_minimo: r.precioMinimo,
-      entrada: { ...entrada, fuente_ruta: ruta.fuente }, resultado: r,
-    });
+  const errorMigracion = (m: string) => (/folio|mercancia|vigencia|condiciones|estado|updated_at/.test(m) ? "Ejecuta la migración 032 en Supabase" : /cotizaciones/.test(m) ? "Ejecuta las migraciones 030 y 032 en Supabase" : m);
+
+  /** Guarda la cotización (nueva) o los cambios de la que se está editando. */
+  async function guardarCotizacion(comoNueva = false) {
+    if (!r || !entrada || !empresaId || !ruta || !oferta) return;
+    if (!(vigenciaDias > 0)) return setError({ message: "La vigencia debe ser de al menos 1 día" });
+    setGuardando(true); setError(null); setAviso(null);
+    const fila = {
+      cliente: cliente.trim() || null, origen: origen.texto || ruta.origen.nombre || "Origen", destino: destino.texto || ruta.destino.nombre || "Destino",
+      mercancia: mercancia.trim() || null, km_ida: ruta.km, minutos_ida: ruta.minutos, unidad, cantidad: entrada.cantidad,
+      precio: oferta.precio, precio_unidad: oferta.precioPorUnidad, precio_minimo: r.precioMinimo,
+      vigencia_dias: vigenciaDias, condiciones: condiciones.trim() || null, estado,
+      entrada: { ...entrada, fuente_ruta: ruta.fuente, ruta }, resultado: { ...r, total: oferta.total, oferta },
+    };
+    const sb = createClient();
+    const { data, error: e } = editId && !comoNueva
+      ? await sb.from("cotizaciones").update(fila).eq("id", editId).select("id, folio").single()
+      : await sb.from("cotizaciones").insert({ ...fila, empresa_id: empresaId }).select("id, folio").single();
     setGuardando(false);
-    if (e) return setError({ message: e.message.includes("cotizaciones") ? "Ejecuta la migración 030 en Supabase" : e.message });
-    setAviso("Cotización guardada."); void cargar();
+    if (e) return setError({ message: errorMigracion(e.message) });
+    const g = data as { id: string; folio: number };
+    setEditId(g.id); setFolio(g.folio);
+    setAviso(editId && !comoNueva ? `Cambios guardados en la cotización ${String(g.folio).padStart(5, "0")}.` : `Cotización ${String(g.folio).padStart(5, "0")} guardada.`);
+    void refrescarHistorial();
   }
 
-  async function borrar(id: string) {
-    const { error: e } = await createClient().from("cotizaciones").delete().eq("id", id);
-    if (e) setError({ message: e.message }); else setHistorial((h) => h.filter((x) => x.id !== id));
+  function nueva() {
+    setEditId(null); setFolio(null); setFechaDoc(hoyLocal()); setRuta(null); setOrigen({ texto: "", lat: null, lng: null }); setDestino({ texto: "", lat: null, lng: null });
+    setCliente(""); setMercancia(""); setPrecioOfertado(""); setEstado("borrador"); setVigencia(String(VIGENCIA_BASE));
+    setCondiciones(condicionesBase(params.horas_carga_descarga)); setError(null); setAviso(null);
+  }
+
+  /** Carga una cotización guardada en el formulario para editarla (o, con `copia`, para guardarla como una nueva). */
+  function cargarCotizacion(c: Guardada, copia = false) {
+    const en = (c.entrada ?? {}) as { redondo?: boolean; casetas?: number; otros?: number; params?: Partial<Parametros>; ruta?: RutaCot; fuente_ruta?: string };
+    const rt = en.ruta ?? { origen: { lat: null, lng: null, nombre: c.origen }, destino: { lat: null, lng: null, nombre: c.destino }, km: Number(c.km_ida), minutos: c.minutos_ida ?? 0, geometria: null, fuente: en.fuente_ruta ?? "osrm-auto" };
+    setOrigen({ texto: c.origen, lat: rt.origen.lat, lng: rt.origen.lng });
+    setDestino({ texto: c.destino, lat: rt.destino.lat, lng: rt.destino.lng });
+    setRuta({ ...rt, km: Number(c.km_ida), minutos: c.minutos_ida ?? rt.minutos });
+    setCliente(c.cliente ?? ""); setMercancia(c.mercancia ?? ""); setUnidad(c.unidad); setCantidad(String(Number(c.cantidad)));
+    setCasetas(String(en.casetas ?? 0)); setOtros(String(en.otros ?? 0)); setRedondo(en.redondo ?? true);
+    if (en.params) setParams((p) => ({ ...p, ...en.params }));
+    setVigencia(String(c.vigencia_dias ?? VIGENCIA_BASE)); setCondiciones(c.condiciones ?? condicionesBase(params.horas_carga_descarga));
+    setPrecioOfertado(String(Number(c.precio_unidad)));   // se conserva el precio que se cotizó aunque hoy los costos den otro
+    setError(null);
+    if (copia) { setEditId(null); setFolio(null); setEstado("borrador"); setFechaDoc(hoyLocal()); setAviso("Copia lista: ajusta lo que necesites y guárdala como cotización nueva."); }
+    else { setEditId(c.id); setFolio(c.folio); setEstado(c.estado); setFechaDoc(c.created_at.slice(0, 10)); setAviso(null); }
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
+  function documentoDe(c: Guardada): DocumentoCotizacion {
+    const en = (c.entrada ?? {}) as { redondo?: boolean };
+    return {
+      folio: c.folio, fecha: c.created_at.slice(0, 10), vigencia_dias: c.vigencia_dias ?? VIGENCIA_BASE, cliente: c.cliente, origen: c.origen, destino: c.destino,
+      mercancia: c.mercancia, km_ida: Number(c.km_ida), minutos_ida: c.minutos_ida, redondo: en.redondo ?? true, cantidad: Number(c.cantidad), unidad: c.unidad,
+      precio_unidad: Number(c.precio_unidad), condiciones: c.condiciones ?? condicionesBase(params.horas_carga_descarga),
+    };
+  }
+
+  async function cambiarEstado(c: Guardada, e: EstadoCotizacion) {
+    const { error: err } = await createClient().from("cotizaciones").update({ estado: e }).eq("id", c.id);
+    if (err) return setError({ message: errorMigracion(err.message) });
+    setHistorial((h) => h.map((x) => (x.id === c.id ? { ...x, estado: e } : x)));
+    if (c.id === editId) setEstado(e);
+  }
+
+  async function borrar(c: Guardada) {
+    if (!window.confirm(`¿Eliminar la cotización ${String(c.folio ?? "").padStart(5, "0")} de ${c.origen} a ${c.destino}?`)) return;
+    const { error: e } = await createClient().from("cotizaciones").delete().eq("id", c.id);
+    if (e) return setError({ message: e.message });
+    setHistorial((h) => h.filter((x) => x.id !== c.id));
+    if (c.id === editId) nueva();
   }
 
   if (cargando) return <p className="text-sm text-muted-foreground">Cargando datos de la flota…</p>;
@@ -164,6 +252,12 @@ export function CotizadorPanel() {
 
   return (
     <div className="grid gap-4">
+      {editId && (
+        <Alert variant="info" className="flex flex-wrap items-center justify-between gap-2">
+          <span>Editando la cotización <b>{String(folio ?? "").padStart(5, "0")}</b>. «Guardar cambios» la actualiza; «Guardar como nueva» deja la original intacta.</span>
+          <Button size="sm" variant="outline" onClick={nueva}><X className="h-4 w-4" /> Dejar de editar</Button>
+        </Alert>
+      )}
       {error && <ErrorAlert where="cotizador" message={error.message} status={error.status} path={error.path} />}
       {aviso && <Alert variant="success">{aviso}</Alert>}
 
@@ -194,7 +288,10 @@ export function CotizadorPanel() {
         <Card className="rounded-xl">
           <CardHeader><CardTitle className="flex items-center gap-2 text-base"><Calculator className="h-4 w-4" aria-hidden /> Carga y cobro</CardTitle></CardHeader>
           <CardContent className="grid gap-4">
-            <div className="grid gap-1.5"><Label htmlFor="cot-cliente">Cliente (opcional)</Label><Input id="cot-cliente" value={cliente} onChange={(e) => setCliente(e.target.value)} /></div>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div className="grid gap-1.5"><Label htmlFor="cot-cliente">Cliente (opcional)</Label><Input id="cot-cliente" value={cliente} onChange={(e) => setCliente(e.target.value)} /></div>
+              <div className="grid gap-1.5"><Label htmlFor="cot-mercancia">Mercancía (opcional)</Label><Input id="cot-mercancia" placeholder="Triturado de roca, arena…" value={mercancia} onChange={(e) => setMercancia(e.target.value)} /></div>
+            </div>
             <div className="grid gap-3 sm:grid-cols-2">
               <div className="grid gap-1.5">
                 <Label htmlFor="cot-unidad">Cobrar por</Label>
@@ -214,6 +311,18 @@ export function CotizadorPanel() {
                 <input type="checkbox" checked={redondo} onChange={(e) => setRedondo(e.target.checked)} /> La unidad regresa vacía (km y tiempo × 2)
               </label>
             </div>
+
+            <details className="rounded-lg border p-3">
+              <summary className="cursor-pointer text-sm font-medium">Documento: vigencia, estado y condiciones</summary>
+              <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                <div className="grid gap-1"><Label htmlFor="cot-vigencia" className="text-xs">Vigencia (días)</Label><Input id="cot-vigencia" type="number" min={1} value={vigencia} onChange={(e) => setVigencia(e.target.value)} /></div>
+                <div className="grid gap-1"><Label htmlFor="cot-estado" className="text-xs">Estado</Label>
+                  <select id="cot-estado" className={sel} value={estado} onChange={(e) => setEstado(e.target.value as EstadoCotizacion)}>{ESTADOS.map((x) => <option key={x} value={x}>{ETIQUETA_ESTADO[x]}</option>)}</select></div>
+                <div className="grid gap-1 sm:col-span-2"><Label htmlFor="cot-condiciones" className="text-xs">Condiciones (una por renglón; salen impresas)</Label>
+                  <textarea id="cot-condiciones" rows={6} className="rounded-md border bg-background px-3 py-2 text-sm" value={condiciones} onChange={(e) => setCondiciones(e.target.value)} />
+                  <Button type="button" size="sm" variant="ghost" className="justify-self-start" onClick={() => setCondiciones(condicionesBase(params.horas_carga_descarga))}>Restablecer condiciones</Button></div>
+              </div>
+            </details>
 
             <details className="rounded-lg border p-3">
               <summary className="cursor-pointer text-sm font-medium">Supuestos de costos {guardados ? <Badge variant="verde" className="ml-2">guardados</Badge> : <Badge variant="amarillo" className="ml-2">sin guardar</Badge>}</summary>
@@ -242,15 +351,25 @@ export function CotizadorPanel() {
         <Alert variant="info">Escribe el origen y el destino (o elige lugares guardados) y calcula la ruta para ver el precio sugerido.</Alert>
       ) : problema ? (
         <Alert variant="error">{problema}</Alert>
-      ) : r && (
+      ) : r && oferta && (
         <Card className="rounded-xl border-primary/40">
           <CardHeader className="gap-3">
-            <CardTitle className="text-base">Cotización sugerida</CardTitle>
+            <CardTitle className="flex flex-wrap items-center justify-between gap-2 text-base">
+              <span>{propio > 0 ? "Cotización con precio propio" : "Cotización sugerida"}</span>
+              <span className="flex items-center gap-2 text-sm font-normal">
+                <Label htmlFor="cot-oferta" className="text-xs">Precio ofertado por {etiquetaUnidad}</Label>
+                <Input id="cot-oferta" type="number" min={0} step="0.5" className="h-8 w-28" placeholder={String(r.precioPorUnidad)} value={precioOfertado} onChange={(e) => setPrecioOfertado(e.target.value)} />
+                {precioOfertado && <Button size="sm" variant="ghost" onClick={() => setPrecioOfertado("")}>Usar sugerido</Button>}
+              </span>
+            </CardTitle>
+            {oferta.bajoMinimo && <Alert variant="error">Este precio está por debajo del mínimo sin pérdida ({mxn(r.precioMinimoPorUnidad)} por {etiquetaUnidad}): el viaje dejaría una pérdida de {mxn(-oferta.ganancia)}.</Alert>}
+            {!oferta.bajoMinimo && oferta.bajoDeseado && <Alert variant="info">Este precio cubre los costos y la comisión, pero deja {oferta.gananciaPct.toFixed(1)} % de ganancia, menos que el {params.ganancia_pct} % deseado.</Alert>}
             <div className="grid gap-3 sm:grid-cols-4">
               <div className="rounded-lg bg-primary/10 p-3 sm:col-span-2">
                 <p className="text-xs text-muted-foreground">Precio por {etiquetaUnidad}</p>
-                <p className="text-3xl font-bold">{mxn(r.precioPorUnidad)}</p>
-                <p className="text-sm">Flete total <b>{mxn(r.precio)}</b> antes de IVA · {entrada!.cantidad} {unidad === "tonelada" ? "t" : "m³"}</p>
+                <p className="text-3xl font-bold">{mxn(oferta.precioPorUnidad)}</p>
+                <p className="text-sm">Flete total <b>{mxn(oferta.precio)}</b> antes de IVA · {entrada!.cantidad} {unidadTexto(unidad)}</p>
+                {propio > 0 && <p className="text-xs text-muted-foreground">Sugerido: {mxn(r.precioPorUnidad)} por {etiquetaUnidad}</p>}
               </div>
               <div className="rounded-lg bg-secondary/60 p-3">
                 <p className="text-xs text-muted-foreground">Mínimo sin pérdida</p>
@@ -259,8 +378,8 @@ export function CotizadorPanel() {
               </div>
               <div className="rounded-lg bg-secondary/60 p-3">
                 <p className="text-xs text-muted-foreground">Ganancia</p>
-                <p className="text-xl font-bold">{mxn(r.ganancia)}</p>
-                <p className="text-xs text-muted-foreground">{r.gananciaPct.toFixed(1)} % del precio · {r.markupSobreCosto.toFixed(1)} % sobre el costo</p>
+                <p className={cn("text-xl font-bold", oferta.ganancia < 0 && "text-red-600 dark:text-red-400")}>{mxn(oferta.ganancia)}</p>
+                <p className="text-xs text-muted-foreground">{oferta.gananciaPct.toFixed(1)} % del precio</p>
               </div>
             </div>
           </CardHeader>
@@ -269,8 +388,8 @@ export function CotizadorPanel() {
               <div className="grid gap-2">
                 <h3 className="text-sm font-semibold">¿En qué se va el precio?</h3>
                 <ul className="grid gap-1.5">
-                  {[...r.desglose.map((d) => ({ ...d, clase: "bg-primary" })), { concepto: "Comisión del chofer", monto: r.comision, detalle: `${params.comision_pct} % del precio`, clase: "bg-amber-400" },
-                    { concepto: "Ganancia", monto: r.ganancia, detalle: `${r.gananciaPct.toFixed(1)} % del precio`, clase: "bg-emerald-500" }].map((d) => (
+                  {[...r.desglose.map((d) => ({ ...d, clase: "bg-primary" })), { concepto: "Comisión del chofer", monto: oferta.comision, detalle: `${params.comision_pct} % del precio`, clase: "bg-amber-400" },
+                    { concepto: "Ganancia", monto: Math.max(0, oferta.ganancia), detalle: `${oferta.gananciaPct.toFixed(1)} % del precio`, clase: "bg-emerald-500" }].map((d) => (
                     <li key={d.concepto} className="grid gap-0.5">
                       <div className="flex items-baseline justify-between gap-2 text-sm"><span>{d.concepto}</span><span className="font-medium">{mxn(d.monto)}</span></div>
                       <span className="h-2 overflow-hidden rounded-full bg-secondary"><span className={cn("block h-full", d.clase)} style={{ width: `${(d.monto / maximo) * 100}%` }} /></span>
@@ -282,10 +401,10 @@ export function CotizadorPanel() {
               <div className="grid content-start gap-4">
                 <div className="grid gap-1 text-sm">
                   <h3 className="text-sm font-semibold">A facturar</h3>
-                  <p className="flex justify-between"><span>Subtotal</span><b>{mxn(r.precio)}</b></p>
-                  <p className="flex justify-between"><span>IVA {IVA * 100} %</span><span>{mxn(r.iva)}</span></p>
-                  <p className="flex justify-between"><span>Retención IVA {RETENCION_IVA * 100} %</span><span>−{mxn(r.retencionIva)}</span></p>
-                  <p className="flex justify-between border-t pt-1"><span>Total a cobrar</span><b>{mxn(r.total)}</b></p>
+                  <p className="flex justify-between"><span>Subtotal</span><b>{mxn(oferta.precio)}</b></p>
+                  <p className="flex justify-between"><span>IVA {IVA * 100} %</span><span>{mxn(oferta.iva)}</span></p>
+                  <p className="flex justify-between"><span>Retención IVA {RETENCION_IVA * 100} %</span><span>−{mxn(oferta.retencionIva)}</span></p>
+                  <p className="flex justify-between border-t pt-1"><span>Total a cobrar</span><b>{mxn(oferta.total)}</b></p>
                 </div>
                 <div className="grid gap-1 text-sm">
                   <h3 className="text-sm font-semibold">Otros datos</h3>
@@ -293,7 +412,7 @@ export function CotizadorPanel() {
                   <p className="flex justify-between"><span>Tiempo total con carga y descarga</span><span>{duracionTexto(r.horas * 60)} ({r.dias.toFixed(1)} día)</span></p>
                   <p className="flex justify-between"><span>Diésel</span><span>{r.litros.toFixed(0)} L</span></p>
                   <p className="flex justify-between"><span>Costo base (sin comisión)</span><span>{mxn(r.costoBase)}</span></p>
-                  <p className="flex justify-between"><span>Precio por km</span><span>{mxn(r.precioPorKm)}</span></p>
+                  <p className="flex justify-between"><span>Precio por km</span><span>{mxn(oferta.precio / r.km)}</span></p>
                 </div>
               </div>
             </div>
@@ -314,40 +433,22 @@ export function CotizadorPanel() {
             </div>
 
             <div>
-              <Button onClick={() => void guardarCotizacion()} disabled={guardando || !empresaId}>
-                {guardando ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />} Guardar cotización
-              </Button>
+              <div className="flex flex-wrap gap-2">
+                <Button onClick={() => void guardarCotizacion()} disabled={guardando || !empresaId}>
+                  {guardando ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />} {editId ? "Guardar cambios" : "Guardar cotización"}
+                </Button>
+                {editId && <Button variant="outline" onClick={() => void guardarCotizacion(true)} disabled={guardando}><FilePlus2 className="h-4 w-4" /> Guardar como nueva</Button>}
+                <Button variant="outline" onClick={() => documento && setImprimir(documento)}><Printer className="h-4 w-4" /> Vista previa e impresión</Button>
+                {(editId || folio) && <Button variant="ghost" onClick={nueva}>Nueva cotización</Button>}
+              </div>
             </div>
           </CardContent>
         </Card>
       )}
 
-      {historial.length > 0 && (
-        <Card className="rounded-xl">
-          <CardHeader><CardTitle className="text-base">Cotizaciones guardadas</CardTitle></CardHeader>
-          <CardContent className="overflow-x-auto">
-            <table className="w-full min-w-[640px] text-sm">
-              <thead><tr className="text-left text-xs text-muted-foreground">
-                <th className="py-1 font-medium">Fecha</th><th className="py-1 font-medium">Cliente</th><th className="py-1 font-medium">Ruta</th>
-                <th className="py-1 text-right font-medium">Cantidad</th><th className="py-1 text-right font-medium">Precio por unidad</th><th className="py-1 text-right font-medium">Flete</th><th />
-              </tr></thead>
-              <tbody>
-                {historial.map((h) => (
-                  <tr key={h.id} className="border-t">
-                    <td className="whitespace-nowrap py-1.5">{fechaMx(h.created_at)}</td>
-                    <td className="py-1.5">{h.cliente ?? "—"}</td>
-                    <td className="py-1.5">{h.origen} → {h.destino}<span className="block text-xs text-muted-foreground">{km(Number(h.km_ida))} de ida</span></td>
-                    <td className="whitespace-nowrap py-1.5 text-right">{Number(h.cantidad)} {h.unidad === "tonelada" ? "t" : "m³"}</td>
-                    <td className="whitespace-nowrap py-1.5 text-right">{mxn(Number(h.precio_unidad))}</td>
-                    <td className="whitespace-nowrap py-1.5 text-right font-medium">{mxn(Number(h.precio))}</td>
-                    <td className="py-1.5 text-right"><Button variant="ghost" size="icon" aria-label="Eliminar cotización" onClick={() => void borrar(h.id)}><Trash2 className="h-4 w-4" /></Button></td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </CardContent>
-        </Card>
-      )}
+      <CotizacionesGuardadas items={historial} editandoId={editId} onEditar={(c) => cargarCotizacion(c)} onDuplicar={(c) => cargarCotizacion(c, true)}
+        onImprimir={(c) => setImprimir(documentoDe(c))} onBorrar={(c) => void borrar(c)} onEstado={(c, e) => void cambiarEstado(c, e)} />
+      <ImprimirCotizacion doc={imprimir} onClose={() => setImprimir(null)} />
     </div>
   );
 }

@@ -298,3 +298,22 @@ test("cotizador: supuestos desde el historial de la flota", async () => {
   const poco = parametrosDesdeHistorial({ ...h, viajes: [{ fecha_viaje: "2026-07-01", km: 800 }] }, "2026-10-20");
   assert.equal(poco.params.mant_por_km, PARAMETROS_BASE.mant_por_km);
 });
+
+test("cotizador: oferta propia, pérdida y totales del formato imprimible", async () => {
+  const { cotizar, evaluarOferta, PARAMETROS_BASE, totalesDocumento, vigenciaHasta, folioTexto } = await import("../src/lib/cotizador.ts");
+  const params = { ...PARAMETROS_BASE, ganancia_pct: 18, comision_pct: 12 };
+  const r = cotizar({ km_ida: 100, minutos_ida: 120, redondo: true, cantidad: 30, unidad: "tonelada", casetas: 400, otros: 100, params });
+  const sug = evaluarOferta(r, params, 30);
+  assert.equal(sug.precioPorUnidad, r.precioPorUnidad);
+  assert.equal(sug.precio, r.precio);
+  assert.equal(sug.bajoMinimo, false); assert.equal(sug.bajoDeseado, false);
+  const bajo = evaluarOferta(r, params, 30, r.precioMinimoPorUnidad - 20);
+  assert.equal(bajo.bajoMinimo, true);
+  assert.ok(bajo.ganancia < 0);
+  const justo = evaluarOferta(r, params, 30, r.precioMinimoPorUnidad + 5);
+  assert.equal(justo.bajoMinimo, false); assert.equal(justo.bajoDeseado, true);
+  const t = totalesDocumento({ cantidad: 30, precio_unidad: 200 });
+  assert.deepEqual(t, { subtotal: 6000, iva: 960, retencion: 240, total: 6720 });
+  assert.equal(vigenciaHasta("2026-10-20", 15), "2026-11-04");
+  assert.equal(folioTexto(12), "00012"); assert.equal(folioTexto(null), "SIN FOLIO");
+});
