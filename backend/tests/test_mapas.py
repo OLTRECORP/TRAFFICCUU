@@ -85,3 +85,30 @@ def test_ruta_camion_cae_a_osrm_con_tiempo_ajustado(monkeypatch):
     monkeypatch.setattr(mapas, "_get", falso)
     r = mapas.ruta_camion((28.6, -106.0), (25.6, -100.3))
     assert r == {"km": 400.0, "minutos": 375, "geometria": "xyz", "fuente": "osrm-auto"}
+
+
+def test_cotizador_ruta_geocodifica_direcciones_y_acepta_puntos(monkeypatch):
+    import main
+    llamadas = []
+    monkeypatch.setattr(main, "geocodificar", lambda d: llamadas.append(d) or {"lat": 32.5, "lng": -116.6, "nombre": d})
+    monkeypatch.setattr(main.time, "sleep", lambda s: None)
+    monkeypatch.setattr(main, "ruta_camion", lambda o, d: {"km": 100.5, "minutos": 95, "geometria": "g", "fuente": "valhalla-camion"})
+    # origen por punto del mapa, destino por dirección: solo se geocodifica el destino
+    r = main.cotizador_ruta(main.CotizadorRutaRequest(origen={"lat": 28.6, "lng": -106.0}, destino={"direccion": "Tecate, BC"}), None)
+    assert llamadas == ["Tecate, BC"]
+    assert r["km"] == 100.5 and r["minutos"] == 95 and r["destino"]["lat"] == 32.5 and r["origen"]["lng"] == -106.0
+
+
+def test_cotizador_ruta_exige_direccion_o_punto():
+    import main
+    with pytest.raises(Exception):
+        main.CotizadorRutaRequest(origen={}, destino={"direccion": "Tecate"})
+
+
+def test_cotizador_ruta_error_del_mapa_es_502(monkeypatch):
+    import main
+    from fastapi import HTTPException
+    monkeypatch.setattr(main, "ruta_camion", lambda o, d: (_ for _ in ()).throw(mapas.MapaError("sin ruta")))
+    with pytest.raises(HTTPException) as e:
+        main.cotizador_ruta(main.CotizadorRutaRequest(origen={"lat": 1, "lng": 1}, destino={"lat": 2, "lng": 2}), None)
+    assert e.value.status_code == 502

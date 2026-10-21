@@ -1,4 +1,5 @@
 import logging
+import time
 from typing import Literal
 import uuid as uuidlib
 from datetime import date
@@ -14,7 +15,7 @@ from app.crypto import encrypt
 from app.db import get_admin_client
 from app.descarga_masiva import asegurar_factura_xml, cancelar as descarga_cancelar, ejecutar as descarga_ejecutar, iniciar as descarga_iniciar, iniciar_zip, rfc_cliente as descarga_rfc_cliente
 from app.sat import diagnosticar as sat_diagnosticar
-from app.mapas import MapaError, geocodificar
+from app.mapas import MapaError, geocodificar, ruta_camion
 from app.rutas_service import asignar_viaje, calcular_km_viajes, calcular_ruta, recalcular_rutas_camion
 from app.facturas_sat import ejecutar as sat_ejecutar, preparar as sat_preparar
 from app.excel_import import ExcelError, guardar, parse_workbook
@@ -387,6 +388,41 @@ def rutas_calcular(body: RutaRequest, tenant: Tenant = Depends(current_tenant)) 
 def rutas_recalcular_camion(tenant: Tenant = Depends(current_tenant)) -> dict:
     """Recalcula con ruta de camión las rutas guardadas sin trazo (por tandas; repite hasta que no queden pendientes)."""
     return recalcular_rutas_camion(tenant.empresa_id)
+
+
+class PuntoCotizacion(BaseModel):
+    direccion: str | None = Field(default=None, min_length=3, max_length=300)
+    lat: float | None = Field(default=None, ge=-90, le=90)
+    lng: float | None = Field(default=None, ge=-180, le=180)
+
+    @model_validator(mode="after")
+    def _uno(self):
+        if not self.direccion and (self.lat is None or self.lng is None):
+            raise ValueError("Indica una dirección o un punto en el mapa")
+        return self
+
+
+class CotizadorRutaRequest(BaseModel):
+    origen: PuntoCotizacion
+    destino: PuntoCotizacion
+
+
+@app.post("/api/cotizador/ruta")
+def cotizador_ruta(body: CotizadorRutaRequest, _: Tenant = Depends(current_tenant)) -> dict:
+    """Ruta para camión de carga entre dos direcciones (o puntos del mapa): km de ida, tiempo y trazo. No guarda nada."""
+    try:
+        puntos = []
+        for i, p in enumerate((body.origen, body.destino)):
+            if p.lat is not None and p.lng is not None:
+                puntos.append({"lat": p.lat, "lng": p.lng, "nombre": p.direccion})
+            else:
+                if i:
+                    time.sleep(1.1)   # política de uso de Nominatim: ~1 consulta por segundo
+                puntos.append(geocodificar(p.direccion))
+        r = ruta_camion((puntos[0]["lat"], puntos[0]["lng"]), (puntos[1]["lat"], puntos[1]["lng"]))
+    except MapaError as exc:
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, str(exc))
+    return {"origen": puntos[0], "destino": puntos[1], "km": r["km"], "minutos": r["minutos"], "geometria": r["geometria"], "fuente": r["fuente"]}
 
 
 class ViajeLugaresRequest(BaseModel):
