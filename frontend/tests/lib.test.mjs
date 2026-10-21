@@ -219,15 +219,15 @@ test("numeroLlanta y repartirCosto", async () => {
   assert.equal(repartirCosto(7800.01, 4).reduce((a, b) => a + b, 0).toFixed(2), "7800.01");
 });
 
-test("resumenPorChofer: activos sin viajes, inactivos con viajes y orden por comisión", () => {
+test("resumenPorChofer: solo activos (sin viajes en cero) y orden por comisión", () => {
   const ch = [{ id: "a", nombre: "Ana", activo: true }, { id: "b", nombre: "Beto", activo: true }, { id: "c", nombre: "Chema", activo: false }, { id: "d", nombre: "Dora", activo: false }];
   const v = (id, chofer, sub, folio) => ({ viaje_id: id, chofer_id: chofer, folio, fecha_viaje: "2026-10-20", subtotal: sub, origen: null, destino: null, cliente: null });
   const r = resumenPorChofer(ch, [v("1", "b", 1000, "F1"), v("2", "b", 500, "F1"), v("3", "c", 2000, "F2"), v("4", null, 900, "F3")]);
-  assert.deepEqual(r.map((x) => x.nombre), ["Chema", "Beto", "Ana"]);
-  assert.equal(r[1].resumen.viajes, 2);
-  assert.equal(r[1].resumen.facturas, 1);
-  assert.equal(r[1].resumen.comision, 180);
-  assert.equal(r[2].resumen.viajes, 0);
+  assert.deepEqual(r.map((x) => x.nombre), ["Beto", "Ana"]);
+  assert.equal(r[0].resumen.viajes, 2);
+  assert.equal(r[0].resumen.facturas, 1);
+  assert.equal(r[0].resumen.comision, 180);
+  assert.equal(r[1].resumen.viajes, 0);
 });
 
 test("rutas: decodifica polilínea precisión 6 y da formato al tiempo", async () => {
