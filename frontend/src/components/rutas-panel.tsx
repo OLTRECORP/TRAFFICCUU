@@ -1,16 +1,17 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Calculator, Loader2, RefreshCw, Route } from "lucide-react";
+import { Calculator, Loader2, RefreshCw, Route, Truck } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { ApiError, postBackend } from "@/lib/api";
 import type { Lugar, Ruta } from "@/lib/types";
+import { duracionTexto } from "@/lib/rutas";
 import { fechaMx, km } from "@/lib/utils";
 import { ErrorAlert } from "@/components/error-alert";
 import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { Mapa } from "@/components/mapa-dinamico";
+import { RutaCamion } from "@/components/ruta-camion";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 
 const sel = "h-10 min-w-[12rem] rounded-md border bg-background px-3 text-sm";
@@ -39,6 +40,7 @@ export function RutasPanel() {
     setLugares((l.data ?? []) as Lugar[]);
   }, []);
   useEffect(() => { void load(); }, [load]);
+  useEffect(() => { setVer((v) => (v ? rutas.find((r) => r.id === v.id) ?? null : v)); }, [rutas]);   // refresca el mapa tras recalcular
 
   async function llamar<T>(clave: string, path: string, body: object): Promise<T | null> {
     setBusy(clave); setError(null); setAviso(null);
@@ -48,9 +50,18 @@ export function RutasPanel() {
   }
 
   async function calcular(o: string, d: string, forzar: boolean) {
-    const r = await llamar<{ distancia_km: number }>(`${o}-${d}`, "rutas/calcular", { origen_id: o, destino_id: d, forzar });
-    if (r) { setAviso(`Distancia de ida: ${km(r.distancia_km)} · km operativos (redondo): ${km(r.distancia_km * 2)}`); await load(); }
+    const r = await llamar<{ distancia_km: number; minutos: number | null }>(`${o}-${d}`, "rutas/calcular", { origen_id: o, destino_id: d, forzar });
+    if (r) { setAviso(`Ruta para camión · ida: ${km(r.distancia_km)} en ${duracionTexto(r.minutos)} · km operativos (redondo): ${km(r.distancia_km * 2)}`); await load(); }
   }
+
+  async function recalcularCamion() {
+    const r = await llamar<{ recalculadas: number; fallidas: number; pendientes: number }>("camion", "rutas/recalcular-camion", {});
+    if (!r) return;
+    setAviso(`Rutas recalculadas para camión: ${r.recalculadas}` + (r.fallidas ? `, ${r.fallidas} sin ruta` : "")
+      + (r.pendientes ? `. Quedan ${r.pendientes}: vuelve a pulsar el botón.` : ". Los km de los viajes se actualizaron."));
+    await load();
+  }
+  const sinTrazo = rutas.filter((r) => !r.geometria).length;
 
   async function calcularViajes() {
     const r = await llamar<ResultadoKm>("viajes", "viajes/calcular-km", {});
@@ -62,13 +73,7 @@ export function RutasPanel() {
     await load();
   }
 
-  const puntos = useMemo(() => {
-    if (!ver) return [];
-    const por = new Map(lugares.map((l) => [l.id, l]));
-    return [por.get(ver.origen_id), por.get(ver.destino_id)]
-      .filter((l): l is Lugar => !!l && l.lat != null && l.lng != null)
-      .map((l) => ({ lat: Number(l.lat), lng: Number(l.lng), etiqueta: l.nombre }));
-  }, [ver, lugares]);
+  const lugarDe = (id: string) => lugares.find((l) => l.id === id);
 
   return (
     <div className="grid gap-4">
@@ -88,6 +93,12 @@ export function RutasPanel() {
           title="Asigna origen y destino a los viajes por nombre y calcula sus km operativos">
           {busy === "viajes" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Calculator className="h-4 w-4" />} Calcular km de los viajes
         </Button>
+        {sinTrazo > 0 && (
+          <Button variant="outline" disabled={!!busy} onClick={() => void recalcularCamion()}
+            title="Vuelve a calcular con ruta de camión las distancias guardadas sin trazo; cambia sus km y los de los viajes que las usan">
+            {busy === "camion" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Truck className="h-4 w-4" />} Recalcular con ruta de camión ({sinTrazo})
+          </Button>
+        )}
       </div>
       {aviso && <Alert variant="success">{aviso}</Alert>}
       {error && <ErrorAlert where="rutas" message={error.message} status={error.status} path={error.path} />}
@@ -97,12 +108,13 @@ export function RutasPanel() {
           <TableHeader>
             <TableRow className="hover:bg-transparent">
               <TableHead>Origen</TableHead><TableHead>Destino</TableHead><TableHead className="text-right">Distancia (ida)</TableHead>
+              <TableHead className="text-right">Tiempo en camión (ida)</TableHead>
               <TableHead className="text-right">Km operativos (redondo)</TableHead><TableHead>Calculada</TableHead><TableHead className="text-right">Acciones</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {rutas.length === 0 ? (
-              <TableRow><TableCell colSpan={6} className="py-10 text-center text-muted-foreground">
+              <TableRow><TableCell colSpan={7} className="py-10 text-center text-muted-foreground">
                 Aún no hay distancias. Elige un origen y un destino ubicados en el mapa y pulsa «Calcular distancia».
               </TableCell></TableRow>
             ) : rutas.map((r) => (
@@ -110,6 +122,7 @@ export function RutasPanel() {
                 <TableCell className="font-medium">{r.origen?.nombre ?? "—"}</TableCell>
                 <TableCell className="font-medium">{r.destino?.nombre ?? "—"}</TableCell>
                 <TableCell className="whitespace-nowrap text-right">{km(Number(r.distancia_km))}</TableCell>
+                <TableCell className="whitespace-nowrap text-right" title={r.duracion_min != null ? `Ida y vuelta ${duracionTexto(Number(r.duracion_min) * 2)}` : "Recalcula para obtener el tiempo"}>{duracionTexto(r.duracion_min)}</TableCell>
                 <TableCell className="whitespace-nowrap text-right">{km(Number(r.distancia_km) * 2)}</TableCell>
                 <TableCell className="whitespace-nowrap">{fechaMx(r.calculada_en)}</TableCell>
                 <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
@@ -121,7 +134,7 @@ export function RutasPanel() {
           </TableBody>
         </Table>
       </Card>
-      {ver && <Mapa puntos={puntos} linea />}
+      {ver && <RutaCamion origen={lugarDe(ver.origen_id)} destino={lugarDe(ver.destino_id)} ruta={ver} alto={380} />}
     </div>
   );
 }

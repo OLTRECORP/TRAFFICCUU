@@ -15,7 +15,7 @@ from app.db import get_admin_client
 from app.descarga_masiva import asegurar_factura_xml, cancelar as descarga_cancelar, ejecutar as descarga_ejecutar, iniciar as descarga_iniciar, iniciar_zip, rfc_cliente as descarga_rfc_cliente
 from app.sat import diagnosticar as sat_diagnosticar
 from app.mapas import MapaError, geocodificar
-from app.rutas_service import asignar_viaje, calcular_km_viajes, calcular_ruta
+from app.rutas_service import asignar_viaje, calcular_km_viajes, calcular_ruta, recalcular_rutas_camion
 from app.facturas_sat import ejecutar as sat_ejecutar, preparar as sat_preparar
 from app.excel_import import ExcelError, guardar, parse_workbook
 from app.sat import descargar_cfdis
@@ -379,8 +379,14 @@ class RutaRequest(BaseModel):
 
 @app.post("/api/rutas/calcular")
 def rutas_calcular(body: RutaRequest, tenant: Tenant = Depends(current_tenant)) -> dict:
-    """Distancia por carretera (ida) entre dos lugares; la guarda en `rutas` y actualiza los viajes que la usan."""
+    """Ruta por carretera para camión (ida): km, tiempo y trazo; la guarda en `rutas` y actualiza los viajes que la usan."""
     return calcular_ruta(tenant.empresa_id, str(body.origen_id), str(body.destino_id), body.forzar)
+
+
+@app.post("/api/rutas/recalcular-camion")
+def rutas_recalcular_camion(tenant: Tenant = Depends(current_tenant)) -> dict:
+    """Recalcula con ruta de camión las rutas guardadas sin trazo (por tandas; repite hasta que no queden pendientes)."""
+    return recalcular_rutas_camion(tenant.empresa_id)
 
 
 class ViajeLugaresRequest(BaseModel):

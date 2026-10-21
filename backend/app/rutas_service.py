@@ -9,7 +9,7 @@ from datetime import datetime, timezone
 from fastapi import HTTPException, status
 
 from .db import get_admin_client
-from .mapas import MapaError, distancia_km, geocodificar
+from .mapas import MapaError, geocodificar, ruta_camion
 
 logger = logging.getLogger("rutas")
 
@@ -102,32 +102,67 @@ def _punto(lugar: dict) -> tuple[float, float]:
     return float(lugar["lat"]), float(lugar["lng"])
 
 
+def _guardar_ruta(db, empresa_id: str, origen_id: str, destino_id: str, r: dict) -> None:
+    fila = {"empresa_id": empresa_id, "origen_id": origen_id, "destino_id": destino_id, "distancia_km": r["km"],
+            "fuente": r["fuente"], "calculada_en": datetime.now(timezone.utc).isoformat()}
+    extra = {"duracion_min": r["minutos"], "geometria": r["geometria"]}
+    try:
+        db.table("rutas").upsert({**fila, **extra}, on_conflict="empresa_id,origen_id,destino_id").execute()
+    except Exception:   # migración 029 aún sin aplicar: se guarda solo la distancia
+        logger.warning("rutas sin columnas de tiempo/geometría: ejecuta la migración 029")
+        db.table("rutas").upsert(fila, on_conflict="empresa_id,origen_id,destino_id").execute()
+
+
 def calcular_ruta(empresa_id: str, origen_id: str, destino_id: str, forzar: bool = False) -> dict:
-    """Distancia de ida entre dos lugares; usa la guardada salvo `forzar`. Actualiza los viajes que la usan."""
+    """Ruta de ida entre dos lugares por calles y carreteras para camión de carga (km, tiempo y trazo).
+    Usa la guardada con trazo salvo `forzar`. Actualiza los viajes que la usan."""
     db = get_admin_client()
     origen, destino = _lugar(db, empresa_id, origen_id), _lugar(db, empresa_id, destino_id)
     if origen_id == destino_id:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "El origen y el destino son el mismo lugar")
     previa = (
-        db.table("rutas").select("id, distancia_km").eq("empresa_id", empresa_id)
+        db.table("rutas").select("*").eq("empresa_id", empresa_id)
         .eq("origen_id", origen_id).eq("destino_id", destino_id).limit(1).execute().data
     )
+    # La ruta guardada se reutiliza (las anteriores sin trazo se conservan hasta «Recalcular con ruta de camión»)
     if previa and not forzar:
-        km = float(previa[0]["distancia_km"])
+        km, minutos = float(previa[0]["distancia_km"]), previa[0].get("duracion_min")
     else:
         po, pd = _punto(origen), _punto(destino)
         try:
-            km = distancia_km(po, pd)
+            r = ruta_camion(po, pd)
         except MapaError as exc:
             raise HTTPException(status.HTTP_502_BAD_GATEWAY, str(exc))
-        db.table("rutas").upsert(
-            {"empresa_id": empresa_id, "origen_id": origen_id, "destino_id": destino_id, "distancia_km": km,
-             "fuente": "osrm", "calculada_en": datetime.now(timezone.utc).isoformat()},
-            on_conflict="empresa_id,origen_id,destino_id",
-        ).execute()
+        _guardar_ruta(db, empresa_id, origen_id, destino_id, r)
+        km, minutos = r["km"], r["minutos"]
     db.table("viajes").update({"distancia_mapa_km": km}).eq("empresa_id", empresa_id) \
         .eq("lugar_origen_id", origen_id).eq("lugar_destino_id", destino_id).execute()
-    return {"distancia_km": km, "km_operativos": round(km * 2, 2)}
+    return {"distancia_km": km, "km_operativos": round(km * 2, 2), "minutos": minutos}
+
+
+def recalcular_rutas_camion(empresa_id: str, log=None) -> dict:
+    """Vuelve a calcular con ruta de camión las rutas guardadas sin trazo (calculadas antes con OSRM/auto).
+    Cambia sus km (y los de los viajes que las usan). Por corrida un máximo, para no saturar el servidor público."""
+    db = get_admin_client()
+    limite = time.monotonic() + PRESUPUESTO_SEG
+    try:
+        pendientes = _todo(lambda a, b: db.table("rutas").select("origen_id, destino_id").eq("empresa_id", empresa_id)
+                           .is_("geometria", "null").order("id").range(a, b).execute())
+    except Exception as exc:
+        raise HTTPException(status.HTTP_409_CONFLICT, "Ejecuta primero la migración 029 en Supabase") from exc
+    res = {"recalculadas": 0, "fallidas": 0, "pendientes": 0}
+    for i, p in enumerate(pendientes):
+        if res["recalculadas"] >= MAX_RUTAS_NUEVAS or time.monotonic() > limite:
+            res["pendientes"] += 1
+            continue
+        try:
+            calcular_ruta(empresa_id, p["origen_id"], p["destino_id"], forzar=True)
+            res["recalculadas"] += 1
+        except HTTPException as exc:
+            res["fallidas"] += 1
+            if log:
+                log(str(exc.detail), "aviso")
+    return res
 
 
 def asignar_viaje(empresa_id: str, viaje_id: str, origen_id: str | None, destino_id: str | None) -> dict:

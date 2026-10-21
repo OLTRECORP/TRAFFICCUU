@@ -1,7 +1,7 @@
 // Ejecutar: npm test  (Node >= 22.18: ejecuta .ts directamente)
 import test from "node:test";
 import assert from "node:assert/strict";
-import { semanaPago, semanaPagoDesplazada, estadisticas, etiquetaSemanaPago } from "../src/lib/comisiones.ts";
+import { resumenPorChofer, semanaPago, semanaPagoDesplazada, estadisticas, etiquetaSemanaPago } from "../src/lib/comisiones.ts";
 import { tramos, cargasPorDia, rendimientoPorChofer } from "../src/lib/combustible.ts";
 
 // ---- Comisiones: semana de pago vie–jue --------------------------------------------------
@@ -217,4 +217,26 @@ test("numeroLlanta y repartirCosto", async () => {
   assert.deepEqual(posiciones("gondola", 2).map((p) => numeroLlanta("gondola", p.codigo)), [1, 2, 3, 4, 5, 6, 7, 8]);
   assert.deepEqual(repartirCosto(100, 3), [33.34, 33.33, 33.33]);
   assert.equal(repartirCosto(7800.01, 4).reduce((a, b) => a + b, 0).toFixed(2), "7800.01");
+});
+
+test("resumenPorChofer: activos sin viajes, inactivos con viajes y orden por comisión", () => {
+  const ch = [{ id: "a", nombre: "Ana", activo: true }, { id: "b", nombre: "Beto", activo: true }, { id: "c", nombre: "Chema", activo: false }, { id: "d", nombre: "Dora", activo: false }];
+  const v = (id, chofer, sub, folio) => ({ viaje_id: id, chofer_id: chofer, folio, fecha_viaje: "2026-10-20", subtotal: sub, origen: null, destino: null, cliente: null });
+  const r = resumenPorChofer(ch, [v("1", "b", 1000, "F1"), v("2", "b", 500, "F1"), v("3", "c", 2000, "F2"), v("4", null, 900, "F3")]);
+  assert.deepEqual(r.map((x) => x.nombre), ["Chema", "Beto", "Ana"]);
+  assert.equal(r[1].resumen.viajes, 2);
+  assert.equal(r[1].resumen.facturas, 1);
+  assert.equal(r[1].resumen.comision, 180);
+  assert.equal(r[2].resumen.viajes, 0);
+});
+
+test("rutas: decodifica polilínea precisión 6 y da formato al tiempo", async () => {
+  const { decodificarPolilinea, duracionTexto } = await import("../src/lib/rutas.ts");
+  // (28.6353,-106.0889) (28.7,-106.2) (25.6,-100.3) codificado a precisión 6
+  const cod = (pts) => { let o = "", la = 0, lo = 0; for (const [a, b] of pts) { for (const [v, ant] of [[Math.round(a * 1e6), la], [Math.round(b * 1e6), lo]]) { let d = v - ant; d = d < 0 ? ~(d << 1) : d << 1; while (d >= 0x20) { o += String.fromCharCode((0x20 | (d & 0x1f)) + 63); d >>= 5; } o += String.fromCharCode(d + 63); } la = Math.round(a * 1e6); lo = Math.round(b * 1e6); } return o; };
+  const pts = [[28.6353, -106.0889], [28.7, -106.2], [25.6, -100.3]];
+  assert.deepEqual(decodificarPolilinea(cod(pts)), pts);
+  assert.equal(duracionTexto(307), "5 h 07 min");
+  assert.equal(duracionTexto(45), "45 min");
+  assert.equal(duracionTexto(null), "—");
 });

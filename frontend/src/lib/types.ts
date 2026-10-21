@@ -159,5 +159,6 @@ export interface SemanaCliente {
 export interface FacturaCliente { id: string; folio: string; fecha: string | null; estado: string | null; subtotal: number | null; total: number; rfc: string | null }
 export interface Ruta {
   id: string; origen_id: string; destino_id: string; distancia_km: number; calculada_en: string;
+  fuente?: string; duracion_min?: number | null; geometria?: string | null;   // migración 029
   origen: { nombre: string } | null; destino: { nombre: string } | null;
 }

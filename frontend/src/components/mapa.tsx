@@ -10,8 +10,10 @@ const MX: [number, number] = [23.6, -102.5];
 
 /** Mapa OpenStreetMap (Leaflet). Muestra puntos, opcionalmente unidos por una línea, y con `onPick`
  *  permite marcar un punto con un clic. Los marcadores son círculos (sin imágenes externas). */
-export default function Mapa({ puntos, linea = false, onPick, alto = 280, etiquetas = false }: {
-  puntos: PuntoMapa[]; linea?: boolean; onPick?: (lat: number, lng: number) => void; alto?: number;
+export default function Mapa({ puntos, linea = false, trazo, onPick, alto = 280, etiquetas = false }: {
+  puntos: PuntoMapa[]; linea?: boolean;
+  /** Ruta real por calles y carreteras ([lat, lng][]); si viene, reemplaza la línea recta. */
+  trazo?: [number, number][]; onPick?: (lat: number, lng: number) => void; alto?: number;
   /** Rotula siempre cada punto con su nombre (por defecto solo si hay 2 o menos). */
   etiquetas?: boolean;
 }) {
@@ -45,12 +47,17 @@ export default function Mapa({ puntos, linea = false, onPick, alto = 280, etique
     g.clearLayers();
     puntos.forEach((p) => L.circleMarker([p.lat, p.lng], { radius: 8, color: "#fff", weight: 2, fillColor: "#e11d48", fillOpacity: 1 })
       .bindTooltip(p.etiqueta, { permanent: etiquetas || puntos.length <= 2, direction: "top", className: "mapa-etiqueta" }).addTo(g));
+    if (trazo && trazo.length > 1) {
+      const t = L.polyline(trazo, { color: "#2563eb", weight: 5, opacity: 0.85 }).addTo(g);
+      m.fitBounds(t.getBounds(), { padding: [30, 30] });
+      return;
+    }
     if (linea && puntos.length > 1) L.polyline(puntos.map((p) => [p.lat, p.lng] as [number, number]), { color: "#2563eb", dashArray: "6 6" }).addTo(g);
     if (puntos.length === 1) m.setView([puntos[0].lat, puntos[0].lng], Math.max(m.getZoom(), 12));
     else if (puntos.length > 1) m.fitBounds(puntos.map((p) => [p.lat, p.lng] as [number, number]), { padding: [30, 30] });
   }
 
-  useEffect(() => { void import("leaflet").then(dibujar); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [puntos, linea, etiquetas]);
+  useEffect(() => { void import("leaflet").then(dibujar); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [puntos, linea, etiquetas, trazo]);
 
   return <div ref={el} style={{ height: alto }} className="mapa-tema z-0 w-full overflow-hidden rounded-md border" role="application" aria-label="Mapa" />;
 }
