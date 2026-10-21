@@ -229,3 +229,14 @@ test("resumenPorChofer: activos sin viajes, inactivos con viajes y orden por com
   assert.equal(r[1].resumen.comision, 180);
   assert.equal(r[2].resumen.viajes, 0);
 });
+
+test("rutas: decodifica polilínea precisión 6 y da formato al tiempo", async () => {
+  const { decodificarPolilinea, duracionTexto } = await import("../src/lib/rutas.ts");
+  // (28.6353,-106.0889) (28.7,-106.2) (25.6,-100.3) codificado a precisión 6
+  const cod = (pts) => { let o = "", la = 0, lo = 0; for (const [a, b] of pts) { for (const [v, ant] of [[Math.round(a * 1e6), la], [Math.round(b * 1e6), lo]]) { let d = v - ant; d = d < 0 ? ~(d << 1) : d << 1; while (d >= 0x20) { o += String.fromCharCode((0x20 | (d & 0x1f)) + 63); d >>= 5; } o += String.fromCharCode(d + 63); } la = Math.round(a * 1e6); lo = Math.round(b * 1e6); } return o; };
+  const pts = [[28.6353, -106.0889], [28.7, -106.2], [25.6, -100.3]];
+  assert.deepEqual(decodificarPolilinea(cod(pts)), pts);
+  assert.equal(duracionTexto(307), "5 h 07 min");
+  assert.equal(duracionTexto(45), "45 min");
+  assert.equal(duracionTexto(null), "—");
+});

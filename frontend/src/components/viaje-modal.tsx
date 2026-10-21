@@ -4,7 +4,8 @@ import { useEffect, useState } from "react";
 import { Loader2 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { ApiError, postBackend } from "@/lib/api";
-import type { Lugar, Viaje, ViajeSobrepeso } from "@/lib/types";
+import type { Lugar, Ruta, Viaje, ViajeSobrepeso } from "@/lib/types";
+import { RutaCamion } from "@/components/ruta-camion";
 import { Alert } from "@/components/ui/alert";
 import { fechaMx, km, mxn } from "@/lib/utils";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
@@ -29,6 +30,7 @@ export function ViajeModal({ viaje, onClose, onChanged }: { viaje: Viaje | null;
   const [kmIda, setKmIda] = useState<number | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [ruta, setRuta] = useState<Ruta | null>(null);
   const [sobrepeso, setSobrepeso] = useState<ViajeSobrepeso | null>(null);
 
   useEffect(() => {
@@ -40,6 +42,16 @@ export function ViajeModal({ viaje, onClose, onChanged }: { viaje: Viaje | null;
       .then(({ data }) => setSobrepeso(((data ?? [])[0] as ViajeSobrepeso | undefined) ?? null));
     void createClient().from("lugares").select("*").eq("activo", true).order("nombre").then(({ data }) => setLugares((data ?? []) as Lugar[]));
   }, [viaje]);
+
+  // Ruta guardada entre el origen y el destino elegidos (tiempo y trazo para camión); sin ella solo se muestran los km
+  useEffect(() => {
+    setRuta(null);
+    if (!origen || !destino) return;
+    let vigente = true;
+    void createClient().from("rutas").select("*").eq("origen_id", origen).eq("destino_id", destino).limit(1)
+      .then(({ data }) => { if (vigente) setRuta(((data ?? [])[0] as Ruta | undefined) ?? null); });
+    return () => { vigente = false; };
+  }, [origen, destino, kmIda]);
 
   async function asignar(o: string, d: string) {
     if (!viaje) return;
@@ -111,6 +123,7 @@ export function ViajeModal({ viaje, onClose, onChanged }: { viaje: Viaje | null;
                     const p = lugares.find((l) => l.id === destino)?.precio_tonelada;
                     return p != null ? <p className="text-sm">Precio por tonelada del destino (referencia): <b>{mxn(Number(p))}</b></p> : null;
                   })()}
+                  {ruta && <RutaCamion origen={lugares.find((l) => l.id === origen)} destino={lugares.find((l) => l.id === destino)} ruta={ruta} alto={240} />}
                   <p className="flex items-center gap-2 text-sm">
                     {saving && <Loader2 className="h-4 w-4 animate-spin" />}
                     {kmIda != null ? <>Ida {km(kmIda)} · <b>km operativos (redondo) {km(kmIda * 2)}</b></> : "Asigna origen y destino ubicados en el mapa para calcular los km."}

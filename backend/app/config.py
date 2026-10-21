@@ -17,6 +17,15 @@ class Settings(BaseSettings):
     # Apunta a tu propio servidor o a otro proveedor compatible si el uso público no alcanza.
     nominatim_url: str = "https://nominatim.openstreetmap.org"
     osrm_url: str = "https://router.project-osrm.org"
+    # Ruta para camión de carga (Valhalla, perfil «truck»: respeta restricciones de altura, peso y vías para camión).
+    # Si no responde se usa OSRM (perfil auto) y el tiempo se ajusta con `factor_tiempo_camion`.
+    valhalla_url: str = "https://valhalla1.openstreetmap.de"
+    factor_tiempo_camion: float = 1.25
+    # Tractocamión con góndola (m, toneladas); T3-S2-R4 máx. 4.25 m de alto y 2.60 m de ancho en México.
+    camion_alto_m: float = 4.25
+    camion_ancho_m: float = 2.6
+    camion_largo_m: float = 18.3
+    camion_peso_ton: float = 40.0
     maps_user_agent: str = "ERP-Logistico/1.0 (contacto: configura MAPS_USER_AGENT)"
 
     @property
