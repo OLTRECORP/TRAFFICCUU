@@ -240,3 +240,61 @@ test("rutas: decodifica polilínea precisión 6 y da formato al tiempo", async (
   assert.equal(duracionTexto(45), "45 min");
   assert.equal(duracionTexto(null), "—");
 });
+
+test("cotizador: precio sin pérdida, ganancia y redondeo por unidad", async () => {
+  const { cotizar, PARAMETROS_BASE } = await import("../src/lib/cotizador.ts");
+  const params = { ...PARAMETROS_BASE, diesel_precio_litro: 25, rendimiento_km_l: 2.5, mant_por_km: 3, depreciacion_por_km: 2, costo_dia: 500,
+    horas_jornada: 10, horas_carga_descarga: 2, indirectos_pct: 10, comision_pct: 12, ganancia_pct: 18 };
+  const r = cotizar({ km_ida: 100, minutos_ida: 120, redondo: true, cantidad: 30, unidad: "tonelada", casetas: 400, otros: 100, params });
+  // 200 km: diésel 80 L × 25 = 2000; desgaste 600; deprec. 400; horas 4+2=6 → 0.6 día × 500 = 300; casetas 400; otros 100
+  assert.equal(r.km, 200);
+  assert.equal(r.litros, 80);
+  assert.deepEqual(r.desglose.map((d) => d.monto), [2000, 600, 400, 300, 400, 100, 380]);
+  assert.equal(r.costoBase, 4180);
+  assert.equal(r.precioMinimo, 4750);                         // 4180 / 0.88
+  assert.equal(r.precioPorUnidad, 200);                       // ceil(4180 / 0.70 / 30 = 199.05) → se cobra por unidad entera
+  assert.equal(r.precio, 6000);
+  assert.equal(r.comision, 720);
+  assert.equal(r.ganancia, 1100);                             // 6000 − 4180 − 720 ≥ 18 % de 6000 (1080)
+  assert.ok(r.gananciaPct >= 18);
+  assert.equal(r.iva, 960); assert.equal(r.retencionIva, 240); assert.equal(r.total, 6720);
+  assert.equal(r.escenarios[0].precio, 4750);                 // ganancia 0 = precio mínimo
+});
+
+test("cotizador: nunca cotiza abajo del costo + comisión y valida los datos", async () => {
+  const { cotizar, PARAMETROS_BASE } = await import("../src/lib/cotizador.ts");
+  for (const [km, min, cant, ganancia, redondo] of [[35, 40, 28, 5, true], [610, 540, 3, 25, false], [12, 15, 100, 0, true], [800, 700, 27.5, 30, true]]) {
+    const params = { ...PARAMETROS_BASE, ganancia_pct: ganancia };
+    const r = cotizar({ km_ida: km, minutos_ida: min, redondo, cantidad: cant, unidad: "m3", casetas: 0, otros: 0, params });
+    assert.ok(r.precio >= r.precioMinimo, "precio ≥ mínimo");
+    assert.ok(r.ganancia >= r.precio * ganancia / 100 - 0.01, "ganancia ≥ la deseada");
+    assert.ok(r.ganancia >= 0);
+  }
+  const base = { km_ida: 50, minutos_ida: 60, redondo: true, cantidad: 10, unidad: "tonelada", casetas: 0, otros: 0, params: PARAMETROS_BASE };
+  assert.throws(() => cotizar({ ...base, km_ida: 0 }), /ruta/);
+  assert.throws(() => cotizar({ ...base, cantidad: 0 }), /toneladas/);
+  assert.throws(() => cotizar({ ...base, params: { ...PARAMETROS_BASE, comision_pct: 60, ganancia_pct: 40 } }), /100 %/);
+  const sinRegreso = cotizar({ ...base, redondo: false });
+  assert.equal(sinRegreso.km, 50);
+});
+
+test("cotizador: supuestos desde el historial de la flota", async () => {
+  const { parametrosDesdeHistorial, PARAMETROS_BASE } = await import("../src/lib/cotizador.ts");
+  const vacio = parametrosDesdeHistorial({ cargas: [], tramos: [], servicios: [], viajes: [] }, "2026-10-20");
+  assert.deepEqual(vacio.params, PARAMETROS_BASE);
+  assert.deepEqual(vacio.origen, {});
+  const h = {
+    cargas: [1, 2, 3].map((i) => ({ fecha: `2026-10-0${i}`, costo: 2400, litros: 100 })),
+    tramos: [1, 2, 3].map(() => ({ km: 230, litros: 100 })),
+    servicios: [{ fecha: "2026-06-01", costo: 60000, tracto_id: "t" }, { fecha: "2026-06-02", costo: 99999, tracto_id: null }],
+    viajes: [{ fecha_viaje: "2026-07-01", km: 20000 }],
+  };
+  const r = parametrosDesdeHistorial(h, "2026-10-20");
+  assert.equal(r.params.diesel_precio_litro, 24);
+  assert.equal(r.params.rendimiento_km_l, 2.3);
+  assert.equal(r.params.mant_por_km, 3);                      // 60000 / 20000 (el servicio sin tracto no cuenta)
+  assert.equal(r.origen.mant_por_km.fuente, "historial");
+  // km insuficientes: se queda el valor base
+  const poco = parametrosDesdeHistorial({ ...h, viajes: [{ fecha_viaje: "2026-07-01", km: 800 }] }, "2026-10-20");
+  assert.equal(poco.params.mant_por_km, PARAMETROS_BASE.mant_por_km);
+});
