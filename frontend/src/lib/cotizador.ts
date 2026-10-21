@@ -147,3 +147,59 @@ export function parametrosDesdeHistorial(h: HistorialCotizador, hoy = new Date()
   }
   return { params, origen };
 }
+
+/** Lo que se cobra al cliente: el precio por unidad ofertado (el sugerido si no se captura otro) y qué deja a la empresa. */
+export interface Oferta {
+  precioPorUnidad: number; precio: number;
+  comision: number; ganancia: number; gananciaPct: number;
+  bajoMinimo: boolean;            // por debajo del mínimo sin pérdida: la empresa pierde dinero
+  bajoDeseado: boolean;           // deja menos ganancia que la deseada
+  iva: number; retencionIva: number; total: number;
+}
+
+export function evaluarOferta(r: ResultadoCotizacion, p: Pick<Parametros, "comision_pct" | "ganancia_pct">, cantidad: number, precioPorUnidad?: number): Oferta {
+  const pu = precioPorUnidad != null && precioPorUnidad > 0 ? r2(precioPorUnidad) : r.precioPorUnidad;
+  const precio = r2(pu * cantidad);
+  const comision = precio * (p.comision_pct / 100), ganancia = precio - r.costoBase - comision;
+  return {
+    precioPorUnidad: pu, precio, comision: r2(comision), ganancia: r2(ganancia), gananciaPct: precio > 0 ? (ganancia / precio) * 100 : 0,
+    bajoMinimo: ganancia < -0.005, bajoDeseado: ganancia < precio * (p.ganancia_pct / 100) - 0.005,
+    iva: r2(precio * IVA), retencionIva: r2(precio * RETENCION_IVA), total: r2(precio + precio * IVA - precio * RETENCION_IVA),
+  };
+}
+
+export const ESTADOS = ["borrador", "enviada", "aceptada", "rechazada"] as const;
+export type EstadoCotizacion = (typeof ESTADOS)[number];
+export const ETIQUETA_ESTADO: Record<EstadoCotizacion, string> = { borrador: "Borrador", enviada: "Enviada", aceptada: "Aceptada", rechazada: "Rechazada" };
+
+export const VIGENCIA_BASE = 15;
+/** Condiciones por defecto del formato; se pueden editar en cada cotización. El tiempo de carga sale de los supuestos. */
+export const condicionesBase = (horasCargaDescarga: number) => [
+  "Precios en pesos mexicanos (MXN); a los importes se les suma el IVA y se aplica la retención de IVA de 4 % del autotransporte de carga.",
+  "El precio incluye casetas y peajes del trayecto cotizado y el combustible.",
+  `Tiempo de carga y descarga incluido: ${horasCargaDescarga} horas en total; el excedente se cobra como demora.`,
+  "La cantidad se cobra sobre lo cargado y pesado en origen; la unidad no excederá el peso máximo permitido por la SCT.",
+  "La cotización está sujeta a disponibilidad de unidades y a cambios sustanciales en el precio del diésel.",
+].join("\n");
+
+/** Fecha (YYYY-MM-DD) hasta la que vale la cotización. */
+export function vigenciaHasta(fecha: string, dias: number): string {
+  return new Date(Date.parse(`${fecha.slice(0, 10)}T00:00:00Z`) + dias * 86400000).toISOString().slice(0, 10);
+}
+
+/** Datos del formato imprimible: lo que ve el cliente (nunca los costos internos ni la ganancia). */
+export interface DocumentoCotizacion {
+  folio: number | null; fecha: string; vigencia_dias: number;
+  cliente: string | null; origen: string; destino: string; mercancia: string | null;
+  km_ida: number; minutos_ida: number | null; redondo: boolean;
+  cantidad: number; unidad: UnidadCobro; precio_unidad: number;
+  condiciones: string;
+}
+
+export function totalesDocumento(d: Pick<DocumentoCotizacion, "cantidad" | "precio_unidad">) {
+  const subtotal = r2(d.cantidad * d.precio_unidad);
+  const iva = r2(subtotal * IVA), retencion = r2(subtotal * RETENCION_IVA);
+  return { subtotal, iva, retencion, total: r2(subtotal + iva - retencion) };
+}
+
+export const folioTexto = (folio: number | null) => (folio == null ? "SIN FOLIO" : String(folio).padStart(5, "0"));

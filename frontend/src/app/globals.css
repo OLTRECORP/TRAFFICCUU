@@ -60,3 +60,13 @@
   font-weight: 600; box-shadow: 0 1px 3px rgb(0 0 0 / 0.25);
 }
 .mapa-tema .leaflet-tooltip-top.mapa-etiqueta::before { border-top-color: hsl(var(--card)); }
+
+/* Impresión de documentos (cotizaciones): solo se imprime #print-root, en hoja carta */
+#print-root { display: none; }
+@media print {
+  @page { size: letter; margin: 12mm; }
+  body > *:not(#print-root) { display: none !important; }
+  #print-root { display: block !important; }
+  html, body { background: #fff !important; }
+  #print-root, #print-root * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+}
