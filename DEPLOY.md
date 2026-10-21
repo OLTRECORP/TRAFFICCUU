@@ -43,4 +43,5 @@ Inicia sesión → espera "Conectando al motor logístico..." → **Empresa**: c
 - Servicio de llantas ligado a cada llanta: ejecuta `supabase/migrations/028_llantas_servicio.sql` (después de la 027). Agrega `llantas.servicio_id` y el trigger que copia la fecha y el km del servicio a sus llantas.
 - Ruta para camión con tiempo y trazo en el mapa: ejecuta `supabase/migrations/029_rutas_camion.sql` (después de la 028). Luego, en Orígenes y destinos › Distancias, pulsa «Recalcular con ruta de camión» (repite hasta que no queden pendientes): cambia los km de las rutas anteriores y de los viajes que las usan.
 - Cotizador de fletes: ejecuta `supabase/migrations/030_cotizador.sql` (después de la 029). Guarda los supuestos de costos y las cotizaciones. La ruta usa los mismos servicios de mapa que Distancias (Nominatim y Valhalla/OSRM).
+- Complementos de pago fuera del conteo de facturas del dashboard: ejecuta `supabase/migrations/031_dashboard_sin_complementos.sql` (después de la 030).
 - *new row violates row-level security policy al guardar la empresa*: ejecuta `supabase/migrations/005_fix_rls_empresa.sql`; si persiste, cierra sesión y vuelve a entrar (sesión expirada).
