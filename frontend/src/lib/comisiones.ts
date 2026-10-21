@@ -91,3 +91,18 @@ export function estadisticas(viajes: ViajeComision[], p: Periodo): FilaEstadisti
   }
   return [...mapa.values()].sort((a, b) => b.clave.localeCompare(a.clave));
 }
+
+export interface FilaChofer { chofer_id: string; nombre: string; activo: boolean; viajes: ViajeComision[]; resumen: Contabilizado }
+
+/**
+ * Comisión del periodo por chofer: todos los activos (aunque no tengan viajes) y los inactivos que sí tuvieron viajes.
+ * Orden: mayor comisión primero; los de cero al final, por nombre.
+ */
+export function resumenPorChofer(choferes: { id: string; nombre: string; activo: boolean }[], viajes: ViajeComision[]): FilaChofer[] {
+  const porChofer = new Map<string, ViajeComision[]>();
+  for (const v of viajes) if (v.chofer_id) porChofer.set(v.chofer_id, [...(porChofer.get(v.chofer_id) ?? []), v]);
+  return choferes
+    .filter((c) => c.activo || porChofer.has(c.id))
+    .map((c) => { const vs = porChofer.get(c.id) ?? []; return { chofer_id: c.id, nombre: c.nombre, activo: c.activo, viajes: vs, resumen: contabilizados(vs) }; })
+    .sort((a, b) => b.resumen.comision - a.resumen.comision || a.nombre.localeCompare(b.nombre));
+}

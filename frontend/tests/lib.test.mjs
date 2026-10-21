@@ -1,7 +1,7 @@
 // Ejecutar: npm test  (Node >= 22.18: ejecuta .ts directamente)
 import test from "node:test";
 import assert from "node:assert/strict";
-import { semanaPago, semanaPagoDesplazada, estadisticas, etiquetaSemanaPago } from "../src/lib/comisiones.ts";
+import { resumenPorChofer, semanaPago, semanaPagoDesplazada, estadisticas, etiquetaSemanaPago } from "../src/lib/comisiones.ts";
 import { tramos, cargasPorDia, rendimientoPorChofer } from "../src/lib/combustible.ts";
 
 // ---- Comisiones: semana de pago vie–jue --------------------------------------------------
@@ -217,4 +217,15 @@ test("numeroLlanta y repartirCosto", async () => {
   assert.deepEqual(posiciones("gondola", 2).map((p) => numeroLlanta("gondola", p.codigo)), [1, 2, 3, 4, 5, 6, 7, 8]);
   assert.deepEqual(repartirCosto(100, 3), [33.34, 33.33, 33.33]);
   assert.equal(repartirCosto(7800.01, 4).reduce((a, b) => a + b, 0).toFixed(2), "7800.01");
+});
+
+test("resumenPorChofer: activos sin viajes, inactivos con viajes y orden por comisión", () => {
+  const ch = [{ id: "a", nombre: "Ana", activo: true }, { id: "b", nombre: "Beto", activo: true }, { id: "c", nombre: "Chema", activo: false }, { id: "d", nombre: "Dora", activo: false }];
+  const v = (id, chofer, sub, folio) => ({ viaje_id: id, chofer_id: chofer, folio, fecha_viaje: "2026-10-20", subtotal: sub, origen: null, destino: null, cliente: null });
+  const r = resumenPorChofer(ch, [v("1", "b", 1000, "F1"), v("2", "b", 500, "F1"), v("3", "c", 2000, "F2"), v("4", null, 900, "F3")]);
+  assert.deepEqual(r.map((x) => x.nombre), ["Chema", "Beto", "Ana"]);
+  assert.equal(r[1].resumen.viajes, 2);
+  assert.equal(r[1].resumen.facturas, 1);
+  assert.equal(r[1].resumen.comision, 180);
+  assert.equal(r[2].resumen.viajes, 0);
 });

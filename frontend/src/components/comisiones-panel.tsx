@@ -3,12 +3,12 @@
 import { useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { comisionViaje, estadisticas, etiquetaSemanaPago, etiquetaTasas, semanaPago, semanaPagoDesplazada, tasaDe, totales, type Periodo, type ViajeComision } from "@/lib/comisiones";
-import type { Chofer } from "@/lib/types";
 import { fechaMx, mxn } from "@/lib/utils";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { Alert } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { ComisionesResumen, type ChoferCom } from "@/components/comisiones-resumen";
 import { ComisionesDetalle, type DetalleComision } from "@/components/comisiones-detalle";
 import { ErrorAlert } from "@/components/error-alert";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -40,11 +40,12 @@ function Kpi({ label, value, onClick }: { label: string; value: string; onClick?
 }
 
 export function ComisionesPanel() {
-  const [choferes, setChoferes] = useState<Pick<Chofer, "id" | "nombre">[]>([]);
+  const [choferes, setChoferes] = useState<ChoferCom[]>([]);
+  const [vista, setVista] = useState<"semana" | "chofer">("semana");
   const [choferId, setChoferId] = useState("");
-  // Por defecto: semana de pago (vie–jue) más reciente ya cerrada, la que se paga este viernes o el último.
+  // Por defecto: la semana de pago (vie–jue) en curso; «Última cerrada» salta a la que ya se puede pagar.
   const [modo, setModo] = useState<"semana" | "rango">("semana");
-  const [semana, setSemana] = useState(() => semanaPagoDesplazada(hoyLocal(), -1));
+  const [semana, setSemana] = useState(() => semanaPago(hoyLocal()));
   const [desdeLibre, setDesdeLibre] = useState("");
   const [hastaLibre, setHastaLibre] = useState("");
   const desde = modo === "semana" ? semana.desde : desdeLibre;
@@ -58,8 +59,8 @@ export function ComisionesPanel() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    void createClient().from("choferes").select("id, nombre").order("nombre").limit(1000)
-      .then(({ data, error: e }) => { if (e) setError(e.message); else setChoferes((data ?? []) as Pick<Chofer, "id" | "nombre">[]); });
+    void createClient().from("choferes").select("id, nombre, activo").order("nombre").limit(1000)
+      .then(({ data, error: e }) => { if (e) setError(e.message); else setChoferes((data ?? []) as ChoferCom[]); });
   }, []);
 
   // Todo el historial del chofer (en páginas de 1000): el rango filtra y las estadísticas usan todo.
@@ -130,16 +131,25 @@ export function ComisionesPanel() {
     <div className="grid gap-4">
       {error && <ErrorAlert where="comisiones" message={error} />}
 
+      <Tabs value={vista} onValueChange={(v) => setVista(v as "semana" | "chofer")}>
+        <TabsList>
+          <TabsTrigger value="semana">Choferes activos</TabsTrigger>
+          <TabsTrigger value="chofer">Por chofer</TabsTrigger>
+        </TabsList>
+      </Tabs>
+
       <Card>
         <CardContent className="grid gap-3 p-4">
           <div className="grid gap-3 sm:grid-cols-[1fr_1fr]">
-            <div className="grid gap-1.5">
-              <Label htmlFor="com-chofer">Chofer</Label>
-              <select id="com-chofer" className={sel} value={choferId} onChange={(e) => setChoferId(e.target.value)}>
-                <option value="">Selecciona un chofer…</option>
-                {choferes.map((c) => <option key={c.id} value={c.id}>{c.nombre}</option>)}
-              </select>
-            </div>
+            {vista === "chofer" && (
+              <div className="grid gap-1.5">
+                <Label htmlFor="com-chofer">Chofer</Label>
+                <select id="com-chofer" className={sel} value={choferId} onChange={(e) => setChoferId(e.target.value)}>
+                  <option value="">Selecciona un chofer…</option>
+                  {choferes.map((c) => <option key={c.id} value={c.id}>{c.nombre}{c.activo ? "" : " (inactivo)"}</option>)}
+                </select>
+              </div>
+            )}
             <div className="grid gap-1.5">
               <Label htmlFor="com-modo">Periodo</Label>
               <select id="com-modo" className={sel} value={modo} onChange={(e) => setModo(e.target.value as "semana" | "rango")}>
@@ -173,7 +183,10 @@ export function ComisionesPanel() {
         </CardContent>
       </Card>
 
-      {!choferId ? (
+      {vista === "semana" ? (
+        <ComisionesResumen choferes={choferes} desde={desde} hasta={hasta} titulo={tituloPeriodo} onError={setError}
+          onDetalle={(chofer, v) => setDetalle({ titulo: tituloPeriodo, chofer, viajes: v })} />
+      ) : !choferId ? (
         <Alert variant="info">Selecciona un chofer para ver sus facturas, destinos y comisiones.</Alert>
       ) : loading ? (
         <p className="text-sm text-muted-foreground">Calculando comisiones…</p>
