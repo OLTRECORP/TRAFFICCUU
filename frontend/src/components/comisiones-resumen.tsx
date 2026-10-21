@@ -4,14 +4,13 @@ import { useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { etiquetaTasas, resumenPorChofer, type ViajeComision } from "@/lib/comisiones";
 import { mxn } from "@/lib/utils";
-import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 
 const PAG = 1000;
 export interface ChoferCom { id: string; nombre: string; activo: boolean }
 
-/** Choferes activos con sus viajes y comisión del periodo (por defecto la semana de pago vie–jue en curso). */
+/** Solo choferes activos, con sus viajes y comisión del periodo (por defecto la semana de pago vie–jue en curso). */
 export function ComisionesResumen({ choferes, desde, hasta, titulo, onError, onDetalle }: {
   choferes: ChoferCom[]; desde: string; hasta: string; titulo: string;
   onError: (m: string) => void; onDetalle: (chofer: string, viajes: ViajeComision[]) => void;
@@ -74,7 +73,7 @@ export function ComisionesResumen({ choferes, desde, hasta, titulo, onError, onD
                   aria-label={vacio ? undefined : `Ver facturas de ${f.nombre}`}
                   onClick={() => !vacio && onDetalle(f.nombre, f.viajes)}
                   onKeyDown={(e) => !vacio && (e.key === "Enter" || e.key === " ") && onDetalle(f.nombre, f.viajes)}>
-                  <TableCell className="font-medium">{f.nombre}{!f.activo && <Badge variant="amarillo" className="ml-2">Inactivo</Badge>}</TableCell>
+                  <TableCell className="font-medium">{f.nombre}</TableCell>
                   <TableCell className="text-right">{f.resumen.viajes}</TableCell>
                   <TableCell className="text-right">{f.resumen.facturas}</TableCell>
                   <TableCell className="whitespace-nowrap text-right">{vacio ? "—" : mxn(f.resumen.subtotal)}</TableCell>

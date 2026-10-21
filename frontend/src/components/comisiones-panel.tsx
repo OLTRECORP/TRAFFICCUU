@@ -146,7 +146,7 @@ export function ComisionesPanel() {
                 <Label htmlFor="com-chofer">Chofer</Label>
                 <select id="com-chofer" className={sel} value={choferId} onChange={(e) => setChoferId(e.target.value)}>
                   <option value="">Selecciona un chofer…</option>
-                  {choferes.map((c) => <option key={c.id} value={c.id}>{c.nombre}{c.activo ? "" : " (inactivo)"}</option>)}
+                  {choferes.filter((c) => c.activo).map((c) => <option key={c.id} value={c.id}>{c.nombre}</option>)}
                 </select>
               </div>
             )}
