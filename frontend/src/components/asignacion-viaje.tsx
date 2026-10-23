@@ -5,7 +5,6 @@ import { Loader2, UserRound } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { ApiError, postBackend } from "@/lib/api";
 import { comisionDe, TASA_GENERAL } from "@/lib/comisiones";
-import type { Viaje } from "@/lib/types";
 import { fechaMx, km, mxn } from "@/lib/utils";
 import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -18,14 +17,17 @@ interface Opcion { id: string; etiqueta: string; extra?: string | null; inactivo
 export interface Asignado { tracto: string | null; gondola: string | null; chofer: string | null; licencia: string | null }
 interface Registro { id: string; motivo: string | null; created_at: string; resumen: { antes?: Record<string, string | null>; despues?: Record<string, string | null> } }
 
+/** Lo mínimo de un viaje para reasignarlo (lo comparten el Dashboard, Facturas y Clientes). */
+export interface ViajeAsignable { id: string; folio?: string | null; subtotal: number; distancia_operativa: number; tracto_id: string | null; gondola_id: string | null; chofer_id: string | null }
+
 const NOMBRE: Record<string, string> = { tracto_id: "Tracto", gondola_id: "Góndola", chofer_id: "Chofer" };
 
 /** Cambia el tracto, la góndola o el chofer de UN viaje (p. ej. por un error de timbrado). Las métricas se recalculan solas. */
-export function AsignacionViaje({ viaje, onAsignado }: { viaje: Viaje; onAsignado: (a: Asignado) => void }) {
+export function AsignacionViaje({ viaje, onAsignado }: { viaje: ViajeAsignable; onAsignado: (a: Asignado) => void }) {
   const [tractos, setTractos] = useState<Opcion[]>([]);
   const [gondolas, setGondolas] = useState<Opcion[]>([]);
   const [choferes, setChoferes] = useState<Opcion[]>([]);
-  const [actual, setActual] = useState({ tracto: viaje.tracto?.id ?? "", gondola: viaje.gondola?.id ?? "", chofer: viaje.chofer?.id ?? "" });
+  const [actual, setActual] = useState({ tracto: viaje.tracto_id ?? "", gondola: viaje.gondola_id ?? "", chofer: viaje.chofer_id ?? "" });
   const [elegido, setElegido] = useState(actual);
   const [motivo, setMotivo] = useState("");
   const [tasa, setTasa] = useState<number>(TASA_GENERAL);
@@ -41,7 +43,7 @@ export function AsignacionViaje({ viaje, onAsignado }: { viaje: Viaje; onAsignad
   }, [viaje.id]);
 
   useEffect(() => {
-    const inicial = { tracto: viaje.tracto?.id ?? "", gondola: viaje.gondola?.id ?? "", chofer: viaje.chofer?.id ?? "" };
+    const inicial = { tracto: viaje.tracto_id ?? "", gondola: viaje.gondola_id ?? "", chofer: viaje.chofer_id ?? "" };
     setActual(inicial); setElegido(inicial); setMotivo(""); setError(null); setAviso(null);
     void (async () => {
       const sb = createClient();

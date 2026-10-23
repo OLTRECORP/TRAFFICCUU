@@ -6,7 +6,6 @@ import { createClient } from "@/lib/supabase/client";
 import { ApiError, postBackend } from "@/lib/api";
 import type { Lugar, Ruta, Viaje, ViajeSobrepeso } from "@/lib/types";
 import { RutaCamion } from "@/components/ruta-camion";
-import { AsignacionViaje, type Asignado } from "@/components/asignacion-viaje";
 import { Alert } from "@/components/ui/alert";
 import { fechaMx, km, mxn } from "@/lib/utils";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
@@ -24,8 +23,7 @@ function Field({ label, value, mono }: { label: string; value: React.ReactNode; 
 
 const sel = "h-10 w-full rounded-md border bg-background px-3 text-sm";
 
-export function ViajeModal({ viaje, onClose, onChanged, pestanaInicial = "logistica" }: { viaje: Viaje | null; onClose: () => void; onChanged?: () => void; pestanaInicial?: "logistica" | "editar" }) {
-  const [pestana, setPestana] = useState<string>(pestanaInicial);
+export function ViajeModal({ viaje, onClose, onChanged }: { viaje: Viaje | null; onClose: () => void; onChanged?: () => void }) {
   const [lugares, setLugares] = useState<Lugar[]>([]);
   const [origen, setOrigen] = useState("");
   const [destino, setDestino] = useState("");
@@ -33,18 +31,17 @@ export function ViajeModal({ viaje, onClose, onChanged, pestanaInicial = "logist
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [ruta, setRuta] = useState<Ruta | null>(null);
-  const [asignado, setAsignado] = useState<Asignado | null>(null);   // lo que se acaba de corregir (el viaje de la lista aún trae lo anterior)
   const [sobrepeso, setSobrepeso] = useState<ViajeSobrepeso | null>(null);
 
   useEffect(() => {
     if (!viaje) return;
     setOrigen(viaje.lugar_origen_id ?? ""); setDestino(viaje.lugar_destino_id ?? "");
     setKmIda(viaje.distancia_mapa_km != null ? Number(viaje.distancia_mapa_km) : null); setError(null);
-    setSobrepeso(null); setAsignado(null); setPestana(pestanaInicial);
+    setSobrepeso(null);
     void createClient().from("viajes_sobrepeso").select("*").eq("viaje_id", viaje.id).limit(1)
       .then(({ data }) => setSobrepeso(((data ?? [])[0] as ViajeSobrepeso | undefined) ?? null));
     void createClient().from("lugares").select("*").eq("activo", true).order("nombre").then(({ data }) => setLugares((data ?? []) as Lugar[]));
-  }, [viaje, pestanaInicial]);
+  }, [viaje]);
 
   // Ruta guardada entre el origen y el destino elegidos (tiempo y trazo para camión); sin ella solo se muestran los km
   useEffect(() => {
@@ -76,10 +73,9 @@ export function ViajeModal({ viaje, onClose, onChanged, pestanaInicial = "logist
               <DialogTitle className="text-lg font-semibold">Viaje {viaje.folio_factura ?? ""}</DialogTitle>
               <DialogDescription className="text-sm text-muted-foreground">{fechaMx(viaje.fecha)}</DialogDescription>
             </div>
-            <Tabs value={pestana} onValueChange={setPestana}>
+            <Tabs defaultValue="logistica">
               <TabsList>
                 <TabsTrigger value="logistica">Logística</TabsTrigger>
-                <TabsTrigger value="editar">Editar viaje</TabsTrigger>
                 <TabsTrigger value="fiscal">Fiscal</TabsTrigger>
               </TabsList>
 
@@ -94,10 +90,10 @@ export function ViajeModal({ viaje, onClose, onChanged, pestanaInicial = "logist
                   <Field label="Origen" value={origenLabel(viaje)} />
                   <Field label="Destino" value={destinoLabel(viaje)} />
                   <Field label="Cliente (receptor)" value={viaje.destino?.nombre} />
-                  <Field label="Placa tractocamión" value={asignado ? asignado.tracto : viaje.tracto?.placa} />
-                  <Field label="Placa góndola" value={asignado ? asignado.gondola : viaje.gondola?.placa} />
-                  <Field label="Chofer" value={asignado ? asignado.chofer : viaje.chofer?.nombre} />
-                  <Field label="Licencia" value={asignado ? asignado.licencia : viaje.chofer?.licencia} />
+                  <Field label="Placa tractocamión" value={viaje.tracto?.placa} />
+                  <Field label="Placa góndola" value={viaje.gondola?.placa} />
+                  <Field label="Chofer" value={viaje.chofer?.nombre} />
+                  <Field label="Licencia" value={viaje.chofer?.licencia} />
                   {viaje.remision && <Field label="Remisión" value={viaje.remision} />}
                   {viaje.origen_registro === "excel" && (
                     <Field label="Cantidad" value={viaje.cantidad != null ? `${Number(viaje.cantidad).toLocaleString("es-MX")} ${viaje.unidad ?? ""}${viaje.precio_unitario != null ? ` × ${mxn(Number(viaje.precio_unitario))}` : ""}` : null} />
@@ -110,11 +106,7 @@ export function ViajeModal({ viaje, onClose, onChanged, pestanaInicial = "logist
                   <Field label={`Distancia operativa (redondo${viaje.distancia_mapa_km != null ? ", del mapa" : ""})`}
                     value={viaje.distancia_mapa_km == null ? (viaje.origen_registro === "excel" ? "Pendiente: ubica origen y destino en el mapa" : `${km(viaje.distancia_operativa)} (del XML hasta tener el mapa)`) : km(viaje.distancia_operativa)} />
                 </dl>
-              </TabsContent>
-
-              <TabsContent value="editar" className="grid gap-4">
-                <AsignacionViaje viaje={viaje} onAsignado={(a) => { setAsignado(a); onChanged?.(); }} />
-                <div className="grid gap-3 rounded-md border p-3">
+                <div className="mt-4 grid gap-3 rounded-md border p-3">
                   <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Distancia por mapa (los km operativos del viaje son esta distancia x 2)</h4>
                   {error && <Alert variant="error">{error}</Alert>}
                   <div className="grid gap-3 sm:grid-cols-2">

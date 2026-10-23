@@ -1,12 +1,13 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Link2, Loader2, Unlink } from "lucide-react";
+import { Link2, Loader2, Pencil, Unlink } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { ApiError, postBackend } from "@/lib/api";
 import { impuestosDe } from "@/lib/cfdi";
 import type { FacturaSat } from "@/lib/types";
 import { fechaMx, km, mxn } from "@/lib/utils";
+import { EditarViaje } from "@/components/editar-viaje";
 import { ErrorAlert } from "@/components/error-alert";
 import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -33,6 +34,7 @@ export function ViajesFactura({ facturaId, compacto, sat, editable, onCambio }:
   const [viajes, setViajes] = useState<ViajeFila[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [version, setVersion] = useState(0);
+  const [editando, setEditando] = useState<string | null>(null);
   const recargar = useCallback(() => { setVersion((v) => v + 1); onCambio?.(); }, [onCambio]);
 
   useEffect(() => {
@@ -90,7 +92,7 @@ export function ViajesFactura({ facturaId, compacto, sat, editable, onCambio }:
               <TableHead>Fecha</TableHead><TableHead>Remisión</TableHead><TableHead>Origen → destino</TableHead>
               <TableHead>Chofer / tracto</TableHead><TableHead className="text-right">Cantidad</TableHead>
               <TableHead className="text-right">Km</TableHead><TableHead className="text-right">Subtotal</TableHead>
-              {editable && <TableHead className="w-10" />}
+              {editable && <TableHead className="w-20" />}
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -107,7 +109,9 @@ export function ViajesFactura({ facturaId, compacto, sat, editable, onCambio }:
                   : <span className="text-xs text-muted-foreground">{v.km_por_mapa ? "sin mapa" : "—"}</span>}</TableCell>
                 <TableCell className="whitespace-nowrap text-right">{mxn(v.subtotal)}</TableCell>
                 {editable && (
-                  <TableCell>
+                  <TableCell className="whitespace-nowrap">
+                    <Button size="icon" variant="ghost" className="h-7 w-7" title={v.origen_registro === "excel" ? "Corregir el viaje" : "Cambiar tracto, góndola o chofer"} aria-label="Editar viaje"
+                      onClick={() => setEditando(v.id)}><Pencil className="h-3.5 w-3.5" /></Button>
                     <Button size="icon" variant="ghost" className="h-7 w-7" title="Quitar este viaje de la factura" aria-label="Quitar este viaje de la factura"
                       onClick={() => void quitar(v.id)}><Unlink className="h-3.5 w-3.5" /></Button>
                   </TableCell>
@@ -124,6 +128,7 @@ export function ViajesFactura({ facturaId, compacto, sat, editable, onCambio }:
         </Table>
       </div>
       {editable && <LigarViajes facturaId={facturaId} sat={sat ?? null} ligados={viajes.map((v) => v.id)} onCambio={recargar} />}
+      <EditarViaje viajeId={editando} onClose={() => setEditando(null)} onCambio={recargar} />
     </div>
   );
 }

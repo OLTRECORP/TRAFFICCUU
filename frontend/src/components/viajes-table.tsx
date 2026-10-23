@@ -1,17 +1,16 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { ChevronLeft, ChevronRight, Pencil } from "lucide-react";
+import { ChevronLeft, ChevronRight } from "lucide-react";
 import type { Viaje } from "@/lib/types";
 import { destinoLabel, origenLabel } from "@/lib/format";
 import { cn, fechaMx, km } from "@/lib/utils";
-import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 
 const TAMANOS = [5, 10, 20];
 
-export function ViajesTable({ viajes, loading, onSelect, onEditar }: { viajes: Viaje[]; loading: boolean; onSelect: (v: Viaje) => void; onEditar?: (v: Viaje) => void }) {
+export function ViajesTable({ viajes, loading, onSelect }: { viajes: Viaje[]; loading: boolean; onSelect: (v: Viaje) => void }) {
   const [tam, setTam] = useState(5);
   const [pagina, setPagina] = useState(1);
   const paginas = Math.max(1, Math.ceil(viajes.length / tam));
@@ -29,18 +28,16 @@ export function ViajesTable({ viajes, loading, onSelect, onEditar }: { viajes: V
             <TableHead>Fecha</TableHead>
             <TableHead>Folio</TableHead>
             <TableHead>Chofer</TableHead>
-            <TableHead>Tracto</TableHead>
             <TableHead>Origen</TableHead>
             <TableHead>Destino</TableHead>
             <TableHead className="text-right">Km operativos</TableHead>
-            {onEditar && <TableHead className="w-24 text-right">Acciones</TableHead>}
           </TableRow>
         </TableHeader>
         <TableBody>
           {loading ? (
-            <TableRow><TableCell colSpan={onEditar ? 8 : 7} className="py-10 text-center text-muted-foreground">Cargando viajes…</TableCell></TableRow>
+            <TableRow><TableCell colSpan={6} className="py-10 text-center text-muted-foreground">Cargando viajes…</TableCell></TableRow>
           ) : viajes.length === 0 ? (
-            <TableRow><TableCell colSpan={onEditar ? 8 : 7} className="py-10 text-center text-muted-foreground">Aún no hay viajes. Sube un XML con Carta Porte para comenzar.</TableCell></TableRow>
+            <TableRow><TableCell colSpan={6} className="py-10 text-center text-muted-foreground">Aún no hay viajes. Sube un XML con Carta Porte para comenzar.</TableCell></TableRow>
           ) : (
             visibles.map((v) => (
               <TableRow
@@ -53,17 +50,11 @@ export function ViajesTable({ viajes, loading, onSelect, onEditar }: { viajes: V
                 <TableCell className="whitespace-nowrap first:rounded-l-lg">{fechaMx(v.fecha)}</TableCell>
                 <TableCell className="whitespace-nowrap font-medium">{v.folio_factura ?? "—"}</TableCell>
                 <TableCell>{v.chofer?.nombre ?? "—"}</TableCell>
-                <TableCell className="whitespace-nowrap">{v.tracto?.placa ?? "—"}</TableCell>
                 <TableCell>{origenLabel(v)}</TableCell>
                 <TableCell>{destinoLabel(v)}</TableCell>
-                <TableCell className={cn("whitespace-nowrap text-right", !onEditar && "last:rounded-r-lg")} title={v.distancia_mapa_km != null ? "Del mapa (ida x 2)" : "Del XML (ida x 2) hasta calcular el mapa"}>
+                <TableCell className="whitespace-nowrap text-right last:rounded-r-lg" title={v.distancia_mapa_km != null ? "Del mapa (ida x 2)" : "Del XML (ida x 2) hasta calcular el mapa"}>
                   {km(v.distancia_operativa)}
                 </TableCell>
-                {onEditar && (
-                  <TableCell className="text-right last:rounded-r-lg" onClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()}>
-                    <Button size="sm" variant="outline" aria-label={`Editar el viaje ${v.folio_factura ?? ""}`} onClick={() => onEditar(v)}><Pencil className="h-3.5 w-3.5" /> Editar</Button>
-                  </TableCell>
-                )}
               </TableRow>
             ))
           )}
