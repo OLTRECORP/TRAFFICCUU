@@ -25,7 +25,7 @@ export async function construirPdfComisiones(choferes: ChoferPdf[], o: OpcionesP
   const { jsPDF } = await import("jspdf");
   const { default: autoTable } = await import("jspdf-autotable");
   const doc = new jsPDF({ unit: "pt", format: "letter" });
-  const ancho = doc.internal.pageSize.getWidth(), margen = 40;
+  const ancho = doc.internal.pageSize.getWidth(), margen = 32;
   const generado = o.generado ?? new Date().toLocaleDateString("en-CA");
   const lista = choferes.filter((c) => c.viajes.length > 0);
   if (!lista.length) throw new Error("No hay viajes que imprimir en este periodo");
@@ -35,45 +35,44 @@ export async function construirPdfComisiones(choferes: ChoferPdf[], o: OpcionesP
     const viajes = [...c.viajes].sort((a, b) => a.fecha_viaje.localeCompare(b.fecha_viaje) || (a.folio ?? "").localeCompare(b.folio ?? ""));
     const t = contabilizados(viajes);
 
-    doc.setFont("helvetica", "bold").setFontSize(13).setTextColor(20);
-    doc.text(o.empresa?.razon_social ?? "Comisiones de choferes", margen, 46);
-    doc.setFont("helvetica", "normal").setFontSize(9).setTextColor(100);
-    if (o.empresa?.rfc) doc.text(`RFC ${o.empresa.rfc}`, margen, 60);
-    doc.setFont("helvetica", "bold").setFontSize(15).setTextColor(20);
-    doc.text("Resumen de comisiones", ancho - margen, 46, { align: "right" });
-    doc.setFont("helvetica", "normal").setFontSize(9).setTextColor(100);
-    doc.text(`Generado el ${fecha(generado)}`, ancho - margen, 60, { align: "right" });
-    doc.setDrawColor(30, 90, 130).setLineWidth(2).line(margen, 70, ancho - margen, 70);
+    // Encabezado: sobrio y chico, con una línea fina
+    doc.setFont("helvetica", "bold").setFontSize(9.5).setTextColor(20);
+    doc.text(o.empresa?.razon_social ?? "Comisiones de choferes", margen, 36);
+    doc.setFont("helvetica", "normal").setFontSize(7).setTextColor(120);
+    if (o.empresa?.rfc) doc.text(`RFC ${o.empresa.rfc}`, margen, 46);
+    doc.setFont("helvetica", "bold").setFontSize(9.5).setTextColor(20);
+    doc.text("Resumen de comisiones", ancho - margen, 36, { align: "right" });
+    doc.setFont("helvetica", "normal").setFontSize(7).setTextColor(120);
+    doc.text(`Generado el ${fecha(generado)}`, ancho - margen, 46, { align: "right" });
+    doc.setDrawColor(200).setLineWidth(0.4).line(margen, 54, ancho - margen, 54);
 
-    doc.setFont("helvetica", "bold").setFontSize(14).setTextColor(20);
-    doc.text(c.nombre, margen, 94);
-    doc.setFont("helvetica", "normal").setFontSize(10).setTextColor(80);
-    doc.text(`Periodo: ${o.periodo}`, margen, 110);
+    doc.setFont("helvetica", "bold").setFontSize(11).setTextColor(20);
+    doc.text(c.nombre, margen, 72);
+    doc.setFont("helvetica", "normal").setFontSize(8).setTextColor(90);
+    doc.text(`Periodo: ${o.periodo}`, margen, 84);
 
-    // Totales del chofer
+    // Totales en una sola línea
     const cajas: [string, string][] = [["Viajes", String(t.viajes)], ["Facturas", String(t.facturas)], ["Subtotal (sin IVA)", peso(t.subtotal)], [`Comisión ${etiquetaTasas(viajes)}`, peso(t.comision)]];
-    const w = (ancho - 2 * margen - 3 * 8) / 4;
+    const w = (ancho - 2 * margen) / 4;
     cajas.forEach(([k, v], j) => {
-      const x = margen + j * (w + 8);
-      doc.setFillColor(238, 243, 247).roundedRect(x, 124, w, 40, 4, 4, "F");
-      doc.setFont("helvetica", "normal").setFontSize(8).setTextColor(100).text(k, x + 8, 137);
-      doc.setFont("helvetica", "bold").setFontSize(12).setTextColor(20).text(v, x + 8, 154);
+      const x = margen + j * w;
+      doc.setFont("helvetica", "normal").setFontSize(6.5).setTextColor(120).text(k, x, 100);
+      doc.setFont("helvetica", "bold").setFontSize(9).setTextColor(20).text(v, x, 111);
     });
 
     autoTable(doc, {
-      startY: 178, margin: { left: margen, right: margen, bottom: 46 },
-      head: [["#", "Fecha de salida", "Factura / remisión", "Origen", "Destino", "Subtotal", "%", "Comisión"]],
+      startY: 122, margin: { left: margen, right: margen, bottom: 34 }, theme: "plain",
+      head: [["#", "Fecha", "Factura / remisión", "Origen", "Destino", "Subtotal", "%", "Comisión"]],
       body: viajes.map((v, k) => [
         String(k + 1), fecha(v.fecha_viaje), v.folio ?? (v.remision ? `Rem. ${v.remision}` : "—"), v.origen ?? "—",
-        v.destino ? (v.cliente ? `${v.destino}\n${v.cliente}` : v.destino) : "—", peso(Number(v.subtotal)), `${tasaDe(v)}%`, peso(comisionViaje(v)),
+        v.destino ? (v.cliente ? `${v.destino} · ${v.cliente}` : v.destino) : "—", peso(Number(v.subtotal)), `${tasaDe(v)}%`, peso(comisionViaje(v)),
       ]),
       foot: [[{ content: `Total: ${t.viajes} viajes · ${t.facturas} facturas`, colSpan: 5 }, peso(t.subtotal), "", peso(t.comision)]],
       showFoot: "lastPage",
-      styles: { font: "helvetica", fontSize: 8.5, cellPadding: 4, textColor: 30, overflow: "linebreak" },
-      headStyles: { fillColor: [30, 90, 130], textColor: 255, fontStyle: "bold" },
-      footStyles: { fillColor: [238, 243, 247], textColor: 20, fontStyle: "bold" },
-      alternateRowStyles: { fillColor: [247, 249, 251] },
-      columnStyles: { 0: { cellWidth: 22 }, 1: { cellWidth: 62 }, 2: { cellWidth: 68 }, 5: { halign: "right", cellWidth: 62 }, 6: { halign: "right", cellWidth: 30 }, 7: { halign: "right", cellWidth: 62 } },
+      styles: { font: "helvetica", fontSize: 7, cellPadding: { top: 2, bottom: 2, left: 2.5, right: 2.5 }, textColor: 30, overflow: "linebreak", lineColor: 228, lineWidth: { bottom: 0.3 } },
+      headStyles: { fillColor: [240, 243, 246], textColor: 70, fontStyle: "bold", fontSize: 6.5, lineColor: 190, lineWidth: { bottom: 0.5 } },
+      footStyles: { fillColor: false, textColor: 20, fontStyle: "bold", lineColor: 190, lineWidth: { top: 0.5 } },
+      columnStyles: { 0: { cellWidth: 16 }, 1: { cellWidth: 50 }, 2: { cellWidth: 62 }, 5: { halign: "right", cellWidth: 52 }, 6: { halign: "right", cellWidth: 24 }, 7: { halign: "right", cellWidth: 52 } },
       didParseCell: (d) => { if (d.section !== "body" && [5, 6, 7].includes(d.column.index)) d.cell.styles.halign = "right"; },
     });
   });
@@ -81,9 +80,9 @@ export async function construirPdfComisiones(choferes: ChoferPdf[], o: OpcionesP
   const total = doc.getNumberOfPages();
   for (let p = 1; p <= total; p++) {
     doc.setPage(p);
-    doc.setFont("helvetica", "normal").setFontSize(8).setTextColor(130);
-    doc.text(`Página ${p} de ${total}`, ancho - margen, doc.internal.pageSize.getHeight() - 24, { align: "right" });
-    doc.text("Comisión = % del subtotal de cada viaje (antes de IVA). Fecha del viaje = salida del origen.", margen, doc.internal.pageSize.getHeight() - 24);
+    doc.setFont("helvetica", "normal").setFontSize(6.5).setTextColor(140);
+    doc.text(`Página ${p} de ${total}`, ancho - margen, doc.internal.pageSize.getHeight() - 18, { align: "right" });
+    doc.text("Comisión = % del subtotal de cada viaje (antes de IVA). Fecha del viaje = salida del origen.", margen, doc.internal.pageSize.getHeight() - 18);
   }
   return doc;
 }
