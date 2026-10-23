@@ -15,6 +15,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ImportarRemisiones } from "./importar-remisiones";
 import { SemanasCliente } from "./semanas-cliente";
+import { ViajesCliente } from "./viajes-cliente";
 import { UnificarClientes } from "./unificar-clientes";
 
 const num = "h-8 w-20 rounded-md border bg-background px-2 text-right text-sm";
@@ -119,10 +120,12 @@ export function ClientesPanel() {
             <Tabs defaultValue={actual.factura_semanal ? "semanas" : "tarifas"} key={actual.id}>
               <TabsList>
                 {actual.factura_semanal && <TabsTrigger value="semanas">Semanas y facturas</TabsTrigger>}
+                <TabsTrigger value="viajes">Viajes</TabsTrigger>
                 <TabsTrigger value="tarifas">Tarifas y comisión por ruta</TabsTrigger>
                 <TabsTrigger value="datos">Datos</TabsTrigger>
               </TabsList>
               {actual.factura_semanal && <TabsContent value="semanas"><SemanasCliente cliente={actual} /></TabsContent>}
+              <TabsContent value="viajes"><ViajesCliente cliente={actual} /></TabsContent>
               <TabsContent value="tarifas"><Tarifas cliente={actual} /></TabsContent>
               <TabsContent value="datos"><Datos cliente={actual} onGuardar={(c) => guardar(actual.id, c)} /></TabsContent>
             </Tabs>

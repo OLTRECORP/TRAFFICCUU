@@ -14,15 +14,18 @@ import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/compone
 import { ErrorAlert } from "@/components/error-alert";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { AsignarViajeDialog } from "@/components/asignar-viaje-dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 
 const corta = (d: string) => new Intl.DateTimeFormat("es-MX", { day: "numeric", month: "short", timeZone: "UTC" }).format(new Date(`${d}T00:00:00Z`));
 const sel = "h-10 w-full rounded-md border bg-background px-3 text-sm";
 
-interface Fila {
+export const SELECT_FILA = "id, created_at, fecha, remision, material, cantidad, unidad, precio_unitario, subtotal, distancia_operativa, folio_factura, origen_registro, lugar_origen_id, lugar_destino_id, chofer_id, tracto_id, gondola_id, lugar_origen:lugares!lugar_origen_id(nombre), lugar_destino:lugares!lugar_destino_id(nombre), chofer:choferes(nombre), tracto:tractocamiones(placa)";
+
+export interface Fila {
   id: string; created_at: string; fecha: string; remision: string | null; material: string | null; cantidad: number | null; unidad: string | null;
   precio_unitario: number | null; subtotal: number; distancia_operativa: number; folio_factura: string | null; origen_registro: string;
-  lugar_origen_id: string | null; lugar_destino_id: string | null; chofer_id: string | null; tracto_id: string | null;
+  lugar_origen_id: string | null; lugar_destino_id: string | null; chofer_id: string | null; tracto_id: string | null; gondola_id: string | null;
   lugar_origen: { nombre: string } | null; lugar_destino: { nombre: string } | null; chofer: { nombre: string } | null; tracto: { placa: string } | null;
 }
 interface Quitado { id: string; remision: string | null; fecha: string | null; subtotal: number | null; motivo: string | null; created_at: string }
@@ -31,8 +34,32 @@ interface Opciones { lugares: { id: string; nombre: string }[]; choferes: { id: 
 const aDup = (v: Fila): ViajeDup => ({ id: v.id, created_at: v.created_at, fecha: v.fecha, remision: v.remision, material: v.material, cantidad: v.cantidad, subtotal: Number(v.subtotal),
   origen: v.lugar_origen?.nombre ?? null, destino: v.lugar_destino?.nombre ?? null, chofer: v.chofer?.nombre ?? null, tracto: v.tracto?.placa ?? null });
 
-/** Viajes de una semana del cliente: detectar duplicados, quitar los repetidos o erróneos (con respaldo, se pueden restaurar) y corregirlos. */
+/** Viajes de una semana del cliente, en una ventana (ver ViajesPeriodoPanel). */
 export function ViajesPeriodo({ cliente, semana, onClose, onCambio }: { cliente: Cliente; semana: SemanaCliente | null; onClose: () => void; onCambio: () => void }) {
+  return (
+    <Dialog open={!!semana} onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="max-w-6xl">
+        {semana && (
+          <>
+            <div className="pr-6">
+              <DialogTitle className="text-lg font-semibold">Viajes de {cliente.nombre}</DialogTitle>
+              <DialogDescription className="text-sm text-muted-foreground">
+                Semana del {corta(semana.semana)} al {corta(semana.fin)} {semana.fin.slice(0, 4)} · {semana.viajes} viajes · {mxn(semana.subtotal)}. Quita los duplicados o erróneos, o corrige sus datos.
+              </DialogDescription>
+            </div>
+            <ViajesPeriodoPanel cliente={cliente} desde={semana.semana} hasta={semana.fin} onCambio={onCambio} />
+          </>
+        )}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+/**
+ * Viajes del cliente en un rango de fechas: detectar duplicados, quitar los repetidos o erróneos (con respaldo, se pueden
+ * restaurar) y corregirlos. Los del Excel se corrigen por completo; los de un XML solo cambian de tracto, góndola o chofer.
+ */
+export function ViajesPeriodoPanel({ cliente, desde: desdeFecha, hasta: hastaFecha, onCambio }: { cliente: Cliente; desde: string; hasta: string; onCambio: () => void }) {
   const [viajes, setViajes] = useState<Fila[]>([]);
   const [quitados, setQuitados] = useState<Quitado[]>([]);
   const [otrasSemanas, setOtrasSemanas] = useState<Map<string, string[]>>(new Map());   // remisión → fechas fuera del periodo
@@ -40,23 +67,25 @@ export function ViajesPeriodo({ cliente, semana, onClose, onCambio }: { cliente:
   const [confirmando, setConfirmando] = useState(false);
   const [motivo, setMotivo] = useState("");
   const [editar, setEditar] = useState<Fila | null>(null);
+  const [asignar, setAsignar] = useState<Fila | null>(null);
+  const [recortado, setRecortado] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<ApiError | null>(null);
   const [aviso, setAviso] = useState<string | null>(null);
 
   const cargar = useCallback(async () => {
-    if (!semana) return;
+    if (!desdeFecha || !hastaFecha || desdeFecha > hastaFecha) { setViajes([]); setQuitados([]); return; }
     const sb = createClient();
-    const desde = `${semana.semana}T00:00:00+00:00`, hasta = `${semana.fin}T23:59:59+00:00`;
+    const desde = `${desdeFecha}T00:00:00+00:00`, hasta = `${hastaFecha}T23:59:59+00:00`;
     const [v, q] = await Promise.all([
       sb.from("viajes")
-        .select("id, created_at, fecha, remision, material, cantidad, unidad, precio_unitario, subtotal, distancia_operativa, folio_factura, origen_registro, lugar_origen_id, lugar_destino_id, chofer_id, tracto_id, lugar_origen:lugares!lugar_origen_id(nombre), lugar_destino:lugares!lugar_destino_id(nombre), chofer:choferes(nombre), tracto:tractocamiones(placa)")
-        .eq("cliente_id", cliente.id).gte("fecha", desde).lte("fecha", hasta).order("fecha").order("remision"),
+        .select(SELECT_FILA)
+        .eq("cliente_id", cliente.id).gte("fecha", desde).lte("fecha", hasta).order("fecha").order("remision").limit(1000),
       sb.from("viajes_descartados").select("id, remision, fecha, subtotal, motivo, created_at").eq("cliente_id", cliente.id)
-        .gte("fecha", semana.semana).lte("fecha", semana.fin).order("created_at", { ascending: false }),
+        .gte("fecha", desdeFecha).lte("fecha", hastaFecha).order("created_at", { ascending: false }),
     ]);
     const filas = (v.data ?? []) as unknown as Fila[];
-    setViajes(filas); setQuitados(q.error ? [] : ((q.data ?? []) as Quitado[]));
+    setViajes(filas); setRecortado(filas.length >= 1000); setQuitados(q.error ? [] : ((q.data ?? []) as Quitado[]));
     // la misma remisión en otra semana también cuenta como posible duplicado
     const rems = [...new Set(filas.map((f) => f.remision).filter((r): r is string => !!r))];
     const mapa = new Map<string, string[]>();
@@ -68,7 +97,7 @@ export function ViajesPeriodo({ cliente, semana, onClose, onCambio }: { cliente:
       }
     }
     setOtrasSemanas(mapa);
-  }, [semana, cliente.id]);
+  }, [desdeFecha, hastaFecha, cliente.id]);
 
   useEffect(() => {
     setViajes([]); setQuitados([]); setElegidos(new Set()); setConfirmando(false); setError(null); setAviso(null); setMotivo("");
@@ -109,16 +138,9 @@ export function ViajesPeriodo({ cliente, semana, onClose, onCambio }: { cliente:
 
   return (
     <>
-      <Dialog open={!!semana} onOpenChange={(o) => !o && onClose()}>
-        <DialogContent className="max-w-6xl">
-          {semana && (
-            <>
-              <div className="pr-6">
-                <DialogTitle className="text-lg font-semibold">Viajes de {cliente.nombre}</DialogTitle>
-                <DialogDescription className="text-sm text-muted-foreground">
-                  Semana del {corta(semana.semana)} al {corta(semana.fin)} {semana.fin.slice(0, 4)} · {viajes.length} viajes · {mxn(total)}. Quita los duplicados o erróneos, o corrige sus datos.
-                </DialogDescription>
-              </div>
+      <div className="grid gap-4">
+        <div className="grid gap-4">
+              <p className="text-sm text-muted-foreground">{viajes.length} viajes · {mxn(total)}. Quita los duplicados o erróneos, o corrige sus datos.{recortado && " Se muestran los primeros 1,000: acota el rango de fechas."}</p>
               {error && <ErrorAlert where="viajes-periodo" message={error.message} status={error.status} path={error.path} />}
               {aviso && <Alert variant="success">{aviso}</Alert>}
               {grupos.length > 0 && (
@@ -160,7 +182,7 @@ export function ViajesPeriodo({ cliente, semana, onClose, onCambio }: { cliente:
                           <TableCell className="whitespace-nowrap text-right">{Number(v.distancia_operativa) ? km(v.distancia_operativa) : <span className="text-xs text-muted-foreground">sin mapa</span>}</TableCell>
                           <TableCell className="whitespace-nowrap text-right">{mxn(v.subtotal)}</TableCell>
                           <TableCell>{v.folio_factura ?? "—"}</TableCell>
-                          <TableCell><Button variant="ghost" size="icon" aria-label="Corregir viaje" title={excel ? "Corregir" : "Los viajes de un XML salen de su Carta Porte"} disabled={!excel} onClick={() => setEditar(v)}><Pencil className="h-4 w-4" /></Button></TableCell>
+                          <TableCell><Button variant="ghost" size="icon" aria-label="Corregir viaje" title={excel ? "Corregir el viaje" : "Cambiar tracto, góndola o chofer (los demás datos salen del XML)"} onClick={() => (excel ? setEditar(v) : setAsignar(v))}><Pencil className="h-4 w-4" /></Button></TableCell>
                         </TableRow>
                       );
                     })}
@@ -208,16 +230,16 @@ export function ViajesPeriodo({ cliente, semana, onClose, onCambio }: { cliente:
                   </ul>
                 </div>
               )}
-            </>
-          )}
-        </DialogContent>
-      </Dialog>
+        </div>
+      </div>
       <CorregirViaje viaje={editar} onClose={() => setEditar(null)} onGuardado={(msg) => { setEditar(null); setAviso(msg); void cargar(); onCambio(); }} />
+      <AsignarViajeDialog viaje={asignar && { id: asignar.id, folio: asignar.folio_factura, subtotal: Number(asignar.subtotal), distancia_operativa: Number(asignar.distancia_operativa), tracto_id: asignar.tracto_id, gondola_id: asignar.gondola_id, chofer_id: asignar.chofer_id }}
+        onClose={() => setAsignar(null)} onCambio={() => { void cargar(); onCambio(); }} />
     </>
   );
 }
 
-function CorregirViaje({ viaje, onClose, onGuardado }: { viaje: Fila | null; onClose: () => void; onGuardado: (msg: string) => void }) {
+export function CorregirViaje({ viaje, onClose, onGuardado }: { viaje: Fila | null; onClose: () => void; onGuardado: (msg: string) => void }) {
   const [opc, setOpc] = useState<Opciones>({ lugares: [], choferes: [], tractos: [] });
   const [f, setF] = useState({ fecha: "", remision: "", material: "", cantidad: "", unidad: "", precio: "", subtotal: "", origen: "", destino: "", chofer: "", tracto: "" });
   const [subtotalManual, setSubtotalManual] = useState(false);
