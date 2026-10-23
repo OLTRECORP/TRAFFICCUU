@@ -90,7 +90,7 @@ export function AsignacionViaje({ viaje, onAsignado }: { viaje: Viaje; onAsignad
   );
 
   return (
-    <div className="mt-4 grid gap-3 rounded-md border p-3">
+    <div className="grid gap-3 rounded-md border p-3">
       <h4 className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground"><UserRound className="h-3.5 w-3.5" aria-hidden /> Asignación del viaje (tracto, góndola y chofer)</h4>
       <p className="text-xs text-muted-foreground">Si el timbrado trae una placa o un chofer equivocado, corrígelo aquí solo para este viaje. Las métricas se calculan con lo que quede asignado.</p>
       {error && <Alert variant="error">{error.message}</Alert>}

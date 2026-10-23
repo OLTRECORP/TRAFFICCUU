@@ -28,6 +28,7 @@ export function DashboardView() {
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [selected, setSelected] = useState<Viaje | null>(null);
+  const [pestana, setPestana] = useState<"logistica" | "editar">("logistica");   // «Editar» abre la ficha directo en la pestaña de edición
   const [rango, setRango] = useState<Rango>("1M");
   const [est, setEst] = useState<FacturaEstadistica[]>([]);
   const [meses, setMeses] = useState<FacturaMes[]>([]);
@@ -153,7 +154,7 @@ export function DashboardView() {
       <section className="grid gap-4 xl:grid-cols-[1.7fr_1fr]" aria-label="Viajes">
         <div className="grid content-start gap-2">
           <h3 className="text-sm font-semibold text-primary dark:text-foreground">Historial de viajes</h3>
-          <ViajesTable viajes={viajes} loading={loading} onSelect={setSelected} />
+          <ViajesTable viajes={viajes} loading={loading} onSelect={(v) => { setPestana("logistica"); setSelected(v); }} onEditar={(v) => { setPestana("editar"); setSelected(v); }} />
         </div>
         <div className="grid content-start gap-2">
           <h3 className="text-sm font-semibold text-primary dark:text-foreground">Facturación</h3>
@@ -174,7 +175,7 @@ export function DashboardView() {
         </Card>
       </section>
 
-      <ViajeModal viaje={selected} onClose={() => setSelected(null)} onChanged={() => void load()} />
+      <ViajeModal viaje={selected} pestanaInicial={pestana} onClose={() => setSelected(null)} onChanged={() => void load()} />
     </div>
   );
 }
