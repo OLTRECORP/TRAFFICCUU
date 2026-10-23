@@ -16,6 +16,7 @@ from app.db import get_admin_client
 from app.descarga_masiva import asegurar_factura_xml, cancelar as descarga_cancelar, ejecutar as descarga_ejecutar, iniciar as descarga_iniciar, iniciar_zip, rfc_cliente as descarga_rfc_cliente
 from app.sat import diagnosticar as sat_diagnosticar
 from app.mapas import MapaError, geocodificar, ruta_camion
+from app import viajes_excel
 from app.rutas_service import asignar_viaje, calcular_km_viajes, calcular_ruta, recalcular_rutas_camion
 from app.facturas_sat import ejecutar as sat_ejecutar, preparar as sat_preparar
 from app.excel_import import ExcelError, guardar, parse_workbook
@@ -216,6 +217,49 @@ def clientes_ligar_semana(cliente_id: uuidlib.UUID, body: LigarSemanaRequest, te
     except ValueError as exc:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc))
     return {"viajes": n}
+
+
+class QuitarViajesRequest(BaseModel):
+    ids: list[uuidlib.UUID] = Field(min_length=1, max_length=500)
+    motivo: str | None = Field(default=None, max_length=300)
+
+
+@app.post("/api/clientes/{cliente_id}/quitar-viajes")
+def clientes_quitar_viajes(cliente_id: uuidlib.UUID, body: QuitarViajesRequest, tenant: Tenant = Depends(current_tenant)) -> dict:
+    """Quita viajes del Excel de remisiones (duplicados o erróneos). Reimportar el Excel no los vuelve a crear; se pueden restaurar."""
+    c = _cliente(tenant, cliente_id)
+    return viajes_excel.quitar(tenant.empresa_id, tenant.user_id, c["id"], body.ids, body.motivo)
+
+
+class RestaurarViajesRequest(BaseModel):
+    ids: list[uuidlib.UUID] = Field(min_length=1, max_length=500)   # ids de viajes_descartados
+
+
+@app.post("/api/clientes/{cliente_id}/restaurar-viajes")
+def clientes_restaurar_viajes(cliente_id: uuidlib.UUID, body: RestaurarViajesRequest, tenant: Tenant = Depends(current_tenant)) -> dict:
+    c = _cliente(tenant, cliente_id)
+    return viajes_excel.restaurar(tenant.empresa_id, tenant.user_id, c["id"], body.ids)
+
+
+class CorregirViajeRequest(BaseModel):
+    fecha: date | None = None
+    remision: str | None = Field(default=None, max_length=60)
+    material: str | None = Field(default=None, max_length=120)
+    cantidad: float | None = Field(default=None, ge=0)
+    unidad: str | None = Field(default=None, max_length=20)
+    precio_unitario: float | None = Field(default=None, ge=0)
+    subtotal: float | None = Field(default=None, ge=0)
+    lugar_origen_id: uuidlib.UUID | None = None
+    lugar_destino_id: uuidlib.UUID | None = None
+    chofer_id: uuidlib.UUID | None = None
+    tracto_id: uuidlib.UUID | None = None
+
+
+@app.post("/api/viajes/{viaje_id}/corregir")
+def viaje_corregir(viaje_id: uuidlib.UUID, body: CorregirViajeRequest, tenant: Tenant = Depends(current_tenant)) -> dict:
+    """Corrige un viaje del Excel; solo se aplican los campos enviados (null en un campo enviado lo vacía)."""
+    r = viajes_excel.corregir(tenant.empresa_id, tenant.user_id, str(viaje_id), body.model_dump(exclude_unset=True))
+    return {"cambios": r["cambios"], "distancia_mapa_km": r["viaje"].get("distancia_mapa_km")}
 
 
 @app.post("/api/clientes/{cliente_id}/ligar-auto")

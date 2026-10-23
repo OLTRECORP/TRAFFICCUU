@@ -15,7 +15,7 @@ import { Label } from "@/components/ui/label";
 interface Mapeo { excel: string; accion: "existente" | "variante" | "parecido" | "nuevo" }
 interface Resultado {
   confirmado: boolean; cliente: { id: string; nombre: string; creado: boolean };
-  filas: number; validos: number; nuevos: number; ya_importados: number; semanas: number; desde: string | null; hasta: string | null;
+  filas: number; validos: number; nuevos: number; ya_importados: number; quitados_a_mano?: number; semanas: number; desde: string | null; hasta: string | null;
   subtotal_nuevos: number; tarifas: number; omitidas: { fila: number; motivo: string }[];
   lugares: (Mapeo & { lugar: string; usos: string[] })[]; choferes: (Mapeo & { chofer: string })[];
   unidades: { tipo: string; placa: string }[]; nuevos_catalogo: Record<string, number>;
@@ -101,7 +101,7 @@ export function ImportarRemisiones({ clientes, onDone }: { clientes: Cliente[]; 
           <div className="grid gap-4">
             {res.confirmado ? (
               <Alert variant="success">
-                Importados {res.nuevos} viajes de {res.cliente.nombre} ({res.ya_importados} ya estaban).{" "}
+                Importados {res.nuevos} viajes de {res.cliente.nombre} ({res.ya_importados} ya estaban{res.quitados_a_mano ? `, ${res.quitados_a_mano} se quitaron a mano y se respetaron` : ""}).{" "}
                 {res.facturas_ligadas?.length ? `${res.facturas_ligadas.length} factura(s) semanal(es) ligadas por monto.` : ""}{" "}
                 Marca en el mapa la ubicación de los orígenes y destinos nuevos (Orígenes y destinos) para calcular sus km.
               </Alert>

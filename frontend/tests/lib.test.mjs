@@ -317,3 +317,19 @@ test("cotizador: oferta propia, pérdida y totales del formato imprimible", asyn
   assert.equal(vigenciaHasta("2026-10-20", 15), "2026-11-04");
   assert.equal(folioTexto(12), "00012"); assert.equal(folioTexto(null), "SIN FOLIO");
 });
+
+test("duplicados: misma remisión o mismos datos; remisiones distintas no lo son", async () => {
+  const { gruposDuplicados, claveRemision } = await import("../src/lib/duplicados.ts");
+  const v = (id, remision, extra = {}) => ({ id, created_at: `2026-10-0${id.length}T10:00:00Z`, fecha: "2026-10-05T00:00:00+00:00", remision, material: "Arena", cantidad: 28,
+    subtotal: 4480, origen: "COX", destino: "ALAMAR", chofer: "JUAN", tracto: "80A1PM", ...extra });
+  const g = gruposDuplicados([v("a", "135348"), v("bb", "0135348"), v("c", "135349"), v("d", null), v("ee", null), v("f", null, { cantidad: 30 }), v("g", " 135 349 ")]);
+  assert.equal(g.length, 3);
+  const rem1 = g.find((x) => x.clave === "rem:135348");
+  assert.equal(rem1.motivo, "remision"); assert.equal(rem1.conservar, "a"); assert.deepEqual(rem1.sobran, ["bb"]);
+  assert.deepEqual(g.find((x) => x.clave === "rem:135349").sobran, ["g"]);            // c y g: mismo folio con espacios
+  const datos = g.find((x) => x.motivo === "datos");
+  assert.deepEqual(datos.viajes.map((x) => x.id).sort(), ["d", "ee"]);                  // f cambia la cantidad: no cuenta
+  assert.equal(claveRemision("R-0042"), "r0042"); assert.equal(claveRemision(null), "");
+  // remisiones parecidas pero distintas
+  assert.equal(gruposDuplicados([v("a", "135348"), v("bb", "135349"), v("c", "135350")]).length, 0);
+});
