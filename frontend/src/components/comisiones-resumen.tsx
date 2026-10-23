@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { etiquetaTasas, resumenPorChofer, type ViajeComision } from "@/lib/comisiones";
 import { mxn } from "@/lib/utils";
+import { BotonPdfComisiones } from "@/components/boton-pdf-comisiones";
 import { Card } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 
@@ -49,8 +50,13 @@ export function ComisionesResumen({ choferes, desde, hasta, titulo, onError, onD
   }), { viajes: 0, facturas: 0, subtotal: 0, comision: 0 }), [filas]);
 
   if (loading) return <p className="text-sm text-muted-foreground">Calculando comisiones…</p>;
+  const conViajes = filas.filter((f) => f.resumen.viajes > 0);
   return (
     <div className="grid gap-2">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="text-sm text-muted-foreground">{conViajes.length} de {filas.length} choferes con viajes en el periodo.</p>
+        <BotonPdfComisiones choferes={conViajes.map((f) => ({ nombre: f.nombre, viajes: f.viajes }))} periodo={titulo} etiqueta="PDF de todos (una hoja por chofer)" onError={onError} />
+      </div>
       <Card>
         <Table>
           <TableHeader>
@@ -61,11 +67,12 @@ export function ComisionesResumen({ choferes, desde, hasta, titulo, onError, onD
               <TableHead className="text-right">Subtotal (sin IVA)</TableHead>
               <TableHead className="text-right">%</TableHead>
               <TableHead className="text-right">Comisión</TableHead>
+              <TableHead className="w-12"><span className="sr-only">PDF</span></TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {filas.length === 0 ? (
-              <TableRow><TableCell colSpan={6} className="py-8 text-center text-muted-foreground">No hay choferes activos.</TableCell></TableRow>
+              <TableRow><TableCell colSpan={7} className="py-8 text-center text-muted-foreground">No hay choferes activos.</TableCell></TableRow>
             ) : filas.map((f) => {
               const vacio = f.resumen.viajes === 0;
               return (
@@ -79,6 +86,9 @@ export function ComisionesResumen({ choferes, desde, hasta, titulo, onError, onD
                   <TableCell className="whitespace-nowrap text-right">{vacio ? "—" : mxn(f.resumen.subtotal)}</TableCell>
                   <TableCell className="whitespace-nowrap text-right">{vacio ? "—" : etiquetaTasas(f.viajes)}</TableCell>
                   <TableCell className="whitespace-nowrap text-right font-semibold">{vacio ? "—" : mxn(f.resumen.comision)}</TableCell>
+                  <TableCell className="text-right">
+                    {!vacio && <BotonPdfComisiones choferes={[{ nombre: f.nombre, viajes: f.viajes }]} periodo={titulo} soloIcono variante="ghost" etiqueta={`Descargar el PDF de ${f.nombre}`} onError={onError} />}
+                  </TableCell>
                 </TableRow>
               );
             })}
@@ -92,6 +102,7 @@ export function ComisionesResumen({ choferes, desde, hasta, titulo, onError, onD
                 <TableCell className="whitespace-nowrap text-right font-semibold">{mxn(tot.subtotal)}</TableCell>
                 <TableCell />
                 <TableCell className="whitespace-nowrap text-right font-semibold">{mxn(tot.comision)}</TableCell>
+                <TableCell />
               </TableRow>
             </tfoot>
           )}

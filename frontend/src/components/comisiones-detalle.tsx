@@ -3,6 +3,7 @@
 import { useMemo } from "react";
 import { comisionViaje, contabilizados, etiquetaTasas, tasaDe, type ViajeComision } from "@/lib/comisiones";
 import { fechaMx, mxn } from "@/lib/utils";
+import { BotonPdfComisiones } from "@/components/boton-pdf-comisiones";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 
@@ -30,9 +31,12 @@ export function ComisionesDetalle({ detalle, onClose }: { detalle: DetalleComisi
       <DialogContent className="max-w-4xl">
         {detalle && (
           <>
-            <div className="pr-6">
-              <DialogTitle className="text-lg font-semibold">Comisión de {detalle.chofer}</DialogTitle>
-              <DialogDescription className="text-sm text-muted-foreground">{detalle.titulo}</DialogDescription>
+            <div className="flex items-start justify-between gap-3 pr-6">
+              <div>
+                <DialogTitle className="text-lg font-semibold">Comisión de {detalle.chofer}</DialogTitle>
+                <DialogDescription className="text-sm text-muted-foreground">{detalle.titulo}</DialogDescription>
+              </div>
+              <BotonPdfComisiones choferes={[{ nombre: detalle.chofer, viajes }]} periodo={detalle.titulo} />
             </div>
 
             <div className="grid grid-cols-2 gap-2 sm:grid-cols-4" aria-label="Contabilizado">
