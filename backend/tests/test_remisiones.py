@@ -183,3 +183,17 @@ def test_clientes_parecidos_ignora_razon_social_y_respeta_rfc():
           {"id": "7", "nombre": "CEMEX CONCRETOS", "rfc": "CCO8605231N4", "alias": []}]  # RFC distinto: no se sugiere
     pares = {tuple(sorted((a["id"], b["id"]))) for a, b in clientes_parecidos(cs)}
     assert pares == {("1", "2"), ("1", "3"), ("2", "3"), ("4", "5")}
+
+
+def test_reimportar_no_recrea_los_viajes_quitados_a_mano():
+    db = FakeDB(lugares=[{"id": "L1", "nombre": "ALAMAR", "tipo": "destino", "alias": [], "cliente": None}],
+                choferes=[{"id": "C1", "nombre": "JUAN PEREZ LOPEZ", "rfc": "PELJ800101AAA"}],
+                tractocamiones=[{"id": "T1", "placa": "80A1PM"}], gondolas=[], unidad_alias=[], viajes=[], rutas=[], clientes=[])
+    importar(db, "e1", parse_libro(libro()), None, confirmar=True)
+    cid = db.t["clientes"][0]["id"]
+    quitado = db.t["viajes"].pop(0)                                              # lo quita fn_quitar_viajes_excel y anota su clave
+    db.t["viajes_descartados"] = [{"id": "D1", "import_key": quitado["import_key"]}]
+    r = importar(db, "e1", parse_libro(libro()), cid, confirmar=True)
+    assert r["nuevos"] == 0 and r["quitados_a_mano"] == 1 and len(db.t["viajes"]) == 4
+    db.t["viajes_descartados"] = []                                              # al restaurarlo (o sin la anotación) vuelve a entrar
+    assert importar(db, "e1", parse_libro(libro()), cid, confirmar=True)["nuevos"] == 1

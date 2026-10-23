@@ -382,15 +382,24 @@ def importar(db, empresa_id: str, parsed: dict, cliente_id: str | None = None, c
 
     # 4. Viajes
     existentes: set[str] = set()
+    descartados: set[str] = set()
     if not str(cliente["id"]).startswith("nuevo:"):
         existentes = {v["import_key"] for v in _leer(db, "viajes", "id, import_key", empresa_id) if v.get("import_key")}
+        try:   # viajes que se quitaron a mano (migración 033): reimportar el Excel no los vuelve a crear
+            descartados = {v["import_key"] for v in _leer(db, "viajes_descartados", "id, import_key", empresa_id)}
+        except Exception:
+            pass
+        existentes |= descartados
     rutas = {(r["origen_id"], r["destino_id"]): float(r["distancia_km"]) for r in _leer(db, "rutas", "id, origen_id, destino_id, distancia_km", empresa_id)}
     ocurrencias: Counter = Counter()
     nuevos: list[dict] = []
+    quitados = 0
     for f, o, d in validas:
         base = clave_import(f, 0)[:-2]
         ocurrencias[base] += 1
         clave = f"{base}#{ocurrencias[base]}"
+        if clave in descartados:
+            quitados += 1
         if clave in existentes:
             continue
         nuevos.append({
@@ -411,7 +420,7 @@ def importar(db, empresa_id: str, parsed: dict, cliente_id: str | None = None, c
         "confirmado": confirmar,
         "cliente": {"id": cliente["id"], "nombre": cliente["nombre"], "creado": cliente_creado},
         "filas": len(filas) + len(parsed["omitidas"]), "validos": len(validas), "nuevos": len(nuevos),
-        "ya_importados": len(validas) - len(nuevos), "omitidas": omitidas,
+        "ya_importados": len(validas) - len(nuevos), "quitados_a_mano": quitados, "omitidas": omitidas,
         "semanas": len(semanas), "desde": min(f.fecha for f, _, _ in validas).isoformat() if validas else None,
         "hasta": max(f.fecha for f, _, _ in validas).isoformat() if validas else None,
         "subtotal_nuevos": round(sum(v["subtotal"] for v in nuevos), 2),

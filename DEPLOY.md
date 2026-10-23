@@ -45,4 +45,5 @@ Inicia sesión → espera "Conectando al motor logístico..." → **Empresa**: c
 - Cotizador de fletes: ejecuta `supabase/migrations/030_cotizador.sql` (después de la 029). Guarda los supuestos de costos y las cotizaciones. La ruta usa los mismos servicios de mapa que Distancias (Nominatim y Valhalla/OSRM).
 - Complementos de pago fuera del conteo de facturas del dashboard: ejecuta `supabase/migrations/031_dashboard_sin_complementos.sql` (después de la 030).
 - Cotizaciones imprimibles y editables: ejecuta `supabase/migrations/032_cotizaciones_editables.sql` (después de la 031). Agrega folio consecutivo, vigencia, mercancía, condiciones y estado a las cotizaciones.
+- Quitar, restaurar y corregir viajes del Excel de remisiones: ejecuta `supabase/migrations/033_viajes_excel_depurar.sql` (después de la 032). Crea `viajes_descartados` (para que reimportar el Excel no recree lo que quitaste) y las funciones de quitar y restaurar.
 - *new row violates row-level security policy al guardar la empresa*: ejecuta `supabase/migrations/005_fix_rls_empresa.sql`; si persiste, cierra sesión y vuelve a entrar (sesión expirada).

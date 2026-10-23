@@ -2,16 +2,16 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link2, Loader2 } from "lucide-react";
-import { createClient } from "@/lib/supabase/client";
 import { ApiError, postBackend } from "@/lib/api";
 import type { Cliente, FacturaCliente, SemanaCliente } from "@/lib/types";
-import { fechaMx, km, mxn } from "@/lib/utils";
+import { mxn } from "@/lib/utils";
 import { Alert } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { ErrorAlert } from "@/components/error-alert";
+import { ViajesPeriodo } from "@/components/clientes/viajes-periodo";
+import { AuditoriaEliminaciones } from "@/components/auditoria-eliminaciones";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 
 const sel = "h-8 w-full min-w-40 rounded-md border bg-background px-2 text-xs";
@@ -27,6 +27,7 @@ export function SemanasCliente({ cliente }: { cliente: Cliente }) {
   const [aviso, setAviso] = useState<string | null>(null);
   const [eleccion, setEleccion] = useState<Record<string, string>>({});
   const [detalle, setDetalle] = useState<SemanaCliente | null>(null);
+  const [version, setVersion] = useState(0);
 
   const cargar = useCallback(async () => {
     setError(null);
@@ -139,71 +140,8 @@ export function SemanasCliente({ cliente }: { cliente: Cliente }) {
           </TableBody>
         </Table>
       </Card>
-      <ViajesSemana cliente={cliente} semana={detalle} onClose={() => setDetalle(null)} />
+      <AuditoriaEliminaciones acciones={["viaje_excel_eliminado", "viaje_excel_restaurado", "viaje_excel_corregido"]} refrescar={version} />
+      <ViajesPeriodo cliente={cliente} semana={detalle} onClose={() => setDetalle(null)} onCambio={() => { setVersion((v) => v + 1); void cargar(); }} />
     </div>
-  );
-}
-
-interface ViajeSemana {
-  id: string; fecha: string; remision: string | null; material: string | null; cantidad: number | null; unidad: string | null;
-  precio_unitario: number | null; subtotal: number; distancia_operativa: number; folio_factura: string | null;
-  lugar_origen: { nombre: string } | null; lugar_destino: { nombre: string } | null; chofer: { nombre: string } | null; tracto: { placa: string } | null;
-}
-
-function ViajesSemana({ cliente, semana, onClose }: { cliente: Cliente; semana: SemanaCliente | null; onClose: () => void }) {
-  const [viajes, setViajes] = useState<ViajeSemana[]>([]);
-  useEffect(() => {
-    if (!semana) return;
-    setViajes([]);
-    void createClient().from("viajes")
-      .select("id, fecha, remision, material, cantidad, unidad, precio_unitario, subtotal, distancia_operativa, folio_factura, lugar_origen:lugares!lugar_origen_id(nombre), lugar_destino:lugares!lugar_destino_id(nombre), chofer:choferes(nombre), tracto:tractocamiones(placa)")
-      .eq("cliente_id", cliente.id).gte("fecha", `${semana.semana}T00:00:00+00:00`).lte("fecha", `${semana.fin}T23:59:59+00:00`)
-      .order("fecha").order("remision")
-      .then(({ data }) => setViajes((data ?? []) as unknown as ViajeSemana[]));
-  }, [semana, cliente.id]);
-  const total = viajes.reduce((s, v) => s + Number(v.subtotal), 0);
-  return (
-    <Dialog open={!!semana} onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="max-w-5xl">
-        {semana && (
-          <>
-            <div className="pr-6">
-              <DialogTitle className="text-lg font-semibold">Viajes de {cliente.nombre}</DialogTitle>
-              <DialogDescription className="text-sm text-muted-foreground">Semana del {corta(semana.semana)} al {corta(semana.fin)} {semana.fin.slice(0, 4)} · {semana.viajes} viajes · {mxn(semana.subtotal)}</DialogDescription>
-            </div>
-            <div className="max-h-[60vh] overflow-y-auto rounded-lg border">
-              <Table>
-                <TableHeader>
-                  <TableRow className="hover:bg-transparent">
-                    <TableHead>Fecha</TableHead><TableHead>Remisión</TableHead><TableHead>Origen → destino</TableHead><TableHead>Material</TableHead>
-                    <TableHead>Chofer / tracto</TableHead><TableHead className="text-right">Cantidad</TableHead><TableHead className="text-right">Km</TableHead>
-                    <TableHead className="text-right">Subtotal</TableHead><TableHead>Factura</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {viajes.map((v) => (
-                    <TableRow key={v.id}>
-                      <TableCell className="whitespace-nowrap">{fechaMx(v.fecha)}</TableCell>
-                      <TableCell>{v.remision ?? "—"}</TableCell>
-                      <TableCell>{v.lugar_origen?.nombre ?? "—"} → {v.lugar_destino?.nombre ?? "—"}</TableCell>
-                      <TableCell>{v.material ?? "—"}</TableCell>
-                      <TableCell>{v.chofer?.nombre ?? "—"}<span className="block text-xs text-muted-foreground">{v.tracto?.placa ?? ""}</span></TableCell>
-                      <TableCell className="whitespace-nowrap text-right">{v.cantidad ?? "—"} {v.unidad ?? ""}{v.precio_unitario != null && <span className="block text-xs text-muted-foreground">× {mxn(v.precio_unitario)}</span>}</TableCell>
-                      <TableCell className="whitespace-nowrap text-right">{Number(v.distancia_operativa) ? km(v.distancia_operativa) : <span className="text-xs text-muted-foreground">sin mapa</span>}</TableCell>
-                      <TableCell className="whitespace-nowrap text-right">{mxn(v.subtotal)}</TableCell>
-                      <TableCell>{v.folio_factura ?? "—"}</TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-                <tfoot className="border-t bg-secondary/50">
-                  <TableRow><TableCell colSpan={7} className="font-semibold">Total · {viajes.length} viajes</TableCell>
-                    <TableCell className="text-right font-semibold">{mxn(total)}</TableCell><TableCell /></TableRow>
-                </tfoot>
-              </Table>
-            </div>
-          </>
-        )}
-      </DialogContent>
-    </Dialog>
   );
 }

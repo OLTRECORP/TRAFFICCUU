@@ -112,3 +112,40 @@ def test_cotizador_ruta_error_del_mapa_es_502(monkeypatch):
     with pytest.raises(HTTPException) as e:
         main.cotizador_ruta(main.CotizadorRutaRequest(origen={"lat": 1, "lng": 1}, destino={"lat": 2, "lng": 2}), None)
     assert e.value.status_code == 502
+
+
+def test_corregir_viaje_valida_y_recalcula_km(monkeypatch):
+    from app import viajes_excel
+    from fastapi import HTTPException
+    viaje = {"id": "V1", "empresa_id": "e1", "origen_registro": "excel", "remision": "100", "lugar_origen_id": "O1", "lugar_destino_id": "D1", "distancia_mapa_km": 10.0}
+    tablas = {"viajes": [viaje], "lugares": [{"id": "O2"}], "rutas": [{"origen_id": "O2", "destino_id": "D1", "distancia_km": 42.5}], "auditoria_eliminaciones": []}
+
+    class Q:
+        def __init__(s, t): s.t, s.f, s.op, s.p = t, {}, "select", None
+        def select(s, *_): return s
+        def eq(s, k, v): s.f[k] = v; return s
+        def limit(s, *_): return s
+        def update(s, p): s.op, s.p = "update", p; return s
+        def insert(s, p): s.op, s.p = "insert", p; return s
+        def execute(s):
+            filas = tablas[s.t]
+            if s.op == "insert":
+                filas.append(s.p); return type("R", (), {"data": [s.p]})()
+            sel = [r for r in filas if all(r.get(k) == v for k, v in s.f.items() if k != "empresa_id")]
+            if s.op == "update":
+                for r in sel:
+                    r.update(s.p)
+            return type("R", (), {"data": sel})()
+
+    monkeypatch.setattr(viajes_excel, "get_admin_client", lambda: type("DB", (), {"table": lambda self, t: Q(t)})())
+    r = viajes_excel.corregir("e1", "u1", "V1", {"subtotal": 1500, "lugar_origen_id": "O2", "material": " Arena ", "remision": ""})
+    assert r["cambios"]["total"] == 1500.0 and r["cambios"]["distancia_mapa_km"] == 42.5
+    assert viaje["mercancia"] == "Arena" and viaje["remision"] is None and viaje["subtotal"] == 1500.0
+    assert tablas["auditoria_eliminaciones"][0]["accion"] == "viaje_excel_corregido"
+    with pytest.raises(HTTPException) as e:
+        viajes_excel.corregir("e1", "u1", "V1", {"lugar_origen_id": "NO-EXISTE"})
+    assert e.value.status_code == 404
+    viaje["origen_registro"] = "xml"
+    with pytest.raises(HTTPException) as e:
+        viajes_excel.corregir("e1", "u1", "V1", {"subtotal": 1})
+    assert e.value.status_code == 422
