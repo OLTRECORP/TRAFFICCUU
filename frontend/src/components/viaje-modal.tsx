@@ -24,7 +24,8 @@ function Field({ label, value, mono }: { label: string; value: React.ReactNode; 
 
 const sel = "h-10 w-full rounded-md border bg-background px-3 text-sm";
 
-export function ViajeModal({ viaje, onClose, onChanged }: { viaje: Viaje | null; onClose: () => void; onChanged?: () => void }) {
+export function ViajeModal({ viaje, onClose, onChanged, pestanaInicial = "logistica" }: { viaje: Viaje | null; onClose: () => void; onChanged?: () => void; pestanaInicial?: "logistica" | "editar" }) {
+  const [pestana, setPestana] = useState<string>(pestanaInicial);
   const [lugares, setLugares] = useState<Lugar[]>([]);
   const [origen, setOrigen] = useState("");
   const [destino, setDestino] = useState("");
@@ -39,11 +40,11 @@ export function ViajeModal({ viaje, onClose, onChanged }: { viaje: Viaje | null;
     if (!viaje) return;
     setOrigen(viaje.lugar_origen_id ?? ""); setDestino(viaje.lugar_destino_id ?? "");
     setKmIda(viaje.distancia_mapa_km != null ? Number(viaje.distancia_mapa_km) : null); setError(null);
-    setSobrepeso(null); setAsignado(null);
+    setSobrepeso(null); setAsignado(null); setPestana(pestanaInicial);
     void createClient().from("viajes_sobrepeso").select("*").eq("viaje_id", viaje.id).limit(1)
       .then(({ data }) => setSobrepeso(((data ?? [])[0] as ViajeSobrepeso | undefined) ?? null));
     void createClient().from("lugares").select("*").eq("activo", true).order("nombre").then(({ data }) => setLugares((data ?? []) as Lugar[]));
-  }, [viaje]);
+  }, [viaje, pestanaInicial]);
 
   // Ruta guardada entre el origen y el destino elegidos (tiempo y trazo para camión); sin ella solo se muestran los km
   useEffect(() => {
@@ -75,9 +76,10 @@ export function ViajeModal({ viaje, onClose, onChanged }: { viaje: Viaje | null;
               <DialogTitle className="text-lg font-semibold">Viaje {viaje.folio_factura ?? ""}</DialogTitle>
               <DialogDescription className="text-sm text-muted-foreground">{fechaMx(viaje.fecha)}</DialogDescription>
             </div>
-            <Tabs defaultValue="logistica">
+            <Tabs value={pestana} onValueChange={setPestana}>
               <TabsList>
                 <TabsTrigger value="logistica">Logística</TabsTrigger>
+                <TabsTrigger value="editar">Editar viaje</TabsTrigger>
                 <TabsTrigger value="fiscal">Fiscal</TabsTrigger>
               </TabsList>
 
@@ -108,7 +110,11 @@ export function ViajeModal({ viaje, onClose, onChanged }: { viaje: Viaje | null;
                   <Field label={`Distancia operativa (redondo${viaje.distancia_mapa_km != null ? ", del mapa" : ""})`}
                     value={viaje.distancia_mapa_km == null ? (viaje.origen_registro === "excel" ? "Pendiente: ubica origen y destino en el mapa" : `${km(viaje.distancia_operativa)} (del XML hasta tener el mapa)`) : km(viaje.distancia_operativa)} />
                 </dl>
-                <div className="mt-4 grid gap-3 rounded-md border p-3">
+              </TabsContent>
+
+              <TabsContent value="editar" className="grid gap-4">
+                <AsignacionViaje viaje={viaje} onAsignado={(a) => { setAsignado(a); onChanged?.(); }} />
+                <div className="grid gap-3 rounded-md border p-3">
                   <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Distancia por mapa (los km operativos del viaje son esta distancia x 2)</h4>
                   {error && <Alert variant="error">{error}</Alert>}
                   <div className="grid gap-3 sm:grid-cols-2">
@@ -131,7 +137,6 @@ export function ViajeModal({ viaje, onClose, onChanged }: { viaje: Viaje | null;
                     {kmIda != null ? <>Ida {km(kmIda)} · <b>km operativos (redondo) {km(kmIda * 2)}</b></> : "Asigna origen y destino ubicados en el mapa para calcular los km."}
                   </p>
                 </div>
-                <AsignacionViaje viaje={viaje} onAsignado={(a) => { setAsignado(a); onChanged?.(); }} />
               </TabsContent>
 
               <TabsContent value="fiscal">
