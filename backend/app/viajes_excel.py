@@ -85,3 +85,44 @@ def corregir(empresa_id: str, usuario_id: str, viaje_id: str, cambios: dict) -> 
         "empresa_id": empresa_id, "accion": "viaje_excel_corregido", "referencia": f"Rem. {v['remision']}" if v.get("remision") else viaje_id,
         "resumen": {"antes": antes, "despues": nuevo}, "respaldo": {"viaje": v}, "usuario_id": usuario_id}).execute()
     return {"viaje": actualizado, "cambios": nuevo}
+
+
+UNIDADES = (("tracto_id", "tractocamiones", "placa", "Tracto"), ("gondola_id", "gondolas", "placa", "Góndola"), ("chofer_id", "choferes", "nombre", "Chofer"))
+
+
+def reasignar(empresa_id: str, usuario_id: str, viaje_id: str, cambios: dict, motivo: str | None = None) -> dict:
+    """Cambia el tracto, la góndola y/o el chofer de UN viaje (de XML o de Excel), p. ej. por un error de timbrado.
+    Solo se aplican las llaves enviadas (null deja el campo sin asignar). Los km del odómetro, las comisiones, el
+    rendimiento y la ganancia se calculan sobre viajes.tracto_id / chofer_id, así que se corrigen solos. Deja el
+    antes y el después en la bitácora de depuración."""
+    db = get_admin_client()
+    v = db.table("viajes").select("*").eq("empresa_id", empresa_id).eq("id", viaje_id).limit(1).execute().data
+    if not v:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Viaje no encontrado")
+    v = v[0]
+    nuevo, etiquetas_antes, etiquetas_despues = {}, {}, {}
+
+    def etiqueta(tabla: str, col: str, id_: str | None) -> str | None:
+        if not id_:
+            return None
+        f = db.table(tabla).select(col).eq("id", id_).limit(1).execute().data
+        return f[0][col] if f else None
+
+    for llave, tabla, col, nombre in UNIDADES:
+        if llave not in cambios:
+            continue
+        destino = str(cambios[llave]) if cambios[llave] else None
+        if destino and not db.table(tabla).select("id").eq("empresa_id", empresa_id).eq("id", destino).limit(1).execute().data:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, f"{nombre} no encontrado")
+        if destino != (str(v[llave]) if v.get(llave) else None):
+            nuevo[llave] = destino
+            etiquetas_antes[llave], etiquetas_despues[llave] = etiqueta(tabla, col, v.get(llave)), etiqueta(tabla, col, destino)
+    if not nuevo:
+        return {"cambios": {}, "antes": {}, "despues": {}}
+    db.table("viajes").update(nuevo).eq("id", viaje_id).eq("empresa_id", empresa_id).execute()
+    ref = v.get("folio_factura") or (f"Rem. {v['remision']}" if v.get("remision") else viaje_id)
+    db.table("auditoria_eliminaciones").insert({
+        "empresa_id": empresa_id, "accion": "viaje_reasignado", "referencia": ref, "motivo": (motivo or "").strip() or None,
+        "resumen": {"viaje_id": viaje_id, "antes": etiquetas_antes, "despues": etiquetas_despues},
+        "respaldo": {"antes": {k: v.get(k) for k in nuevo}, "despues": nuevo}, "usuario_id": usuario_id}).execute()
+    return {"cambios": nuevo, "antes": etiquetas_antes, "despues": etiquetas_despues}

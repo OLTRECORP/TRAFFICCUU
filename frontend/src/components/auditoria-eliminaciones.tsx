@@ -6,7 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
 interface Registro { id: string; accion: string; referencia: string | null; motivo: string | null; created_at: string }
 const ACCION: Record<string, string> = {
-  factura_eliminada: "Factura eliminada", viaje_excel_eliminado: "Viaje quitado", viaje_excel_restaurado: "Viaje restaurado", viaje_excel_corregido: "Viaje corregido", tracto_unificado: "Tractos unificados", gondola_unificada: "Góndolas unificadas",
+  factura_eliminada: "Factura eliminada", viaje_excel_eliminado: "Viaje quitado", viaje_excel_restaurado: "Viaje restaurado", viaje_excel_corregido: "Viaje corregido", viaje_reasignado: "Viaje reasignado", tracto_unificado: "Tractos unificados", gondola_unificada: "Góndolas unificadas",
 };
 
 /** Últimas eliminaciones y unificaciones, con respaldo completo guardado en la base (auditoria_eliminaciones). */

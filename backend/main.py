@@ -262,6 +262,27 @@ def viaje_corregir(viaje_id: uuidlib.UUID, body: CorregirViajeRequest, tenant: T
     return {"cambios": r["cambios"], "distancia_mapa_km": r["viaje"].get("distancia_mapa_km")}
 
 
+class AsignarViajeRequest(BaseModel):
+    tracto_id: uuidlib.UUID | None = None
+    gondola_id: uuidlib.UUID | None = None
+    chofer_id: uuidlib.UUID | None = None
+    motivo: str | None = Field(default=None, max_length=300)
+
+    @model_validator(mode="after")
+    def _algo(self):
+        if not ({"tracto_id", "gondola_id", "chofer_id"} & self.model_fields_set):
+            raise ValueError("Indica el tracto, la góndola o el chofer a cambiar")
+        return self
+
+
+@app.post("/api/viajes/{viaje_id}/asignar")
+def viaje_asignar(viaje_id: uuidlib.UUID, body: AsignarViajeRequest, tenant: Tenant = Depends(current_tenant)) -> dict:
+    """Cambia el tracto, la góndola y/o el chofer de un viaje (p. ej. por un error de timbrado). Solo se aplican los campos enviados."""
+    enviados = body.model_dump(exclude_unset=True)
+    motivo = enviados.pop("motivo", None)
+    return viajes_excel.reasignar(tenant.empresa_id, tenant.user_id, str(viaje_id), enviados, motivo)
+
+
 @app.post("/api/clientes/{cliente_id}/ligar-auto")
 def clientes_ligar_auto(cliente_id: uuidlib.UUID, tenant: Tenant = Depends(current_tenant)) -> dict:
     """Liga por monto las facturas del cliente a la semana cuyo subtotal coincide."""

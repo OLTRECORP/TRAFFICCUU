@@ -149,3 +149,50 @@ def test_corregir_viaje_valida_y_recalcula_km(monkeypatch):
     with pytest.raises(HTTPException) as e:
         viajes_excel.corregir("e1", "u1", "V1", {"subtotal": 1})
     assert e.value.status_code == 422
+
+
+def test_reasignar_tracto_y_chofer_de_un_viaje(monkeypatch):
+    from app import viajes_excel
+    from fastapi import HTTPException
+    viaje = {"id": "V1", "empresa_id": "e1", "origen_registro": "xml", "folio_factura": "B1404", "tracto_id": "T1", "gondola_id": "G1", "chofer_id": "C1"}
+    tablas = {"viajes": [viaje], "tractocamiones": [{"id": "T1", "placa": "80A1PM"}, {"id": "T2", "placa": "44AX1L"}],
+              "gondolas": [{"id": "G1", "placa": "89UP8A"}], "choferes": [{"id": "C1", "nombre": "JUAN"}, {"id": "C2", "nombre": "PEDRO"}], "auditoria_eliminaciones": []}
+
+    class Q:
+        def __init__(s, t): s.t, s.f, s.op, s.p = t, {}, "select", None
+        def select(s, *_): return s
+        def eq(s, k, v): s.f[k] = v; return s
+        def limit(s, *_): return s
+        def update(s, p): s.op, s.p = "update", p; return s
+        def insert(s, p): s.op, s.p = "insert", p; return s
+        def execute(s):
+            filas = tablas[s.t]
+            if s.op == "insert":
+                filas.append(s.p); return type("R", (), {"data": [s.p]})()
+            sel = [r for r in filas if all(r.get(k) == v for k, v in s.f.items() if k != "empresa_id")]
+            if s.op == "update":
+                for r in sel:
+                    r.update(s.p)
+            return type("R", (), {"data": sel})()
+
+    monkeypatch.setattr(viajes_excel, "get_admin_client", lambda: type("DB", (), {"table": lambda self, t: Q(t)})())
+    r = viajes_excel.reasignar("e1", "u1", "V1", {"tracto_id": "T2", "chofer_id": "C2", "gondola_id": "G1"}, " error de timbrado ")
+    assert r["cambios"] == {"tracto_id": "T2", "chofer_id": "C2"}                    # la góndola no cambió: no se toca
+    assert (viaje["tracto_id"], viaje["chofer_id"], viaje["gondola_id"]) == ("T2", "C2", "G1")
+    a = tablas["auditoria_eliminaciones"][0]
+    assert a["accion"] == "viaje_reasignado" and a["referencia"] == "B1404" and a["motivo"] == "error de timbrado"
+    assert a["resumen"]["antes"] == {"tracto_id": "80A1PM", "chofer_id": "JUAN"} and a["resumen"]["despues"] == {"tracto_id": "44AX1L", "chofer_id": "PEDRO"}
+    assert viajes_excel.reasignar("e1", "u1", "V1", {"tracto_id": "T2"}) == {"cambios": {}, "antes": {}, "despues": {}}   # sin cambios: no audita
+    assert len(tablas["auditoria_eliminaciones"]) == 1
+    with pytest.raises(HTTPException) as e:
+        viajes_excel.reasignar("e1", "u1", "V1", {"chofer_id": "NO"})
+    assert e.value.status_code == 404
+    viajes_excel.reasignar("e1", "u1", "V1", {"gondola_id": None})
+    assert viaje["gondola_id"] is None
+
+
+def test_asignar_exige_algun_campo():
+    import main
+    with pytest.raises(Exception):
+        main.AsignarViajeRequest()
+    assert main.AsignarViajeRequest(chofer_id=None).model_fields_set == {"chofer_id"}
