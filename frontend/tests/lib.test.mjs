@@ -333,3 +333,19 @@ test("duplicados: misma remisión o mismos datos; remisiones distintas no lo son
   // remisiones parecidas pero distintas
   assert.equal(gruposDuplicados([v("a", "135348"), v("bb", "135349"), v("c", "135350")]).length, 0);
 });
+
+test("comisiones PDF: una hoja por chofer, totales y nombre de archivo", async () => {
+  const { construirPdfComisiones, nombreArchivoPdf } = await import("../src/lib/comisiones-pdf.ts");
+  const v = (id, sub, tasa = 12) => ({ viaje_id: id, chofer_id: "c", folio: `B${id}`, fecha_viaje: "2026-10-16", subtotal: sub, origen: "COX", destino: "ALAMAR", cliente: "LA PURISIMA", tasa_comision: tasa });
+  const muchos = Array.from({ length: 70 }, (_, i) => v(String(100 + i), 1000));
+  const doc = await construirPdfComisiones([
+    { nombre: "ÁNGEL NÚÑEZ", viajes: [v("1", 5000), v("2", 3000, 10)] },
+    { nombre: "Sin viajes", viajes: [] },
+    { nombre: "Mucho Trabajo", viajes: muchos },
+  ], { empresa: { razon_social: "GPN AUTOTRANSPORTES", rfc: "GPN010101AAA" }, periodo: "vie 16 oct – jue 22 oct 2026", generado: "2026-10-23" });
+  assert.ok(doc.getNumberOfPages() >= 3);                                   // el segundo chofer ocupa varias páginas; el que no tiene viajes no lleva hoja
+  const bytes = new Uint8Array(doc.output("arraybuffer"));
+  assert.equal(String.fromCharCode(...bytes.slice(0, 5)), "%PDF-");
+  await assert.rejects(() => construirPdfComisiones([{ nombre: "X", viajes: [] }], { empresa: null, periodo: "p" }), /No hay viajes/);
+  assert.equal(nombreArchivoPdf("Ángel Núñez", "vie 16 oct – jue 22 oct 2026"), "comisiones-angel-nunez-vie-16-oct-jue-22-oct-2026.pdf");
+});

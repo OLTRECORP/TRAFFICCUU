@@ -8,6 +8,7 @@ import { ChevronLeft, ChevronRight } from "lucide-react";
 import { Alert } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { BotonPdfComisiones } from "@/components/boton-pdf-comisiones";
 import { ComisionesResumen, type ChoferCom } from "@/components/comisiones-resumen";
 import { ComisionesDetalle, type DetalleComision } from "@/components/comisiones-detalle";
 import { ErrorAlert } from "@/components/error-alert";
@@ -199,6 +200,9 @@ export function ComisionesPanel() {
 
           <TabsContent value="calculo" className="grid gap-4">
             {rangoInvalido && <Alert variant="error">La fecha inicial es posterior a la final.</Alert>}
+            <div className="flex justify-end">
+              <BotonPdfComisiones choferes={[{ nombre: nombreChofer, viajes: enRango }]} periodo={tituloPeriodo} onError={setError} />
+            </div>
             <div className="grid gap-3 sm:grid-cols-3">
               <Kpi label="Viajes" value={String(tot.viajes)} onClick={() => setDetalle({ titulo: tituloPeriodo, chofer: nombreChofer, viajes: enRango })} />
               <Kpi label="Subtotal facturado (sin IVA)" value={mxn(tot.subtotal)} onClick={() => setDetalle({ titulo: tituloPeriodo, chofer: nombreChofer, viajes: enRango })} />
