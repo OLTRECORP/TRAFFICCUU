@@ -95,10 +95,13 @@ export function MantenimientoPanel() {
         todo<Carga>((d, h) => sb.from("cargas_combustible").select("*").order("fecha", { ascending: false }).order("id").range(d, h)),
         todo<ViajeRend>((d, h) => sb.from("rendimiento_viajes").select("viaje_id, chofer_id, tracto_id, fecha_viaje, km").order("fecha_viaje").order("viaje_id").range(d, h)),
       ]);
-      setTractos(t); setReglas(r); setBitacora(b); setServicios(s); setChoferes(c); setCargas(cg); setViajes(v); setError(null);
+      setReglas(r); setBitacora(b); setServicios(s); setChoferes(c); setCargas(cg); setViajes(v); setError(null);
       // Cómo se estimó cada odómetro (migración 026); sin ella el detalle solo muestra el número
       const od = await sb.from("tractos_odometro").select("*").limit(5000);
-      setOdometros(new Map(((od.data ?? []) as OdometroTracto[]).map((o) => [o.tracto_id, o])));
+      const mapaOd = new Map(((od.data ?? []) as OdometroTracto[]).map((o) => [o.tracto_id, o]));
+      setOdometros(mapaOd);
+      // el odómetro de la vista (último mantenimiento + viajes hasta hoy) siempre está al día; el guardado puede no estarlo
+      setTractos(t.map((x) => { const o = mapaOd.get(x.id); return o ? { ...x, kilometraje_actual: Number(o.kilometraje_estimado) } : x; }));
       // Llantas vigentes y góndola actual de cada tracto (migración 027)
       const [ll, g, ga] = await Promise.all([
         sb.from("llantas_estado").select("*").limit(20000),
