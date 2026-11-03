@@ -15,6 +15,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { MetricasTracto } from "@/components/metricas-tracto";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 
@@ -129,6 +130,7 @@ export function CombustiblePanel() {
           <TabsTrigger value="cargas">Cargas</TabsTrigger>
           <TabsTrigger value="rendimiento">Rendimiento por chofer</TabsTrigger>
           <TabsTrigger value="ganancia">Ganancia</TabsTrigger>
+          <TabsTrigger value="metricas">Métricas por tracto</TabsTrigger>
           <TabsTrigger value="asignacion">Chofer y tracto</TabsTrigger>
         </TabsList>
 
@@ -207,6 +209,10 @@ export function CombustiblePanel() {
             <p><b>Cómo se calcula:</b> ganancia = facturación − combustible − mantenimiento − comisiones, con los datos del año elegido. Facturación = subtotal (antes de IVA) de los viajes del tracto o chofer por su fecha de salida; las facturas canceladas no cuentan.</p>
             <p>Combustible = costo de las cargas (las cargas sin costo capturado cuentan como $0). Mantenimiento = servicios de tractocamión; en «Por chofer» se reparte entre los choferes del tracto según lo que facturó cada uno con él (las góndolas no entran). Comisiones = tasa de cada viaje (tarifa de la ruta, cliente o 12 %) sobre su subtotal.</p>
           </div>
+        </TabsContent>
+
+        <TabsContent value="metricas">
+          <MetricasTracto viajesGan={viajesGan} cargas={cargas} servicios={servicios} viajesKm={viajes} placa={placa} />
         </TabsContent>
 
         <TabsContent value="asignacion">

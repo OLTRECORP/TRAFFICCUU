@@ -349,3 +349,27 @@ test("comisiones PDF: una hoja por chofer, totales y nombre de archivo", async (
   await assert.rejects(() => construirPdfComisiones([{ nombre: "X", viajes: [] }], { empresa: null, periodo: "p" }), /No hay viajes/);
   assert.equal(nombreArchivoPdf("Ángel Núñez", "vie 16 oct – jue 22 oct 2026"), "comisiones-angel-nunez-vie-16-oct-jue-22-oct-2026.pdf");
 });
+
+// ---- Métricas por tracto entre dos fechas -----------------------------------------------------
+import { metricasPorTracto } from "../src/lib/metricas.ts";
+
+test("métricas por tracto: rango inclusive, reutiliza ganancia y no duplica facturas", () => {
+  const viajes = [gv("1", "A", "T1", "2026-03-01", 10000), gv("2", "A", "T1", "2026-03-10", 5000), gv("3", "A", "T2", "2026-03-05", 2000), gv("4", "A", "T1", "2026-04-01", 999)];
+  const cargas = [{ ...gc("c1", "T1", "A", "2026-03-02", 3000), litros: 120 }, { ...gc("c2", "T1", "A", "2026-02-28", 500), litros: 50 }];
+  const servicios = [{ tracto_id: "T1", fecha: "2026-03-10", costo: 1000 }, { tracto_id: "T1", fecha: "2026-03-11", costo: 7 }];
+  const km = [{ viaje_id: "1", chofer_id: "A", tracto_id: "T1", fecha_viaje: "2026-03-01", km: 400 }, { viaje_id: "4", chofer_id: "A", tracto_id: "T1", fecha_viaje: "2026-04-01", km: 9 }, { viaje_id: "3", chofer_id: "A", tracto_id: "T2", fecha_viaje: "2026-03-05", km: 100 }];
+  const fac = [
+    { viaje_id: "1", tracto_id: "T1", fecha_viaje: "2026-03-01", factura_id: "F1", factura_total: 11600 },
+    { viaje_id: "2", tracto_id: "T1", fecha_viaje: "2026-03-10", factura_id: "F1", factura_total: 11600 },
+    { viaje_id: "3", tracto_id: "T2", fecha_viaje: "2026-03-05", factura_id: "F1", factura_total: 11600 },
+    { viaje_id: "4", tracto_id: "T1", fecha_viaje: "2026-04-01", factura_id: "F2", factura_total: 5 },
+  ];
+  const { filas, total } = metricasPorTracto("2026-03-01", "2026-03-10", viajes, cargas, servicios, km, fac);
+  const t1 = filas.find((f) => f.id === "T1");
+  assert.deepEqual([t1.viajes, t1.facturacion, t1.litros, t1.costoCombustible, t1.costoMantenimiento, t1.km, t1.facturas, t1.montoFacturas], [2, 15000, 120, 3000, 1000, 400, 1, 11600]);
+  assert.equal(total.facturas, 1);           // F1 compartida por dos tractos cuenta una vez en el total
+  assert.equal(total.montoFacturas, 11600);
+  assert.equal(total.viajes, 3);
+  assert.equal(total.km, 500);
+  assert.equal(metricasPorTracto("", "", viajes, cargas, servicios, km, fac).total.viajes, 4);   // sin fechas = todo
+});
