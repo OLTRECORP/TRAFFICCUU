@@ -20,7 +20,11 @@ export interface FilaGanancia {
 }
 
 const r2 = (n: number) => Math.round(n * 100) / 100;
-const delAnio = (f: string, anio: number) => f.slice(0, 4) === String(anio);
+/** Periodo de cálculo: un año completo o un rango de fechas inclusive (vacío = sin límite en ese extremo). */
+export type Periodo = number | { desde: string; hasta: string };
+export const enPeriodo = (f: string, p: Periodo) =>
+  typeof p === "number" ? f.slice(0, 4) === String(p) : (!p.desde || f >= p.desde) && (!p.hasta || f <= p.hasta);
+const delAnio = enPeriodo;
 const tasa = (v: ViajeGan) => (v.tasa_comision == null ? TASA_GENERAL : Number(v.tasa_comision));
 
 function fila(id: string | null): FilaGanancia {
@@ -37,7 +41,7 @@ function cerrar(m: Map<string | null, FilaGanancia>): FilaGanancia[] {
 }
 
 /** Ganancia por tracto: sus viajes, sus cargas y sus servicios del año. Los viajes sin tracto van en la fila null. */
-export function gananciaPorTracto(viajes: ViajeGan[], cargas: Carga[], servicios: ServicioGan[], anio: number): FilaGanancia[] {
+export function gananciaPorTracto(viajes: ViajeGan[], cargas: Carga[], servicios: ServicioGan[], anio: Periodo): FilaGanancia[] {
   const m = new Map<string | null, FilaGanancia>();
   const get = (id: string | null) => { let f = m.get(id); if (!f) { f = fila(id); m.set(id, f); } return f; };
   for (const v of viajes) {
@@ -63,7 +67,7 @@ export function gananciaPorTracto(viajes: ViajeGan[], cargas: Carga[], servicios
  * mantenimiento de cada tracto que le toca según su participación en la facturación de ese tracto en el año.
  */
 export function gananciaPorChofer(
-  viajes: ViajeGan[], cargas: Carga[], servicios: ServicioGan[], anio: number,
+  viajes: ViajeGan[], cargas: Carga[], servicios: ServicioGan[], anio: Periodo,
   historial: ViajeRend[] = [], asignados: Asignaciones = new Map(),
 ): FilaGanancia[] {
   const m = new Map<string | null, FilaGanancia>();
