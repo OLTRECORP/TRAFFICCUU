@@ -9,7 +9,7 @@ import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 
 /**
  * Edición de un viaje por su id, desde Facturas o Clientes: los viajes del Excel de remisiones se corrigen por completo
- * (fecha, remisión, material, cantidad, precio, ruta, chofer y tracto) y los de un XML cambian de tracto, góndola o chofer.
+ * (fecha, remisión, material, cantidad, precio, ruta, chofer y tracto) y los de un XML cambian de fecha, tracto, góndola o chofer.
  */
 export function EditarViaje({ viajeId, onClose, onCambio }: { viajeId: string | null; onClose: () => void; onCambio: () => void }) {
   const [fila, setFila] = useState<Fila | null>(null);
@@ -36,7 +36,7 @@ export function EditarViaje({ viajeId, onClose, onCambio }: { viajeId: string | 
     return <CorregirViaje viaje={fila} onClose={onClose} onGuardado={() => { onClose(); onCambio(); }} />;
   return (
     <AsignarViajeDialog onClose={onClose} onCambio={onCambio}
-      viaje={{ id: fila.id, folio: fila.folio_factura, subtotal: Number(fila.subtotal), distancia_operativa: Number(fila.distancia_operativa),
+      viaje={{ id: fila.id, folio: fila.folio_factura, fecha: fila.fecha, subtotal: Number(fila.subtotal), distancia_operativa: Number(fila.distancia_operativa),
         tracto_id: fila.tracto_id, gondola_id: fila.gondola_id, chofer_id: fila.chofer_id }} />
   );
 }

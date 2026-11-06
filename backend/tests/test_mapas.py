@@ -189,6 +189,14 @@ def test_reasignar_tracto_y_chofer_de_un_viaje(monkeypatch):
     assert e.value.status_code == 404
     viajes_excel.reasignar("e1", "u1", "V1", {"gondola_id": None})
     assert viaje["gondola_id"] is None
+    # fecha: se cambia en fecha y fecha_salida, se audita; la misma fecha no hace nada
+    viaje["fecha"] = viaje["fecha_salida"] = "2026-10-01T00:00:00+00:00"
+    n = len(tablas["auditoria_eliminaciones"])
+    assert viajes_excel.reasignar("e1", "u1", "V1", {"fecha": "2026-10-01"})["cambios"] == {}
+    r = viajes_excel.reasignar("e1", "u1", "V1", {"fecha": "2026-10-05"})
+    assert viaje["fecha"] == viaje["fecha_salida"] == "2026-10-05T00:00:00+00:00"
+    assert r["antes"] == {"fecha": "2026-10-01"} and r["despues"] == {"fecha": "2026-10-05"}
+    assert len(tablas["auditoria_eliminaciones"]) == n + 1
 
 
 def test_asignar_exige_algun_campo():
@@ -196,3 +204,10 @@ def test_asignar_exige_algun_campo():
     with pytest.raises(Exception):
         main.AsignarViajeRequest()
     assert main.AsignarViajeRequest(chofer_id=None).model_fields_set == {"chofer_id"}
+
+
+def test_asignar_acepta_solo_fecha_y_no_la_vacia():
+    import main
+    assert main.AsignarViajeRequest(fecha="2026-10-05").model_fields_set == {"fecha"}
+    with pytest.raises(Exception):
+        main.AsignarViajeRequest(fecha=None)

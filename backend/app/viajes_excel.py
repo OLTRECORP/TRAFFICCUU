@@ -117,6 +117,12 @@ def reasignar(empresa_id: str, usuario_id: str, viaje_id: str, cambios: dict, mo
         if destino != (str(v[llave]) if v.get(llave) else None):
             nuevo[llave] = destino
             etiquetas_antes[llave], etiquetas_despues[llave] = etiqueta(tabla, col, v.get(llave)), etiqueta(tabla, col, destino)
+    if cambios.get("fecha"):
+        f = cambios["fecha"] if isinstance(cambios["fecha"], date) else date.fromisoformat(str(cambios["fecha"]))
+        actual = str(v.get("fecha_salida") or v.get("fecha") or "")[:10]
+        if f.isoformat() != actual:   # misma fecha: no se toca ni se audita
+            nuevo["fecha"] = nuevo["fecha_salida"] = f"{f.isoformat()}T00:00:00+00:00"
+            etiquetas_antes["fecha"], etiquetas_despues["fecha"] = actual or None, f.isoformat()
     if not nuevo:
         return {"cambios": {}, "antes": {}, "despues": {}}
     db.table("viajes").update(nuevo).eq("id", viaje_id).eq("empresa_id", empresa_id).execute()

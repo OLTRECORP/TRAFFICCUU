@@ -18,16 +18,16 @@ export interface Asignado { tracto: string | null; gondola: string | null; chofe
 interface Registro { id: string; motivo: string | null; created_at: string; resumen: { antes?: Record<string, string | null>; despues?: Record<string, string | null> } }
 
 /** Lo mínimo de un viaje para reasignarlo (lo comparten el Dashboard, Facturas y Clientes). */
-export interface ViajeAsignable { id: string; folio?: string | null; subtotal: number; distancia_operativa: number; tracto_id: string | null; gondola_id: string | null; chofer_id: string | null }
+export interface ViajeAsignable { id: string; folio?: string | null; fecha?: string | null; subtotal: number; distancia_operativa: number; tracto_id: string | null; gondola_id: string | null; chofer_id: string | null }
 
-const NOMBRE: Record<string, string> = { tracto_id: "Tracto", gondola_id: "Góndola", chofer_id: "Chofer" };
+const NOMBRE: Record<string, string> = { fecha: "Fecha", tracto_id: "Tracto", gondola_id: "Góndola", chofer_id: "Chofer" };
 
 /** Cambia el tracto, la góndola o el chofer de UN viaje (p. ej. por un error de timbrado). Las métricas se recalculan solas. */
 export function AsignacionViaje({ viaje, onAsignado }: { viaje: ViajeAsignable; onAsignado: (a: Asignado) => void }) {
   const [tractos, setTractos] = useState<Opcion[]>([]);
   const [gondolas, setGondolas] = useState<Opcion[]>([]);
   const [choferes, setChoferes] = useState<Opcion[]>([]);
-  const [actual, setActual] = useState({ tracto: viaje.tracto_id ?? "", gondola: viaje.gondola_id ?? "", chofer: viaje.chofer_id ?? "" });
+  const [actual, setActual] = useState({ fecha: viaje.fecha?.slice(0, 10) ?? "", tracto: viaje.tracto_id ?? "", gondola: viaje.gondola_id ?? "", chofer: viaje.chofer_id ?? "" });
   const [elegido, setElegido] = useState(actual);
   const [motivo, setMotivo] = useState("");
   const [tasa, setTasa] = useState<number>(TASA_GENERAL);
@@ -43,7 +43,7 @@ export function AsignacionViaje({ viaje, onAsignado }: { viaje: ViajeAsignable; 
   }, [viaje.id]);
 
   useEffect(() => {
-    const inicial = { tracto: viaje.tracto_id ?? "", gondola: viaje.gondola_id ?? "", chofer: viaje.chofer_id ?? "" };
+    const inicial = { fecha: viaje.fecha?.slice(0, 10) ?? "", tracto: viaje.tracto_id ?? "", gondola: viaje.gondola_id ?? "", chofer: viaje.chofer_id ?? "" };
     setActual(inicial); setElegido(inicial); setMotivo(""); setError(null); setAviso(null);
     void (async () => {
       const sb = createClient();
@@ -65,6 +65,7 @@ export function AsignacionViaje({ viaje, onAsignado }: { viaje: ViajeAsignable; 
   const etiqueta = (lista: Opcion[], id: string) => lista.find((o) => o.id === id)?.etiqueta ?? null;
   const cambios = useMemo(() => {
     const c: Record<string, string | null> = {};
+    if (elegido.fecha && elegido.fecha !== actual.fecha) c.fecha = elegido.fecha;
     if (elegido.tracto !== actual.tracto) c.tracto_id = elegido.tracto || null;
     if (elegido.gondola !== actual.gondola) c.gondola_id = elegido.gondola || null;
     if (elegido.chofer !== actual.chofer) c.chofer_id = elegido.chofer || null;
@@ -93,17 +94,20 @@ export function AsignacionViaje({ viaje, onAsignado }: { viaje: ViajeAsignable; 
 
   return (
     <div className="grid gap-3 rounded-md border p-3">
-      <h4 className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground"><UserRound className="h-3.5 w-3.5" aria-hidden /> Asignación del viaje (tracto, góndola y chofer)</h4>
-      <p className="text-xs text-muted-foreground">Si el timbrado trae una placa o un chofer equivocado, corrígelo aquí solo para este viaje. Las métricas se calculan con lo que quede asignado.</p>
+      <h4 className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground"><UserRound className="h-3.5 w-3.5" aria-hidden /> Datos del viaje (fecha, tracto, góndola y chofer)</h4>
+      <p className="text-xs text-muted-foreground">Si el timbrado trae una fecha, una placa o un chofer equivocado, corrígelo aquí solo para este viaje. Las métricas se calculan con lo que quede asignado.</p>
       {error && <Alert variant="error">{error.message}</Alert>}
       {aviso && <Alert variant="success">{aviso}</Alert>}
-      <div className="grid gap-3 sm:grid-cols-3">
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <label className="grid gap-1 text-xs font-medium">Fecha del viaje
+          <Input type="date" aria-label="Fecha del viaje" value={elegido.fecha} disabled={busy} onChange={(e) => setElegido({ ...elegido, fecha: e.target.value })} /></label>
         <label className="grid gap-1 text-xs font-medium">Tracto{select(elegido.tracto, (v) => setElegido({ ...elegido, tracto: v }), tractos, "Tracto del viaje")}</label>
         <label className="grid gap-1 text-xs font-medium">Góndola{select(elegido.gondola, (v) => setElegido({ ...elegido, gondola: v }), gondolas, "Góndola del viaje")}</label>
         <label className="grid gap-1 text-xs font-medium">Chofer{select(elegido.chofer, (v) => setElegido({ ...elegido, chofer: v }), choferes, "Chofer del viaje")}</label>
       </div>
       {hay && (
         <ul className="grid gap-0.5 rounded-md bg-secondary/60 p-2 text-xs">
+          {"fecha" in cambios && <li>Fecha: {actual.fecha ? fechaMx(actual.fecha) : "sin fecha"} → <b>{fechaMx(elegido.fecha)}</b>. El viaje se reubica en el periodo de la nueva fecha.</li>}
           {"tracto_id" in cambios && <li>Tracto: {etiqueta(tractos, actual.tracto) ?? "sin asignar"} → <b>{etiqueta(tractos, elegido.tracto) ?? "sin asignar"}</b>. Sus {km(Number(viaje.distancia_operativa))} operativos pasan al odómetro del nuevo tracto (se recalcula solo).</li>}
           {"gondola_id" in cambios && <li>Góndola: {etiqueta(gondolas, actual.gondola) ?? "sin asignar"} → <b>{etiqueta(gondolas, elegido.gondola) ?? "sin asignar"}</b>.</li>}
           {"chofer_id" in cambios && <li>Chofer: {etiqueta(choferes, actual.chofer) ?? "sin asignar"} → <b>{etiqueta(choferes, elegido.chofer) ?? "sin asignar"}</b>. La comisión de este viaje ({mxn(comision)} al {tasa} %) {elegido.chofer ? "pasa al nuevo chofer" : "queda sin chofer y no suma a nadie"}.</li>}

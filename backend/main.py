@@ -266,18 +266,21 @@ class AsignarViajeRequest(BaseModel):
     tracto_id: uuidlib.UUID | None = None
     gondola_id: uuidlib.UUID | None = None
     chofer_id: uuidlib.UUID | None = None
+    fecha: date | None = None
     motivo: str | None = Field(default=None, max_length=300)
 
     @model_validator(mode="after")
     def _algo(self):
-        if not ({"tracto_id", "gondola_id", "chofer_id"} & self.model_fields_set):
-            raise ValueError("Indica el tracto, la góndola o el chofer a cambiar")
+        if not ({"tracto_id", "gondola_id", "chofer_id", "fecha"} & self.model_fields_set):
+            raise ValueError("Indica la fecha, el tracto, la góndola o el chofer a cambiar")
+        if "fecha" in self.model_fields_set and self.fecha is None:
+            raise ValueError("La fecha del viaje no puede quedar vacía")
         return self
 
 
 @app.post("/api/viajes/{viaje_id}/asignar")
 def viaje_asignar(viaje_id: uuidlib.UUID, body: AsignarViajeRequest, tenant: Tenant = Depends(current_tenant)) -> dict:
-    """Cambia el tracto, la góndola y/o el chofer de un viaje (p. ej. por un error de timbrado). Solo se aplican los campos enviados."""
+    """Cambia la fecha, el tracto, la góndola y/o el chofer de un viaje (p. ej. por un error de timbrado). Solo se aplican los campos enviados."""
     enviados = body.model_dump(exclude_unset=True)
     motivo = enviados.pop("motivo", None)
     return viajes_excel.reasignar(tenant.empresa_id, tenant.user_id, str(viaje_id), enviados, motivo)
