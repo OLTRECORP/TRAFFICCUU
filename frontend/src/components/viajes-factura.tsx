@@ -110,7 +110,7 @@ export function ViajesFactura({ facturaId, compacto, sat, editable, onCambio }:
                 <TableCell className="whitespace-nowrap text-right">{mxn(v.subtotal)}</TableCell>
                 {editable && (
                   <TableCell className="whitespace-nowrap">
-                    <Button size="icon" variant="ghost" className="h-7 w-7" title={v.origen_registro === "excel" ? "Corregir el viaje" : "Cambiar tracto, góndola o chofer"} aria-label="Editar viaje"
+                    <Button size="icon" variant="ghost" className="h-7 w-7" title={v.origen_registro === "excel" ? "Corregir el viaje" : "Cambiar fecha, tracto, góndola o chofer"} aria-label="Editar viaje"
                       onClick={() => setEditando(v.id)}><Pencil className="h-3.5 w-3.5" /></Button>
                     <Button size="icon" variant="ghost" className="h-7 w-7" title="Quitar este viaje de la factura" aria-label="Quitar este viaje de la factura"
                       onClick={() => void quitar(v.id)}><Unlink className="h-3.5 w-3.5" /></Button>

@@ -233,7 +233,7 @@ export function ViajesPeriodoPanel({ cliente, desde: desdeFecha, hasta: hastaFec
         </div>
       </div>
       <CorregirViaje viaje={editar} onClose={() => setEditar(null)} onGuardado={(msg) => { setEditar(null); setAviso(msg); void cargar(); onCambio(); }} />
-      <AsignarViajeDialog viaje={asignar && { id: asignar.id, folio: asignar.folio_factura, subtotal: Number(asignar.subtotal), distancia_operativa: Number(asignar.distancia_operativa), tracto_id: asignar.tracto_id, gondola_id: asignar.gondola_id, chofer_id: asignar.chofer_id }}
+      <AsignarViajeDialog viaje={asignar && { id: asignar.id, folio: asignar.folio_factura, fecha: asignar.fecha, subtotal: Number(asignar.subtotal), distancia_operativa: Number(asignar.distancia_operativa), tracto_id: asignar.tracto_id, gondola_id: asignar.gondola_id, chofer_id: asignar.chofer_id }}
         onClose={() => setAsignar(null)} onCambio={() => { void cargar(); onCambio(); }} />
     </>
   );
