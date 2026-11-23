@@ -95,16 +95,16 @@ export function ViajeModal({ viaje, onClose, onChanged }: { viaje: Viaje | null;
                   <Field label="Chofer" value={viaje.chofer?.nombre} />
                   <Field label="Licencia" value={viaje.chofer?.licencia} />
                   {viaje.remision && <Field label="Remisión" value={viaje.remision} />}
-                  {viaje.origen_registro === "excel" && (
+                  {viaje.origen_registro && viaje.origen_registro !== "xml" && (
                     <Field label="Cantidad" value={viaje.cantidad != null ? `${Number(viaje.cantidad).toLocaleString("es-MX")} ${viaje.unidad ?? ""}${viaje.precio_unitario != null ? ` × ${mxn(Number(viaje.precio_unitario))}` : ""}` : null} />
                   )}
                   <Field label="Mercancía" value={viaje.mercancia} />
                   <Field label="Toneladas facturadas" value={viaje.toneladas_facturadas != null ? `${Number(viaje.toneladas_facturadas).toLocaleString("es-MX")} t${viaje.precio_tonelada != null ? ` × ${mxn(Number(viaje.precio_tonelada))}` : ""}` : null} />
                   <Field label="Salida" value={viaje.fecha_salida ? fechaMx(viaje.fecha_salida) : null} />
                   <Field label="Llegada" value={viaje.fecha_llegada ? fechaMx(viaje.fecha_llegada) : null} />
-                  {viaje.origen_registro !== "excel" && <Field label="Distancia oficial (XML, ida)" value={km(viaje.distancia_xml)} />}
+                  {(!viaje.origen_registro || viaje.origen_registro === "xml") && <Field label="Distancia oficial (XML, ida)" value={km(viaje.distancia_xml)} />}
                   <Field label={`Distancia operativa (redondo${viaje.distancia_mapa_km != null ? ", del mapa" : ""})`}
-                    value={viaje.distancia_mapa_km == null ? (viaje.origen_registro === "excel" ? "Pendiente: ubica origen y destino en el mapa" : `${km(viaje.distancia_operativa)} (del XML hasta tener el mapa)`) : km(viaje.distancia_operativa)} />
+                    value={viaje.distancia_mapa_km == null ? (viaje.origen_registro && viaje.origen_registro !== "xml" ? "Pendiente: ubica origen y destino en el mapa" : `${km(viaje.distancia_operativa)} (del XML hasta tener el mapa)`) : km(viaje.distancia_operativa)} />
                 </dl>
                 <div className="mt-4 grid gap-3 rounded-md border p-3">
                   <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Distancia por mapa (los km operativos del viaje son esta distancia x 2)</h4>

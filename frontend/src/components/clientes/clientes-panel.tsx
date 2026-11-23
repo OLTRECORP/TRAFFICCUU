@@ -121,11 +121,13 @@ export function ClientesPanel() {
               <TabsList>
                 {actual.factura_semanal && <TabsTrigger value="semanas">Semanas y facturas</TabsTrigger>}
                 <TabsTrigger value="viajes">Viajes</TabsTrigger>
+                <TabsTrigger value="importar">Importar Excel</TabsTrigger>
                 <TabsTrigger value="tarifas">Tarifas y comisión por ruta</TabsTrigger>
                 <TabsTrigger value="datos">Datos</TabsTrigger>
               </TabsList>
               {actual.factura_semanal && <TabsContent value="semanas"><SemanasCliente cliente={actual} /></TabsContent>}
               <TabsContent value="viajes"><ViajesCliente cliente={actual} /></TabsContent>
+              <TabsContent value="importar"><ImportarRemisiones clientes={clientes} clienteFijo={actual} onDone={() => void cargar()} /></TabsContent>
               <TabsContent value="tarifas"><Tarifas cliente={actual} /></TabsContent>
               <TabsContent value="datos"><Datos cliente={actual} onGuardar={(c) => guardar(actual.id, c)} /></TabsContent>
             </Tabs>

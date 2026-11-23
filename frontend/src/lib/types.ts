@@ -46,7 +46,7 @@ export interface Viaje {
   km_operativos: number | null;
   toneladas_facturadas?: number | null; precio_tonelada?: number | null; mercancia?: string | null;
   fecha_salida?: string | null; fecha_llegada?: string | null;
-  origen_registro?: "xml" | "excel"; remision?: string | null; material?: string | null;
+  origen_registro?: "xml" | "excel" | "manual"; remision?: string | null; material?: string | null;
   cantidad?: number | null; unidad?: string | null; precio_unitario?: number | null;
   km_por_mapa?: boolean; cliente?: { nombre: string; comision_pct: number } | null;
 }

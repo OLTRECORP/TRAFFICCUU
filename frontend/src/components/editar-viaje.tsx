@@ -32,7 +32,7 @@ export function EditarViaje({ viajeId, onClose, onCambio }: { viajeId: string | 
     </DialogContent></Dialog>
   );
   if (!fila) return null;
-  if (fila.origen_registro === "excel")
+  if (fila.origen_registro !== "xml")
     return <CorregirViaje viaje={fila} onClose={onClose} onGuardado={() => { onClose(); onCambio(); }} />;
   return (
     <AsignarViajeDialog onClose={onClose} onCambio={onCambio}

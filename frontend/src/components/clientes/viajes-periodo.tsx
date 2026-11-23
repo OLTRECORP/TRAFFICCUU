@@ -161,7 +161,7 @@ export function ViajesPeriodoPanel({ cliente, desde: desdeFecha, hasta: hastaFec
                   </TableHeader>
                   <TableBody>
                     {viajes.map((v) => {
-                      const g = dupDe.get(v.id), excel = v.origen_registro === "excel";
+                      const g = dupDe.get(v.id), excel = v.origen_registro !== "xml";
                       const fuera = v.remision ? otrasSemanas.get(claveRemision(v.remision)) : undefined;
                       return (
                         <TableRow key={v.id} className={elegidos.has(v.id) ? "bg-red-50 dark:bg-red-950/30" : g ? "bg-amber-50 dark:bg-amber-950/20" : undefined}>
