@@ -11,7 +11,7 @@ from .carta_porte_service import registrar as registrar_carta_porte
 from .cfdi_parser import CFDIError, resumen_cfdi
 from .db import get_admin_client
 from .rutas_service import LugaresCatalogo
-from .sat import SatError, descargar_cfdi_por_uuid
+from .sat import SatError, SatPendiente, descargar_cfdi_por_uuid
 
 log = logging.getLogger("facturas_sat")
 
@@ -73,12 +73,15 @@ def ejecutar(empresa_id: str, factura_id: str, uuid: str) -> None:
         tabla.update({"id_solicitud": id_solicitud}).eq("factura_id", factura_id).execute()
 
     try:
-        xml = descargar_cfdi_por_uuid(empresa_id, uuid, on_solicitud=guardar_solicitud)
+        # Si el intento anterior se quedó esperando al SAT (SatPendiente) se conserva su id_solicitud y se retoma.
+        previa = tabla.select("id_solicitud").eq("factura_id", factura_id).limit(1).execute().data
+        retomar = previa[0].get("id_solicitud") if previa else None
+        xml = descargar_cfdi_por_uuid(empresa_id, uuid, on_solicitud=guardar_solicitud, id_existente=retomar)
         datos = resumen_cfdi(xml)
         if datos["uuid"].lower() != uuid.lower():
             raise SatError("El XML descargado no corresponde al UUID de la factura")
         tabla.update({
-            "estado": "ok", "error": None, "datos": datos, "xml": xml.decode("utf-8", errors="replace"),
+            "estado": "ok", "error": None, "id_solicitud": None, "datos": datos, "xml": xml.decode("utf-8", errors="replace"),
             "actualizado_en": _ahora().isoformat(),
         }).eq("factura_id", factura_id).execute()
         log.info("Factura %s actualizada desde el SAT", factura_id)
@@ -89,9 +92,12 @@ def ejecutar(empresa_id: str, factura_id: str, uuid: str) -> None:
         except Exception:
             log.exception("Factura %s: no se pudo registrar la Carta Porte", factura_id)
     except (SatError, CFDIError) as exc:
-        tabla.update({"estado": "error", "error": str(exc)[:500]}).eq("factura_id", factura_id).execute()
+        cambios = {"estado": "error", "error": str(exc)[:500]}
+        if not isinstance(exc, SatPendiente):
+            cambios["id_solicitud"] = None   # solo se retoma una solicitud que el SAT seguía procesando
+        tabla.update(cambios).eq("factura_id", factura_id).execute()
         log.warning("Factura %s: %s", factura_id, exc)
     except Exception as exc:
         log.exception("Factura %s: fallo inesperado consultando al SAT", factura_id)
-        tabla.update({"estado": "error", "error": f"Error al consultar el SAT: {type(exc).__name__}"}).eq(
+        tabla.update({"estado": "error", "error": f"Error al consultar el SAT: {type(exc).__name__}", "id_solicitud": None}).eq(
             "factura_id", factura_id).execute()

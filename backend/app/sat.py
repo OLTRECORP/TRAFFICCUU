@@ -165,6 +165,7 @@ def descargar_cfdi_por_uuid(
     on_solicitud=None,
     espera_max: int = 600,
     intervalo: int = 15,
+    id_existente: str | None = None,
 ) -> bytes:
     """Descarga el XML de un CFDI por UUID con el WS de Descarga Masiva del SAT, firmando con la FIEL
     de la empresa. Solicitud -> verificación (con espera) -> descarga del paquete ZIP.
@@ -176,24 +177,25 @@ def descargar_cfdi_por_uuid(
     ahora = datetime.now()
     ini, fin = ahora - timedelta(days=5 * 365), ahora  # con UUID el SAT ignora el rango
 
-    token = Autenticacion(fiel).obtener_token()
-    id_solicitud = None
+    id_solicitud = id_existente   # solicitud previa que el SAT seguía procesando: se retoma, no se pide otra
     mensajes = []
-    for solicitar, filtro in (
-        (SolicitaDescargaEmitidos(fiel), {"rfc_emisor": rfc}),
-        (SolicitaDescargaRecibidos(fiel), {"rfc_receptor": rfc}),
-    ):
-        res = solicitar.solicitar_descarga(token, rfc, ini, fin, uuid=uuid, estado_comprobante=None, **filtro)
-        if res.get("cod_estatus") == "5000" and res.get("id_solicitud"):
-            id_solicitud = res["id_solicitud"]
-            break
-        if _es_limite(res.get("cod_estatus"), res.get("mensaje")):
-            raise SatLimite(MENSAJE_LIMITE.format(codigo=res.get("cod_estatus"), mensaje=res.get("mensaje") or "sin mensaje"))
-        mensajes.append(res.get("mensaje") or res.get("cod_estatus") or "sin respuesta")
     if not id_solicitud:
-        raise SatError(f"El SAT no aceptó la solicitud: {'; '.join(mensajes)}")
-    if on_solicitud:
-        on_solicitud(id_solicitud)
+        token = Autenticacion(fiel).obtener_token()
+        for solicitar, filtro in (
+            (SolicitaDescargaEmitidos(fiel), {"rfc_emisor": rfc}),
+            (SolicitaDescargaRecibidos(fiel), {"rfc_receptor": rfc}),
+        ):
+            res = solicitar.solicitar_descarga(token, rfc, ini, fin, uuid=uuid, estado_comprobante=None, **filtro)
+            if res.get("cod_estatus") == "5000" and res.get("id_solicitud"):
+                id_solicitud = res["id_solicitud"]
+                break
+            if _es_limite(res.get("cod_estatus"), res.get("mensaje")):
+                raise SatLimite(MENSAJE_LIMITE.format(codigo=res.get("cod_estatus"), mensaje=res.get("mensaje") or "sin mensaje"))
+            mensajes.append(res.get("mensaje") or res.get("cod_estatus") or "sin respuesta")
+        if not id_solicitud:
+            raise SatError(f"El SAT no aceptó la solicitud: {'; '.join(mensajes)}")
+        if on_solicitud:
+            on_solicitud(id_solicitud)
 
     try:
         paquetes = _verificar(fiel, rfc, id_solicitud, espera_max, intervalo)

@@ -127,3 +127,23 @@ def test_xml_de_otro_uuid_se_rechaza(db, monkeypatch):
     monkeypatch.setattr(facturas_sat, "descargar_cfdi_por_uuid", lambda *a, **k: make_xml())
     facturas_sat.ejecutar("e1", "f1", "11111111-1111-4111-8111-111111111111")
     assert db.tables["facturas_sat"][0]["estado"] == "error"
+
+
+def test_sat_sigue_procesando_conserva_la_solicitud_y_se_retoma(db, monkeypatch):
+    facturas_sat.preparar("e1", "f1", forzar=False)
+    vistos = []
+
+    def pendiente(empresa_id, uuid, on_solicitud=None, id_existente=None, **k):
+        vistos.append(id_existente)
+        if on_solicitud and not id_existente:
+            on_solicitud("SOL-1")
+        raise facturas_sat.SatPendiente("El SAT sigue procesando la solicitud; vuelve a intentarlo en unos minutos")
+    monkeypatch.setattr(facturas_sat, "descargar_cfdi_por_uuid", pendiente)
+    facturas_sat.ejecutar("e1", "f1", UUID)
+    fila = db.tables["facturas_sat"][0]
+    assert fila["estado"] == "error" and fila["id_solicitud"] == "SOL-1"
+
+    facturas_sat.preparar("e1", "f1", forzar=False)       # reintento: no pide otra solicitud al SAT
+    monkeypatch.setattr(facturas_sat, "descargar_cfdi_por_uuid", lambda *a, **k: (vistos.append(k.get("id_existente")), make_xml())[1])
+    facturas_sat.ejecutar("e1", "f1", UUID)
+    assert vistos == [None, "SOL-1"] and fila["estado"] == "ok" and fila["id_solicitud"] is None
