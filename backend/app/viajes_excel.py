@@ -1,5 +1,5 @@
-"""Depurar los viajes importados del Excel de remisiones (p. ej. La Purísima): quitar duplicados o erróneos,
-restaurarlos y corregir sus datos. Quitar/restaurar viven en funciones de Postgres (migración 033) para que sean
+"""Depurar los viajes sin XML (importados del Excel de remisiones o capturados a mano): quitar duplicados o erróneos,
+restaurarlos y corregir sus datos; también captura viajes manuales de empresas nuevas. Quitar/restaurar viven en funciones de Postgres (migración 033) para que sean
 atómicos y queden respaldados; corregir valida y actualiza aquí."""
 from datetime import date
 from decimal import Decimal
@@ -43,8 +43,8 @@ def corregir(empresa_id: str, usuario_id: str, viaje_id: str, cambios: dict) -> 
     if not v:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Viaje no encontrado")
     v = v[0]
-    if v["origen_registro"] != "excel":
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Solo se corrigen viajes del Excel de remisiones; los de un XML salen de su Carta Porte")
+    if v["origen_registro"] == "xml":
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Solo se corrigen viajes del Excel de remisiones o manuales; los de un XML salen de su Carta Porte")
     nuevo: dict = {}
     for k in CAMPOS_TEXTO:
         if k in cambios:
@@ -85,6 +85,60 @@ def corregir(empresa_id: str, usuario_id: str, viaje_id: str, cambios: dict) -> 
         "empresa_id": empresa_id, "accion": "viaje_excel_corregido", "referencia": f"Rem. {v['remision']}" if v.get("remision") else viaje_id,
         "resumen": {"antes": antes, "despues": nuevo}, "respaldo": {"viaje": v}, "usuario_id": usuario_id}).execute()
     return {"viaje": actualizado, "cambios": nuevo}
+
+
+def _existe(db, empresa_id: str, tabla: str, id_, nombre: str) -> str | None:
+    if not id_:
+        return None
+    if not db.table(tabla).select("id").eq("empresa_id", empresa_id).eq("id", str(id_)).limit(1).execute().data:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, f"{nombre} no encontrado")
+    return str(id_)
+
+
+def crear_manual(empresa_id: str, usuario_id: str, cliente_id: str, datos: dict) -> dict:
+    """Captura a mano un viaje de un cliente (empresas nuevas con viajes distintos). Queda sin factura (se liga después
+    desde Facturas; en un cliente de factura semanal entra solo en su semana) y cuenta en comisiones, km y ganancia como
+    cualquier viaje con chofer y tracto. Si el cliente trae su ruta calculada, los km salen de ahí."""
+    db = get_admin_client()
+    c = db.table("clientes").select("id, rfc").eq("empresa_id", empresa_id).eq("id", cliente_id).limit(1).execute().data
+    if not c:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Cliente no encontrado")
+    subtotal = datos.get("subtotal")
+    cantidad, precio = datos.get("cantidad"), datos.get("precio_unitario")
+    if subtotal is None and cantidad is not None and precio is not None:
+        subtotal = round(Decimal(str(cantidad)) * Decimal(str(precio)), 2)
+    if subtotal is None:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Captura el subtotal (o la cantidad y el precio)")
+    if Decimal(str(subtotal)) <= 0:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "El subtotal debe ser mayor a cero")
+    f = datos["fecha"] if isinstance(datos["fecha"], date) else date.fromisoformat(str(datos["fecha"]))
+    o = _existe(db, empresa_id, "lugares", datos.get("lugar_origen_id"), "Origen")
+    d = _existe(db, empresa_id, "lugares", datos.get("lugar_destino_id"), "Destino")
+    ruta = db.table("rutas").select("distancia_km").eq("empresa_id", empresa_id).eq("origen_id", o).eq("destino_id", d).limit(1).execute().data if o and d else []
+    material = (datos.get("material") or "").strip() or None
+    fila = {
+        "empresa_id": empresa_id, "cliente_id": cliente_id, "origen_registro": "manual", "import_key": None,
+        "fecha": f"{f.isoformat()}T00:00:00+00:00", "fecha_salida": f"{f.isoformat()}T00:00:00+00:00",
+        "remision": (datos.get("remision") or "").strip() or None, "material": material, "mercancia": material,
+        "cantidad": float(cantidad) if cantidad is not None else None, "unidad": (datos.get("unidad") or "").strip().upper() or None,
+        "precio_unitario": float(precio) if precio is not None else None,
+        "subtotal": float(subtotal), "total": float(subtotal),
+        "lugar_origen_id": o, "lugar_destino_id": d, "distancia_mapa_km": float(ruta[0]["distancia_km"]) if ruta else None,
+        "chofer_id": _existe(db, empresa_id, "choferes", datos.get("chofer_id"), "Chofer"),
+        "tracto_id": _existe(db, empresa_id, "tractocamiones", datos.get("tracto_id"), "Tracto"),
+        "gondola_id": _existe(db, empresa_id, "gondolas", datos.get("gondola_id"), "Góndola"),
+        "rfc_receptor": c[0].get("rfc"), "distancia_xml": 0,
+    }
+    try:
+        viaje = db.table("viajes").insert(fila).execute().data[0]
+    except Exception as exc:
+        if "viajes_origen_registro_chk" in str(exc):
+            raise HTTPException(status.HTTP_409_CONFLICT, "Falta ejecutar la migración 035 en Supabase (supabase/migrations/035_viajes_manuales.sql)")
+        raise
+    db.table("auditoria_eliminaciones").insert({
+        "empresa_id": empresa_id, "accion": "viaje_manual_creado", "referencia": f"Rem. {fila['remision']}" if fila["remision"] else viaje["id"],
+        "resumen": {"fecha": f.isoformat(), "subtotal": fila["subtotal"], "cliente_id": cliente_id}, "usuario_id": usuario_id}).execute()
+    return viaje
 
 
 UNIDADES = (("tracto_id", "tractocamiones", "placa", "Tracto"), ("gondola_id", "gondolas", "placa", "Góndola"), ("chofer_id", "choferes", "nombre", "Chofer"))

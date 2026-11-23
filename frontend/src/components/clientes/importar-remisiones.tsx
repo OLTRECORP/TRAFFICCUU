@@ -42,10 +42,14 @@ const INFORMATIVOS = new Set(["precio_distinto_tarifa", "sin_tarifa"]);
 
 const sel = "h-10 w-full rounded-md border bg-background px-3 text-sm";
 
-/** Sube el Excel de remisiones (hojas PRECIOS y VIAJES): primero muestra la vista previa y luego importa. */
-export function ImportarRemisiones({ clientes, onDone }: { clientes: Cliente[]; onDone: () => void }) {
+/**
+ * Sube el Excel de remisiones (hojas PRECIOS y VIAJES): primero muestra la vista previa y luego importa.
+ * Con `clienteFijo` (pestaña «Importar Excel» de un cliente) los viajes son de ese cliente, sea o no de factura semanal.
+ */
+export function ImportarRemisiones({ clientes, clienteFijo, onDone }: { clientes: Cliente[]; clienteFijo?: Cliente; onDone: () => void }) {
   const [archivo, setArchivo] = useState<File | null>(null);
-  const [clienteId, setClienteId] = useState("");
+  const [clienteElegido, setClienteId] = useState("");
+  const clienteId = clienteFijo?.id ?? clienteElegido;
   const [res, setRes] = useState<Resultado | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<ApiError | null>(null);
@@ -70,7 +74,7 @@ export function ImportarRemisiones({ clientes, onDone }: { clientes: Cliente[]; 
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="text-base">Importar viajes desde Excel de remisiones</CardTitle>
+        <CardTitle className="text-base">{clienteFijo ? `Importar viajes de ${clienteFijo.nombre} desde Excel` : "Importar viajes desde Excel de remisiones"}</CardTitle>
         <p className="text-sm text-muted-foreground">
           Hojas <b>PRECIOS</b> (origen, destino, precio, unidad) y <b>VIAJES</b> (fecha, origen, destino, remisión, material, operador,
           placas, cantidad, unidad, precio unitario, subtotal). Cada renglón es un viaje. Primero verás la vista previa; nada se guarda hasta confirmar.
@@ -78,13 +82,14 @@ export function ImportarRemisiones({ clientes, onDone }: { clientes: Cliente[]; 
       </CardHeader>
       <CardContent className="grid gap-4">
         <div className="grid gap-3 sm:grid-cols-[1fr_auto] sm:items-end">
+          {clienteFijo ? <p className="text-sm">Los viajes del Excel se agregan a <b>{clienteFijo.nombre}</b> (comisión {Number(clienteFijo.comision_pct)} %); reimportar el mismo archivo no duplica.</p> : (
           <div className="grid gap-1.5">
             <Label htmlFor="rem-cliente">Cliente</Label>
             <select id="rem-cliente" className={sel} value={clienteId} onChange={(e) => { setClienteId(e.target.value); setRes(null); }}>
               <option value="">Pétreos La Purísima (se crea si no existe)</option>
               {clientes.filter((c) => c.factura_semanal).map((c) => <option key={c.id} value={c.id}>{c.nombre}</option>)}
             </select>
-          </div>
+          </div>)}
           <div>
             <input ref={ref} type="file" accept=".xlsx,.xlsm" hidden onChange={(e) => {
               const f = e.target.files?.[0] ?? null; setArchivo(f); setRes(null); if (f) void enviar(false, f); e.target.value = "";

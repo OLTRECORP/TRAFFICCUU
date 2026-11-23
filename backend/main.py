@@ -255,6 +255,29 @@ class CorregirViajeRequest(BaseModel):
     tracto_id: uuidlib.UUID | None = None
 
 
+class ViajeManualRequest(BaseModel):
+    fecha: date
+    remision: str | None = Field(default=None, max_length=60)
+    material: str | None = Field(default=None, max_length=120)
+    cantidad: float | None = Field(default=None, ge=0)
+    unidad: str | None = Field(default=None, max_length=20)
+    precio_unitario: float | None = Field(default=None, ge=0)
+    subtotal: float | None = Field(default=None, ge=0)
+    lugar_origen_id: uuidlib.UUID | None = None
+    lugar_destino_id: uuidlib.UUID | None = None
+    chofer_id: uuidlib.UUID | None = None
+    tracto_id: uuidlib.UUID | None = None
+    gondola_id: uuidlib.UUID | None = None
+
+
+@app.post("/api/clientes/{cliente_id}/viajes-manual")
+def clientes_viaje_manual(cliente_id: uuidlib.UUID, body: ViajeManualRequest, tenant: Tenant = Depends(current_tenant)) -> dict:
+    """Agrega a mano un viaje al cliente (sin XML ni Excel): cuenta en las comisiones del chofer y queda sin factura."""
+    c = _cliente(tenant, cliente_id)
+    v = viajes_excel.crear_manual(tenant.empresa_id, tenant.user_id, c["id"], body.model_dump())
+    return {"id": v["id"], "distancia_mapa_km": v.get("distancia_mapa_km")}
+
+
 @app.post("/api/viajes/{viaje_id}/corregir")
 def viaje_corregir(viaje_id: uuidlib.UUID, body: CorregirViajeRequest, tenant: Tenant = Depends(current_tenant)) -> dict:
     """Corrige un viaje del Excel; solo se aplican los campos enviados (null en un campo enviado lo vacía)."""

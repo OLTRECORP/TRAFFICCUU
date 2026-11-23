@@ -5,6 +5,8 @@ import type { Cliente } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Alert } from "@/components/ui/alert";
+import { AgregarViajeManual } from "@/components/clientes/agregar-viaje-manual";
 import { ViajesPeriodoPanel } from "@/components/clientes/viajes-periodo";
 
 const iso = (d: Date) => d.toISOString().slice(0, 10);
@@ -17,6 +19,8 @@ const mes = (delta: number) => {
 /** Viajes del cliente en un periodo (cualquier cliente, no solo los de factura semanal): ver, quitar duplicados y corregir. */
 export function ViajesCliente({ cliente, onCambio }: { cliente: Cliente; onCambio?: () => void }) {
   const [rango, setRango] = useState(() => mes(0));
+  const [version, setVersion] = useState(0);
+  const [aviso, setAviso] = useState<string | null>(null);
   return (
     <div className="grid gap-4">
       <div className="flex flex-wrap items-end gap-3">
@@ -25,11 +29,13 @@ export function ViajesCliente({ cliente, onCambio }: { cliente: Cliente; onCambi
         <Button size="sm" variant="outline" onClick={() => setRango(mes(0))}>Este mes</Button>
         <Button size="sm" variant="outline" onClick={() => setRango(mes(-1))}>Mes anterior</Button>
         <Button size="sm" variant="outline" onClick={() => { const h = hoy(); setRango({ desde: iso(new Date(h.getTime() - 89 * 86400000)), hasta: iso(h) }); }}>Últimos 90 días</Button>
+        <div className="ml-auto"><AgregarViajeManual cliente={cliente} onCreado={(m) => { setAviso(m); setVersion((v) => v + 1); onCambio?.(); }} /></div>
       </div>
+      {aviso && <Alert variant="success">{aviso}</Alert>}
       <p className="text-xs text-muted-foreground">
-        Viajes de {cliente.nombre} en el periodo. El lápiz corrige un viaje: los del Excel de remisiones por completo (fecha, remisión, material, cantidad, precio, ruta, chofer y tracto) y los de un XML solo cambian de tracto, góndola o chofer.
+        Viajes de {cliente.nombre} en el periodo. El lápiz corrige un viaje: los del Excel de remisiones y los manuales por completo (fecha, remisión, material, cantidad, precio, ruta, chofer y tracto) y los de un XML solo cambian de tracto, góndola o chofer.
       </p>
-      <ViajesPeriodoPanel cliente={cliente} desde={rango.desde} hasta={rango.hasta} onCambio={onCambio ?? (() => {})} />
+      <ViajesPeriodoPanel key={version} cliente={cliente} desde={rango.desde} hasta={rango.hasta} onCambio={onCambio ?? (() => {})} />
     </div>
   );
 }
