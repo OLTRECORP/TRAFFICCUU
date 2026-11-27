@@ -115,3 +115,48 @@ def test_resumen_cfdi_trae_referencia_del_destino():
     r = resumen_cfdi(XML_TON.encode())
     destino = [u for u in r["carta_porte"]["ubicaciones"] if u["tipo"] == "Destino"][0]
     assert destino["referencia"] == "CLIENTE - PLANTA SAN PEDRO" and destino["calle"] == "PLANTA SAN PEDRO"
+
+
+XML_RECEPTOR = XML_TON.replace('<cfdi:Receptor Rfc="BBB010101BBB"/>', '<cfdi:Receptor Rfc="bbb010101bbb" Nombre=" TRITURADOS ROCA SA DE CV "/>')
+
+
+def test_parser_toma_receptor_subtotal_origen_y_destino_del_xml():
+    from decimal import Decimal
+    from app.cfdi_parser import parse_cfdi
+    v = parse_cfdi(XML_RECEPTOR.encode())
+    assert (v.rfc_receptor, v.nombre_receptor) == ("bbb010101bbb", "TRITURADOS ROCA SA DE CV")
+    assert v.subtotal == Decimal("4370.70")
+    assert v.origen.estado == "BCN" and v.destino.calle == "PLANTA SAN PEDRO" and v.distancia_xml == 23
+
+
+class Clientes(Q):
+    def eq(self, c, v): self.f = getattr(self, "f", []) + [(c, v)]; return self
+    def execute(self):
+        t = self.db.tables.setdefault(self.name, [])
+        if self.op == "update":
+            self.db.updates.append((self.name, self.p))
+            t[0].update(self.p) if t else None
+            return type("R", (), {"data": []})()
+        return super().execute()
+
+
+class DBC(DB):
+    def table(self, n): return Clientes(self, n)
+
+
+def test_cliente_es_el_receptor_por_rfc_nombre_y_se_crea_con_su_rfc():
+    from app.clientes_service import cliente_para_viaje
+    db = DBC(clientes=[{"id": "C1", "nombre": "OTRO", "rfc": "BBB010101BBB", "alias": []}])
+    assert cliente_para_viaje(db, "e1", "bbb010101bbb", "X", "DESTINO", "AAA010101AAA") == "C1"   # por RFC
+    nuevo = cliente_para_viaje(db, "e1", "CCC010101CCC", "Cliente Nuevo SA", "DESTINO", "AAA010101AAA")
+    assert db.tables["clientes"][-1] == {"empresa_id": "e1", "nombre": "Cliente Nuevo SA", "rfc": "CCC010101CCC", "id": nuevo}
+
+
+def test_cliente_existente_sin_rfc_se_completa_y_la_empresa_receptora_usa_el_destino():
+    from app.clientes_service import cliente_para_viaje
+    db = DBC(clientes=[{"id": "C1", "nombre": "Triturados Roca", "rfc": None, "alias": []}])
+    assert cliente_para_viaje(db, "e1", "DDD010101DDD", "TRITURADOS ROCA", None, "AAA010101AAA") == "C1"
+    assert ("clientes", {"rfc": "DDD010101DDD"}) in db.updates
+    # la propia empresa como receptor no es un cliente: cae al destinatario de la Carta Porte
+    otro = cliente_para_viaje(db, "e1", "AAA010101AAA", "MI EMPRESA", "PLANTA X", "AAA010101AAA")
+    assert db.tables["clientes"][-1]["nombre"] == "PLANTA X" and "rfc" not in db.tables["clientes"][-1] and otro

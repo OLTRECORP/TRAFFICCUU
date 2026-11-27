@@ -124,7 +124,7 @@ def guardar_viaje(tenant: Tenant, v: CFDIViaje, factura_id: str | None = None, c
         "fecha_salida": v.origen.fecha.isoformat() if v.origen.fecha else None,
         "fecha_llegada": v.destino.fecha.isoformat() if v.destino.fecha else None,
         # el cliente decide la tasa de comisión y si los km salen del mapa
-        "cliente_id": cliente_para_viaje(db, eid, v.rfc_receptor, v.destino.nombre),
+        "cliente_id": cliente_para_viaje(db, eid, v.rfc_receptor, v.nombre_receptor, v.destino.nombre, tenant.rfc),
     }
     if row["cliente_id"] is None:
         del row["cliente_id"]
