@@ -22,6 +22,7 @@ from app.facturas_sat import ejecutar as sat_ejecutar, preparar as sat_preparar
 from app.excel_import import ExcelError, guardar, parse_workbook
 from app.sat import descargar_cfdis
 from app.viajes_service import guardar_viaje
+from app.clientes_service import asignar_clientes_desde_xml, cliente_para_viaje
 from app import depuracion, semanal
 from app.nombres import clientes_parecidos
 from app.remisiones_excel import RemisionesError, importar as remisiones_importar, parse_libro as remisiones_parse
@@ -94,8 +95,14 @@ async def procesar_xml(file: UploadFile = File(...), tenant: Tenant = Depends(cu
         .in_("uuid", list({cfdi.uuid, cfdi.uuid.lower(), cfdi.uuid.upper()})).limit(1).execute().data
     if existente:
         viaje = existente[0]
+        cambios = {}
         if factura_id and viaje.get("factura_id") != factura_id:
-            db.table("viajes").update({"factura_id": factura_id}).eq("id", viaje["id"]).execute()
+            cambios["factura_id"] = factura_id
+        cliente = cliente_para_viaje(db, tenant.empresa_id, cfdi.rfc_receptor, cfdi.nombre_receptor, cfdi.destino.nombre, tenant.rfc)
+        if cliente:
+            cambios["cliente_id"] = cliente   # el cliente es el receptor del XML, también si el viaje ya existía
+        if cambios:
+            db.table("viajes").update(cambios).eq("id", viaje["id"]).execute()
         return {
             "viaje_id": viaje["id"], "factura_id": factura_id, "factura_creada": factura_creada, "uuid": cfdi.uuid, "folio": cfdi.folio,
             "distancia_xml": float(cfdi.distancia_xml), "distancia_operativa": float(viaje.get("distancia_operativa") or cfdi.distancia_operativa),
@@ -548,6 +555,12 @@ def viajes_calcular_km(tenant: Tenant = Depends(current_tenant)) -> dict:
     return calcular_km_viajes(tenant.empresa_id)
 
 
+@app.post("/api/viajes/asignar-clientes")
+def viajes_asignar_clientes(tenant: Tenant = Depends(current_tenant)) -> dict:
+    """Pone en los viajes de XML el cliente que dice el receptor de su CFDI (restaurados, ya existentes o previos al cambio)."""
+    return asignar_clientes_desde_xml(get_admin_client(), tenant.empresa_id, tenant.rfc)
+
+
 class EliminarFacturasRequest(BaseModel):
     ids: list[uuidlib.UUID] = Field(min_length=1, max_length=depuracion.MAX_FACTURAS)
     motivo: str | None = Field(default=None, max_length=300)
@@ -582,7 +595,12 @@ class RestaurarFacturasRequest(BaseModel):
 @app.post("/api/facturas/restaurar")
 def facturas_restaurar(body: RestaurarFacturasRequest, tenant: Tenant = Depends(current_tenant)) -> dict:
     """Saca facturas eliminadas de la bitácora de depuración: vuelven con su XML y viajes y se registra la acción."""
-    return depuracion.restaurar_facturas(tenant.empresa_id, tenant.user_id, body.ids)
+    r = depuracion.restaurar_facturas(tenant.empresa_id, tenant.user_id, body.ids)
+    try:   # los viajes que vuelven del respaldo toman el cliente del receptor de su XML
+        r["clientes"] = asignar_clientes_desde_xml(get_admin_client(), tenant.empresa_id, tenant.rfc)
+    except Exception:
+        pass
+    return r
 
 
 @app.post("/api/unidades/unificar-vista-previa")

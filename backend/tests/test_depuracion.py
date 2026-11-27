@@ -110,7 +110,9 @@ def test_subir_xml_cuyo_viaje_ya_existe_no_falla_y_lo_liga_a_la_factura(monkeypa
 
     db = Db()
     cfdi = SimpleNamespace(uuid="AAAA-1", folio="55", rfc_emisor="AAA010101AAA", distancia_xml=100, distancia_operativa=200,
-                           version_carta_porte="3.1", warnings=[])
+                           version_carta_porte="3.1", warnings=[], rfc_receptor="BBB020202BBB", nombre_receptor="CLIENTE SA",
+                           destino=SimpleNamespace(nombre="Planta"))
+    monkeypatch.setattr(main, "cliente_para_viaje", lambda *a, **k: "c9")
     monkeypatch.setattr(main, "get_admin_client", lambda: db)
     monkeypatch.setattr(main, "resumen_cfdi", lambda c: {"receptor": {}})
     monkeypatch.setattr(main.semanal, "cliente_semanal", lambda *a, **k: None)
@@ -124,4 +126,4 @@ def test_subir_xml_cuyo_viaje_ya_existe_no_falla_y_lo_liga_a_la_factura(monkeypa
         main.app.dependency_overrides.clear()
     assert r.status_code == 201, r.text
     assert r.json()["viaje_id"] == "v1" and r.json()["viaje_existente"] and r.json()["factura_id"] == "f1"
-    assert db.actualizaciones == [{"factura_id": "f1"}]
+    assert db.actualizaciones == [{"factura_id": "f1", "cliente_id": "c9"}]   # el cliente es el receptor del XML

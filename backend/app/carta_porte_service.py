@@ -5,6 +5,7 @@ import logging
 from fastapi import HTTPException
 
 from .auth import Tenant
+from .clientes_service import cliente_para_viaje
 from .cfdi_parser import CFDIError, parse_cfdi, resumen_cfdi
 from .db import get_admin_client
 from .rutas_service import LugaresCatalogo
@@ -30,8 +31,15 @@ def registrar(db, tenant: Tenant, xml: bytes, factura_id: str | None, catalogo: 
         return "omitido", f"Factura semanal de {semanal['nombre']}: se liga a los viajes de su semana, no crea un viaje"
     existente = db.table("viajes").select("id, factura_id").eq("empresa_id", tenant.empresa_id).eq("uuid", cfdi.uuid.lower()).limit(1).execute().data
     if existente:
+        cambios = {}
         if factura_id and not existente[0].get("factura_id"):
-            db.table("viajes").update({"factura_id": factura_id}).eq("id", existente[0]["id"]).execute()
+            cambios["factura_id"] = factura_id
+        # el cliente es el receptor del XML también para un viaje que ya existía (restaurado, o creado antes de ese criterio)
+        cliente = cliente_para_viaje(db, tenant.empresa_id, cfdi.rfc_receptor, cfdi.nombre_receptor, cfdi.destino.nombre, tenant.rfc)
+        if cliente:
+            cambios["cliente_id"] = cliente
+        if cambios:
+            db.table("viajes").update(cambios).eq("id", existente[0]["id"]).execute()
         return "existente", f"El viaje del CFDI {cfdi.uuid[:8]}… ya estaba registrado"
     try:
         viaje = guardar_viaje(tenant, cfdi, factura_id, catalogo)

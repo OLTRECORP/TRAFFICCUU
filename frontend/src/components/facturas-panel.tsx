@@ -8,6 +8,7 @@ import { createClient } from "@/lib/supabase/client";
 import type { Chofer, Cliente, Factura, FacturaMes, Lugar } from "@/lib/types";
 import { fechaMx, mxn } from "@/lib/utils";
 import { Trash2 } from "lucide-react";
+import { postBackend } from "@/lib/api";
 import { AuditoriaEliminaciones } from "@/components/auditoria-eliminaciones";
 import { EliminarFacturas } from "@/components/eliminar-facturas";
 import { Alert } from "@/components/ui/alert";
@@ -46,6 +47,16 @@ export function FacturasPanel({ ordenInicial = "" }: { ordenInicial?: string }) 
   const [marcadas, setMarcadas] = useState<string[]>([]);       // ids marcadas para eliminar
   const [aEliminar, setAEliminar] = useState<string[]>([]);
   const [aviso, setAviso] = useState<string | null>(null);
+  const [detectando, setDetectando] = useState(false);
+  async function detectarClientes() {
+    setDetectando(true); setError(null);
+    try {
+      const r = await postBackend<{ revisados: number; asignados: number; pendientes: number }>("viajes/asignar-clientes", "{}", "application/json");
+      setAviso(`Clientes detectados desde el receptor del XML: ${r.asignados} viajes actualizados de ${r.revisados} revisados`
+        + (r.pendientes ? `. Quedan ${r.pendientes}: vuelve a pulsar el botón.` : "."));
+      void load();
+    } catch (e) { setError((e as Error).message); } finally { setDetectando(false); }
+  }
   const [version, setVersion] = useState(0);
 
   // Opciones de los filtros: meses con facturas, choferes y lugares (catálogos de la Carta Porte)
@@ -140,6 +151,7 @@ export function FacturasPanel({ ordenInicial = "" }: { ordenInicial?: string }) 
         <Button variant="destructive" size="sm" disabled={marcadas.length === 0} onClick={() => setAEliminar(marcadas)}>
           <Trash2 className="mr-1 h-4 w-4" />Eliminar marcadas ({marcadas.length})
         </Button>
+        <Button variant="outline" size="sm" disabled={detectando} onClick={() => void detectarClientes()}>Detectar clientes desde el XML</Button>
         {marcadas.length > 0 && <Button variant="ghost" size="sm" onClick={() => setMarcadas([])}>Quitar marcas</Button>}
       </div>
       <Card className="rounded-xl">
