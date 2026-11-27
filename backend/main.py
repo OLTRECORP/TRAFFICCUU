@@ -88,6 +88,20 @@ async def procesar_xml(file: UploadFile = File(...), tenant: Tenant = Depends(cu
 
     # Sin factura relacionada (el Excel no la trae aún) se crea con los datos del XML; el Excel posterior la actualiza.
     factura_id, factura_creada = asegurar_factura_xml(tenant, content) if tenant.rfc == cfdi.rfc_emisor else (None, False)
+    # Si el viaje de este CFDI ya existe (p. ej. la factura se restauró de la bitácora con sus viajes, o quedó suelto al
+    # borrar su factura) no se vuelve a crear: se liga a la factura y se informa, en lugar de fallar con "ya procesado".
+    existente = db.table("viajes").select("id, factura_id, distancia_operativa").eq("empresa_id", tenant.empresa_id) \
+        .in_("uuid", list({cfdi.uuid, cfdi.uuid.lower(), cfdi.uuid.upper()})).limit(1).execute().data
+    if existente:
+        viaje = existente[0]
+        if factura_id and viaje.get("factura_id") != factura_id:
+            db.table("viajes").update({"factura_id": factura_id}).eq("id", viaje["id"]).execute()
+        return {
+            "viaje_id": viaje["id"], "factura_id": factura_id, "factura_creada": factura_creada, "uuid": cfdi.uuid, "folio": cfdi.folio,
+            "distancia_xml": float(cfdi.distancia_xml), "distancia_operativa": float(viaje.get("distancia_operativa") or cfdi.distancia_operativa),
+            "carta_porte": cfdi.version_carta_porte, "viaje_existente": True,
+            "warnings": [*cfdi.warnings, "El viaje de este XML ya estaba registrado; se ligó a su factura sin duplicarlo."],
+        }
     viaje = guardar_viaje(tenant, cfdi, factura_id=factura_id)
     return {
         "viaje_id": viaje["id"],

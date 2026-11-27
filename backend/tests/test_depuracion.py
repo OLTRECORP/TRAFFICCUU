@@ -86,3 +86,42 @@ def test_alias_sin_tabla_o_sin_fila_devuelve_none():
         def table(self, _):
             raise Exception("relation does not exist")
     assert depuracion.unidad_por_alias(Db(), E, "tracto", "BAD1") is None
+
+
+def test_subir_xml_cuyo_viaje_ya_existe_no_falla_y_lo_liga_a_la_factura(monkeypatch):
+    """Factura restaurada de la bitácora (o viaje suelto): el XML no da 409, liga el viaje a la factura y no lo duplica."""
+    from types import SimpleNamespace
+
+    class Q:
+        def __init__(self, db, tabla): self.db, self.tabla, self.upd = db, tabla, None
+        def select(self, *_): return self
+        def eq(self, *_): return self
+        def in_(self, *_): return self
+        def limit(self, *_): return self
+        def update(self, datos): self.upd = datos; return self
+        def execute(self):
+            if self.upd is not None:
+                self.db.actualizaciones.append(self.upd)
+            return type("R", (), {"data": [{"id": "v1", "factura_id": None, "distancia_operativa": 120}] if self.tabla == "viajes" else []})()
+
+    class Db:
+        def __init__(self): self.actualizaciones = []
+        def table(self, t): return Q(self, t)
+
+    db = Db()
+    cfdi = SimpleNamespace(uuid="AAAA-1", folio="55", rfc_emisor="AAA010101AAA", distancia_xml=100, distancia_operativa=200,
+                           version_carta_porte="3.1", warnings=[])
+    monkeypatch.setattr(main, "get_admin_client", lambda: db)
+    monkeypatch.setattr(main, "resumen_cfdi", lambda c: {"receptor": {}})
+    monkeypatch.setattr(main.semanal, "cliente_semanal", lambda *a, **k: None)
+    monkeypatch.setattr(main, "parse_cfdi", lambda c: cfdi)
+    monkeypatch.setattr(main, "asegurar_factura_xml", lambda t, c: ("f1", False))
+    monkeypatch.setattr(main, "guardar_viaje", lambda *a, **k: pytest.fail("no debe crear otro viaje"))
+    main.app.dependency_overrides[current_tenant] = lambda: Tenant(user_id="u1", empresa_id=E, rfc="AAA010101AAA")
+    try:
+        r = TestClient(main.app).post("/api/xml/procesar", files={"file": ("a.xml", b"<x/>", "text/xml")})
+    finally:
+        main.app.dependency_overrides.clear()
+    assert r.status_code == 201, r.text
+    assert r.json()["viaje_id"] == "v1" and r.json()["viaje_existente"] and r.json()["factura_id"] == "f1"
+    assert db.actualizaciones == [{"factura_id": "f1"}]

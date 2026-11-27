@@ -27,8 +27,11 @@ export function AuditoriaEliminaciones({ acciones, refrescar = 0, onRestaurada }
   async function restaurar(f: Registro) {
     setRestaurando(f.id); setError(null);
     try {
-      const r = await postBackend<{ facturas: number; viajes: number; xml: number }>("facturas/restaurar", JSON.stringify({ ids: [f.id] }), "application/json");
-      onRestaurada?.(`Factura ${f.referencia ?? ""} restaurada (${r.viajes} viajes y ${r.xml} XML). Vuelve a contar en dashboard y reportes.`);
+      const r = await postBackend<{ facturas: number; viajes: number; xml: number; completadas?: number }>("facturas/restaurar", JSON.stringify({ ids: [f.id] }), "application/json");
+      const detalle = `${r.viajes} viajes y ${r.xml} XML`;
+      onRestaurada?.(r.completadas
+        ? `La factura ${f.referencia ?? ""} ya existía; se completó con ${detalle} del respaldo. Vuelve a contar en dashboard y reportes.`
+        : `Factura ${f.referencia ?? ""} restaurada (${detalle}). Vuelve a contar en dashboard y reportes.`);
       await cargar();
     } catch (e) { setError((e as Error).message); } finally { setRestaurando(null); }
   }
