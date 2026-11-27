@@ -41,6 +41,7 @@ class CFDIViaje:
     chofer_nombre: str
     chofer_licencia: str | None
     modelo_vehiculo: str | None = None
+    nombre_receptor: str | None = None            # Receptor/@Nombre: el cliente de la factura
     toneladas_facturadas: Decimal | None = None   # concepto facturado en toneladas (Cantidad)
     precio_tonelada: Decimal | None = None        # ValorUnitario de ese concepto
     peso_bruto_total_kg: Decimal | None = None    # PesoBrutoTotal tal cual; el portal lo toma como capacidad del tracto
@@ -226,6 +227,7 @@ def parse_cfdi(xml_bytes: bytes) -> CFDIViaje:
         chofer_nombre=operador.get("NombreFigura", ""),
         chofer_licencia=operador.get("NumLicencia"),
         modelo_vehiculo=ident.get("AnioModeloVM") if ident is not None else None,
+        nombre_receptor=(receptor.get("Nombre") or "").strip() or None,
         toneladas_facturadas=toneladas,
         precio_tonelada=precio,
         peso_bruto_total_kg=_opt_dec(mercancias.get("PesoBrutoTotal")),

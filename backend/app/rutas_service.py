@@ -9,7 +9,7 @@ from datetime import datetime, timezone
 from fastapi import HTTPException, status
 
 from .db import get_admin_client
-from .mapas import MapaError, geocodificar, ruta_camion
+from .mapas import DireccionNoEncontrada, MapaError, geocodificar, ruta_camion
 
 logger = logging.getLogger("rutas")
 
@@ -182,10 +182,13 @@ def asignar_viaje(empresa_id: str, viaje_id: str, origen_id: str | None, destino
 
 
 def ubicar_lugares(empresa_id: str, log=None, limite: float | None = None) -> int:
-    """Pone latitud/longitud a los lugares sin ubicar usando su dirección (o su nombre). Devuelve cuántos ubicó."""
+    """Pone latitud/longitud a los lugares sin ubicar usando su dirección real. Devuelve cuántos ubicó.
+    Sin dirección no se adivina por el nombre; y si el mapa no la encuentra, el lugar queda pendiente
+    (auto_ubicar = false) hasta que se capturen sus coordenadas a mano en Orígenes y Destinos."""
     db = get_admin_client()
     def consulta(solo_auto: bool):
-        q = db.table("lugares").select("id, nombre, direccion").eq("empresa_id", empresa_id).eq("activo", True).is_("lat", "null")
+        q = (db.table("lugares").select("id, nombre, direccion").eq("empresa_id", empresa_id).eq("activo", True)
+             .is_("lat", "null").not_.is_("direccion", "null").neq("direccion", ""))
         # los lugares del Excel (ej. «COX») no se pueden ubicar por su nombre: se marcan a mano en el mapa
         return (q.eq("auto_ubicar", True) if solo_auto else q).limit(MAX_UBICAR).execute().data
     try:
@@ -198,14 +201,20 @@ def ubicar_lugares(empresa_id: str, log=None, limite: float | None = None) -> in
             break
         if i:
             time.sleep(1.1)   # política de uso de Nominatim: máximo ~1 consulta por segundo
-        consulta = l.get("direccion") or f"{l['nombre']}, México"
         try:
-            r = geocodificar(consulta)
+            r = geocodificar(l["direccion"])
             db.table("lugares").update({"lat": r["lat"], "lng": r["lng"]}).eq("id", l["id"]).execute()
             ubicados += 1
             if log:
                 log(f"Lugar «{l['nombre']}» ubicado en el mapa ({r['lat']}, {r['lng']})", "ok")
-        except MapaError as exc:
+        except DireccionNoEncontrada as exc:
+            try:   # no se vuelve a intentar: espera a que se capturen las coordenadas a mano
+                db.table("lugares").update({"auto_ubicar": False}).eq("id", l["id"]).execute()
+            except Exception:   # migración 022 aún sin aplicar
+                pass
+            if log:
+                log(f"Lugar «{l['nombre']}» sin ubicar: {exc}. Captura sus coordenadas en Orígenes y Destinos", "aviso")
+        except MapaError as exc:   # fallo del servicio de mapas: se reintenta en la siguiente corrida
             if log:
                 log(f"Lugar «{l['nombre']}» sin ubicar: {exc}", "aviso")
     return ubicados
