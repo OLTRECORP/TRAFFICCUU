@@ -13,7 +13,8 @@ def _rpc(nombre: str, args: dict) -> dict:
     except Exception as exc:
         texto = str(exc)
         if "PGRST202" in texto or "Could not find the function" in texto or "does not exist" in texto:
-            mig = "023_unificar_clientes.sql" if "clientes" in nombre else "017_eliminar_facturas_unificar_unidades.sql"
+            mig = ("023_unificar_clientes.sql" if "clientes" in nombre else "036_restaurar_facturas.sql" if "restaurar" in nombre
+                   else "017_eliminar_facturas_unificar_unidades.sql")
             raise HTTPException(status.HTTP_409_CONFLICT, f"Falta ejecutar la migración {mig[:3]} en Supabase (supabase/migrations/{mig})")
         # los RAISE EXCEPTION de las funciones llegan con su mensaje en español
         msg = getattr(exc, "message", None) or texto
@@ -35,6 +36,11 @@ def vista_previa_eliminar(empresa_id: str, ids: list) -> dict:
 
 def eliminar_facturas(empresa_id: str, usuario_id: str, ids: list, motivo: str | None) -> dict:
     return _rpc("fn_eliminar_facturas", {"p_empresa": empresa_id, "p_ids": _ids(ids), "p_motivo": motivo or "", "p_usuario": usuario_id})
+
+
+def restaurar_facturas(empresa_id: str, usuario_id: str, ids: list) -> dict:
+    """Devuelve facturas eliminadas (con su XML y viajes) desde su respaldo en la bitácora; `ids` son entradas de auditoria_eliminaciones."""
+    return _rpc("fn_restaurar_facturas", {"p_empresa": empresa_id, "p_ids": _ids(ids), "p_usuario": usuario_id})
 
 
 def vista_previa_unificar(empresa_id: str, tipo: str, origen: str, destino: str) -> dict:
