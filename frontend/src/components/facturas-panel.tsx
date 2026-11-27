@@ -188,7 +188,8 @@ export function FacturasPanel({ ordenInicial = "" }: { ordenInicial?: string }) 
           </div>
         </div>
       </Card>
-      <AuditoriaEliminaciones acciones={["factura_eliminada"]} refrescar={version} />
+      <AuditoriaEliminaciones acciones={["factura_eliminada", "factura_restaurada"]} refrescar={version}
+        onRestaurada={(m) => { setAviso(m); setVersion((v) => v + 1); void load(); }} />
       <FacturaModal factura={selected} onClose={() => setSelected(null)} />
       <EliminarFacturas ids={aEliminar} onClose={() => setAEliminar([])}
         onDone={(m) => { setAEliminar([]); setMarcadas([]); setAviso(m); setVersion((v) => v + 1); void load(); }} />

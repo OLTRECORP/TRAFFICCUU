@@ -561,6 +561,16 @@ def facturas_eliminar(body: EliminarFacturasRequest, tenant: Tenant = Depends(cu
     return depuracion.eliminar_facturas(tenant.empresa_id, tenant.user_id, body.ids, body.motivo)
 
 
+class RestaurarFacturasRequest(BaseModel):
+    ids: list[uuidlib.UUID] = Field(min_length=1, max_length=depuracion.MAX_FACTURAS)   # entradas de la bitácora de depuración
+
+
+@app.post("/api/facturas/restaurar")
+def facturas_restaurar(body: RestaurarFacturasRequest, tenant: Tenant = Depends(current_tenant)) -> dict:
+    """Saca facturas eliminadas de la bitácora de depuración: vuelven con su XML y viajes y se registra la acción."""
+    return depuracion.restaurar_facturas(tenant.empresa_id, tenant.user_id, body.ids)
+
+
 @app.post("/api/unidades/unificar-vista-previa")
 def unidades_unificar_vista_previa(body: UnificarRequest, tenant: Tenant = Depends(current_tenant)) -> dict:
     """Qué se movería del duplicado al destino, sin cambiar nada."""

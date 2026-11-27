@@ -55,6 +55,15 @@ def test_eliminar_con_confirmacion_llama_a_la_funcion_con_empresa_y_usuario(clie
     assert args["p_ids"] == [fid] and args["p_motivo"] == "cancelada"   # sin duplicados
 
 
+def test_restaurar_llama_a_la_funcion_con_empresa_y_usuario(cliente):
+    c, db = cliente
+    eid = str(uuid.uuid4())
+    r = c.post("/api/facturas/restaurar", json={"ids": [eid, eid]})
+    assert r.status_code == 200
+    nombre, args = db.llamadas[0]
+    assert nombre == "fn_restaurar_facturas" and args == {"p_empresa": E, "p_ids": [eid], "p_usuario": "u1"}
+
+
 def test_unificar_exige_confirmacion_y_vista_previa_no_cambia_nada(cliente):
     c, db = cliente
     cuerpo = {"tipo": "tracto", "origen_id": str(uuid.uuid4()), "destino_id": str(uuid.uuid4())}
