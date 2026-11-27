@@ -12,6 +12,10 @@ class MapaError(Exception):
     """Fallo al consultar el mapa; el mensaje se muestra al usuario."""
 
 
+class DireccionNoEncontrada(MapaError):
+    """El mapa respondió, pero no conoce esa dirección (distinto de un fallo de red)."""
+
+
 def _get(url: str, params: dict) -> dict | list:
     s = get_settings()
     try:
@@ -27,7 +31,7 @@ def geocodificar(direccion: str) -> dict:
     datos = _get(f"{get_settings().nominatim_url.rstrip('/')}/search",
                  {"q": direccion, "format": "jsonv2", "limit": 1, "countrycodes": "mx"})
     if not datos:
-        raise MapaError("No se encontró esa dirección; agrega municipio y estado o marca el punto en el mapa")
+        raise DireccionNoEncontrada("No se encontró esa dirección; agrega municipio y estado o marca el punto en el mapa")
     return {"lat": round(float(datos[0]["lat"]), 6), "lng": round(float(datos[0]["lon"]), 6), "nombre": datos[0].get("display_name")}
 
 

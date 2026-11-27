@@ -160,3 +160,37 @@ def test_cliente_existente_sin_rfc_se_completa_y_la_empresa_receptora_usa_el_des
     # la propia empresa como receptor no es un cliente: cae al destinatario de la Carta Porte
     otro = cliente_para_viaje(db, "e1", "AAA010101AAA", "MI EMPRESA", "PLANTA X", "AAA010101AAA")
     assert db.tables["clientes"][-1]["nombre"] == "PLANTA X" and "rfc" not in db.tables["clientes"][-1] and otro
+
+
+def test_lugar_sin_direccion_no_se_adivina_y_direccion_no_encontrada_espera_coordenadas(monkeypatch):
+    from app import rutas_service
+    from app.mapas import DireccionNoEncontrada
+
+    class QL(Q):
+        def is_(self, *_): return self
+        def neq(self, *_): return self
+        @property
+        def not_(self): return self
+        def execute(self):
+            if self.op == "select":
+                return type("R", (), {"data": [l for l in self.db.tables["lugares"] if l.get("direccion") and l.get("lat") is None and l.get("auto_ubicar", True)]})()
+            return super().execute()
+    class DBL(DB):
+        def table(self, n): return QL(self, n)
+
+    db = DBL(lugares=[{"id": "A", "nombre": "A", "direccion": "Calle real 1, Tecate"},
+                      {"id": "B", "nombre": "B", "direccion": "xyz inexistente"},
+                      {"id": "C", "nombre": "C", "direccion": None}])
+    monkeypatch.setattr(rutas_service, "get_admin_client", lambda: db)
+    monkeypatch.setattr(rutas_service.time, "sleep", lambda *_: None)
+    consultas = []
+    def geo(d):
+        consultas.append(d)
+        if d.startswith("xyz"):
+            raise DireccionNoEncontrada("no")
+        return {"lat": 32.5, "lng": -116.6}
+    monkeypatch.setattr(rutas_service, "geocodificar", geo)
+    assert rutas_service.ubicar_lugares("e1") == 1
+    assert consultas == ["Calle real 1, Tecate", "xyz inexistente"]          # C (sin dirección) nunca se consulta
+    assert ("lugares", {"lat": 32.5, "lng": -116.6}) in db.updates
+    assert ("lugares", {"auto_ubicar": False}) in db.updates                  # B queda pendiente de captura manual
